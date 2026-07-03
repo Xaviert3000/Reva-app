@@ -230,7 +230,7 @@ function Onboarding({ onDone }: { onDone: (homeState: string | null, homeCity: s
         style={{ background: 'radial-gradient(circle,rgba(255,255,255,.22),transparent 65%)' }} />
 
       {/* Step dots */}
-      <div className="flex gap-2 justify-center pt-14 flex-shrink-0">
+      <div className="flex gap-2 justify-center flex-shrink-0" style={{ paddingTop: 'max(56px, calc(env(safe-area-inset-top) + 14px))' }}>
         {[0, 1, 2].map(i => (
           <span key={i} className="h-[7px] rounded-full transition-all duration-300"
             style={{ width: i === step ? 22 : 7, background: i === step ? '#fff' : 'rgba(255,255,255,.4)' }} />
@@ -383,7 +383,7 @@ function Onboarding({ onDone }: { onDone: (homeState: string | null, homeCity: s
       </div>
 
       {/* CTA */}
-      <div className="px-7 pb-12 flex flex-col gap-3 flex-shrink-0">
+      <div className="px-7 flex flex-col gap-3 flex-shrink-0" style={{ paddingBottom: 'max(48px, calc(env(safe-area-inset-bottom) + 22px))' }}>
         {/* Campo de código de referido — solo en step 2 */}
         {step === 2 && (
           <div style={{ marginBottom: 4 }}>
