@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { stripe } from '@/lib/stripe'
+import { getStripe } from '@/lib/stripe'
 import { createAdminClient } from '@/lib/supabase/admin'
 
 // Inicia (o reanuda) el onboarding de Stripe Connect Express de un negocio.
@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
     // Crear la cuenta Express la primera vez. Destination charges: la plataforma
     // es el comercio de registro, así que basta la capacidad de transfers.
     if (!accountId) {
-      const account = await stripe.accounts.create({
+      const account = await getStripe().accounts.create({
         type: 'express',
         country: 'MX',
         email: email || undefined,
@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
       await supabase.from('businesses').update({ stripe_account_id: accountId }).eq('id', biz.id)
     }
 
-    const link = await stripe.accountLinks.create({
+    const link = await getStripe().accountLinks.create({
       account: accountId,
       refresh_url: `${appUrl}/biz?stripe=refresh&biz=${biz.id}`, // link expirado → reintentar
       return_url: `${appUrl}/biz?stripe=return&biz=${biz.id}`,   // volvió del onboarding → refrescar estado

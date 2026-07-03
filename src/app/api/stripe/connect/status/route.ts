@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { stripe } from '@/lib/stripe'
+import { getStripe } from '@/lib/stripe'
 import { createAdminClient } from '@/lib/supabase/admin'
 
 // Consulta el estado actual de la cuenta Connect de un negocio directo desde
@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const account = await stripe.accounts.retrieve(biz.stripe_account_id)
+    const account = await getStripe().accounts.retrieve(biz.stripe_account_id)
     const status = {
       charges_enabled: account.charges_enabled,
       payouts_enabled: account.payouts_enabled,
