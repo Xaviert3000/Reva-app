@@ -812,6 +812,29 @@ function MiniCard({ biz, mode, onOpen }: { biz: Business; mode: Mode; onOpen: ()
   )
 }
 
+// Tarjeta de la franja de Destacados (tier 'destacado'): igual que MiniCard pero
+// con su etiqueta ✦ visible, honesta sobre que es un espacio pagado.
+function DestacadoCard({ biz, onOpen }: { biz: Business; onOpen: () => void }) {
+  const badge = featuredBadge(biz)
+  return (
+    <div onClick={onOpen} style={{ width: 188, flexShrink: 0, cursor: 'pointer', background: '#fff', border: '1px solid #E9E0D5', borderRadius: 18, overflow: 'hidden', boxShadow: '0 2px 10px rgba(34,28,25,.06)' }}>
+      <div style={{ height: 112, background: `linear-gradient(135deg,${biz.grad[0]},${biz.grad[1]})`, position: 'relative', display: 'flex', alignItems: 'flex-end', padding: '10px 12px' }}>
+        <span style={{ position: 'absolute', right: -2, bottom: -8, fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 72, opacity: .18, color: '#fff', lineHeight: 1 }}>{biz.mono}</span>
+        {badge && (
+          <span style={{ position: 'absolute', top: 10, left: 10, background: 'rgba(27,36,54,.85)', color: '#fff', fontSize: 10, fontWeight: 700, letterSpacing: '.05em', textTransform: 'uppercase', padding: '4px 9px', borderRadius: 999 }}>{badge.icon} {badge.label}</span>
+        )}
+        <Stars rating={biz.rating} />
+      </div>
+      <div style={{ padding: '11px 13px 13px' }}>
+        <div style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 15, color: '#221C19', lineHeight: 1.15, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{biz.name}</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 7 }}>
+          <span style={{ fontSize: 12, color: '#6B615A' }}>{biz.type} · {biz.dist} km</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function HeroFeatured({ biz, mode, onOpen }: { biz: Business; mode: Mode; onOpen: () => void }) {
   const en = useContext(LangContext) === 'en'
   return (
@@ -847,6 +870,9 @@ function Discovery({ mode, onOpen, onBook, onModeToggle, onBell, onMsg }: { mode
   const favs = filteredBiz.filter(b => b.localFav)
   const newer = filteredBiz.filter(b => !b.localFav && !b.featured).slice(0, 3)
   const showFeatured = !!featured && (!catKey || featured.cat === catKey)
+  // Franja de Destacados: negocios featured que no ocupan el hero (todos los que
+  // no son el Premium mostrado arriba), con su etiqueta ✦.
+  const destacados = filteredBiz.filter(b => b.featured && b.id !== (showFeatured ? featured?.id : undefined))
 
   return (
     <div style={{ overflow: 'auto', height: '100%', paddingBottom: 18, background: '#FAF5EE' }}>
@@ -915,6 +941,19 @@ function Discovery({ mode, onOpen, onBook, onModeToggle, onBell, onMsg }: { mode
           <HeroFeatured biz={featured} mode={mode} onOpen={() => onOpen(featured)} />
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 16px 20px', fontSize: 12, color: '#A89E94' }}>
             <Icon n="info" size={13} color="#A89E94" /> {en ? 'Destacado = a business paid to be featured here.' : 'Destacado = un negocio pagó por aparecer aquí.'}
+          </div>
+        </>
+      )}
+
+      {/* franja de destacados (tier 'destacado') */}
+      {destacados.length > 0 && (
+        <>
+          <div style={{ padding: '0 16px', marginBottom: 12 }}>
+            <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 20, color: '#221C19' }}>{en ? 'Featured' : 'Destacados'}</div>
+            <div style={{ fontSize: 13, color: '#6B615A', marginTop: 2 }}>{en ? 'Businesses that paid to stand out' : 'Negocios que pagaron por resaltar'}</div>
+          </div>
+          <div style={{ display: 'flex', gap: 12, padding: '0 16px 24px', overflowX: 'auto' }}>
+            {destacados.map(b => <DestacadoCard key={b.id} biz={b} onOpen={() => onOpen(b)} />)}
           </div>
         </>
       )}
