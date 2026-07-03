@@ -5,7 +5,7 @@ import { parseRoveToken, ROVE_SERIALS, type RoveProgram } from '@/lib/rove'
 import { type RoveReward, type RewardCategory } from '@/lib/rove-rewards'
 import { type Mode, type ProactiveAlert, type AlertType, CATALOG, AGENDA, BIZ, slotsFromHours, slotAvailability, endTime, tracksStock, inStock } from '@/lib/data'
 import { saveStock, decrementStock as decrementStockDB, fetchStock } from '@/lib/inventory'
-import { activateFeatured, clearFeatured } from '@/lib/featured'
+import { clearFeatured } from '@/lib/featured'
 
 // ── Design tokens ──────────────────────────────────────────
 const R = {
@@ -2905,6 +2905,8 @@ function DestacadoView({ vert }: { vert: Vert }) {
   const [featured, setFeatured] = useState<{ tier: TierId; label: string; days: number; what: string } | null>(null)
   const [confirming, setConfirming] = useState(false)
   const [waitlisted, setWaitlisted] = useState(false)
+  const [paying, setPaying] = useState(false)
+  const [payError, setPayError] = useState<string | null>(null)
 
   const T = DEST_TIERS[tier]
   const A = T.accent
@@ -2925,13 +2927,66 @@ function DestacadoView({ vert }: { vert: Vert }) {
   // ¿Ambas modalidades sin cupo en el municipio? (y no tienes uno tú)
   const todoCubierto = !featured && availFor('premium') === 0 && availFor('destacado') === 0
 
-  function pay() {
-    setFeatured({ tier, label: sel.label, days: sel.days, what: whatLabel })
-    setWaitlisted(false)
-    setConfirming(false)
-    // Persiste el nivel a la BD (no-op en modo demo). La app del cliente lo lee
-    // vía featuredBadge() para pintar ★ Premium o ✦ Destacado.
-    void activateFeatured(bizId, tier, sel.days)
+  // Al volver de Stripe (success_url = /biz?featured=success) reflejamos el nivel
+  // recién comprado. La activación real en la BD la hace el webhook al confirmar
+  // el pago; aquí solo restauramos lo que se compró (guardado antes de redirigir)
+  // para dar feedback inmediato en el panel.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const outcome = params.get('featured')
+    if (outcome === 'success') {
+      try {
+        const raw = sessionStorage.getItem('reva_featured_pending')
+        if (raw) setFeatured(JSON.parse(raw))
+      } catch { /* ignore */ }
+    } else if (outcome === 'cancelled') {
+      setPayError('Pago cancelado. No se te cobró nada.')
+    }
+    if (outcome) {
+      sessionStorage.removeItem('reva_featured_pending')
+      params.delete('featured')
+      const qs = params.toString()
+      window.history.replaceState(null, '', window.location.pathname + (qs ? `?${qs}` : ''))
+    }
+  }, [])
+
+  // "Pagar y activar" → abre Stripe Checkout. NO activamos nada localmente: el
+  // negocio queda Destacado solo cuando el webhook recibe checkout.session.completed.
+  async function pay() {
+    setPayError(null)
+    setPaying(true)
+    try {
+      const res = await fetch('/api/stripe/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          biz_id: bizId,
+          biz_name: vert.name,
+          amount: priceToNumber(sel.price),
+          type: 'featured',
+          tier,
+          days: sel.days,
+        }),
+      })
+      const data: { url?: string; error?: string } = await res.json().catch(() => ({}))
+      if (!res.ok || !data.url) {
+        setPaying(false)
+        setPayError(
+          res.status === 401
+            ? 'Inicia sesión con tu cuenta del negocio para completar el pago.'
+            : data.error ?? 'No se pudo iniciar el pago. Intenta de nuevo.',
+        )
+        return
+      }
+      // Guarda lo comprado para reflejarlo al regresar de Stripe.
+      try {
+        sessionStorage.setItem('reva_featured_pending', JSON.stringify({ tier, label: sel.label, days: sel.days, what: whatLabel }))
+      } catch { /* ignore */ }
+      window.location.href = data.url // → Stripe Checkout
+    } catch {
+      setPaying(false)
+      setPayError('No se pudo conectar con el servidor de pagos.')
+    }
   }
 
   function pause() {
@@ -3107,9 +3162,12 @@ function DestacadoView({ vert }: { vert: Vert }) {
             <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12.5, color: R.inkSoft, marginBottom: 16 }}>
               <Icon n="shield" size={15} color={R.jade} /> Pago seguro con Stripe · cancela cuando quieras
             </div>
+            {payError && (
+              <div style={{ fontSize: 12.5, color: R.coralPress, background: R.coralTint, borderRadius: 10, padding: '10px 12px', marginBottom: 12, lineHeight: 1.4 }}>{payError}</div>
+            )}
             <div style={{ display: 'flex', gap: 10 }}>
-              <button onClick={() => setConfirming(false)} style={{ padding: '12px 16px', border: `1px solid ${R.line}`, borderRadius: 12, background: 'transparent', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14, color: R.inkSoft }}>Cancelar</button>
-              <button onClick={pay} style={{ flex: 1, padding: '12px', border: 'none', borderRadius: 12, background: R.jade, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14.5, color: '#fff' }}>Pagar y activar · {sel.price}</button>
+              <button onClick={() => setConfirming(false)} disabled={paying} style={{ padding: '12px 16px', border: `1px solid ${R.line}`, borderRadius: 12, background: 'transparent', cursor: paying ? 'default' : 'pointer', opacity: paying ? .5 : 1, fontFamily: R.ui, fontWeight: 700, fontSize: 14, color: R.inkSoft }}>Cancelar</button>
+              <button onClick={pay} disabled={paying} style={{ flex: 1, padding: '12px', border: 'none', borderRadius: 12, background: R.jade, cursor: paying ? 'default' : 'pointer', opacity: paying ? .7 : 1, fontFamily: R.ui, fontWeight: 700, fontSize: 14.5, color: '#fff' }}>{paying ? 'Redirigiendo a Stripe…' : `Pagar y activar · ${sel.price}`}</button>
             </div>
           </div>
         </div>

@@ -9,7 +9,7 @@ export async function POST(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { biz_id, biz_name, amount, reservation_id, type } = await req.json()
+  const { biz_id, biz_name, amount, reservation_id, type, tier, days } = await req.json()
 
   // Un depósito lo paga el cliente y va al NEGOCIO; Reva se queda la comisión.
   // Un "Destacado" lo paga el negocio a Reva, así que no se reparte.
@@ -55,9 +55,24 @@ export async function POST(req: NextRequest) {
       quantity: 1,
     }],
     ...(paymentIntentData ? { payment_intent_data: paymentIntentData } : {}),
-    metadata: { user_id: user.id, biz_id, reservation_id, type },
-    success_url: `${process.env.NEXT_PUBLIC_APP_URL}/app?payment=success`,
-    cancel_url: `${process.env.NEXT_PUBLIC_APP_URL}/app?payment=cancelled`,
+    // El tier y los días viajan en la metadata para que el webhook active el
+    // nivel correcto por la duración correcta recién cuando el pago se confirme.
+    metadata: {
+      user_id: user.id,
+      biz_id,
+      reservation_id: reservation_id ?? '',
+      type,
+      ...(tier ? { tier } : {}),
+      ...(days != null ? { days: String(days) } : {}),
+    },
+    // Un depósito lo paga el cliente desde /app; un Destacado lo paga el negocio
+    // desde /biz, así que cada uno regresa a su propio panel.
+    success_url: type === 'featured'
+      ? `${process.env.NEXT_PUBLIC_APP_URL}/biz?featured=success`
+      : `${process.env.NEXT_PUBLIC_APP_URL}/app?payment=success`,
+    cancel_url: type === 'featured'
+      ? `${process.env.NEXT_PUBLIC_APP_URL}/biz?featured=cancelled`
+      : `${process.env.NEXT_PUBLIC_APP_URL}/app?payment=cancelled`,
   })
 
   return NextResponse.json({ url: session.url })

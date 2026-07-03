@@ -18,16 +18,27 @@ export async function POST(req: NextRequest) {
 
   if (event.type === 'checkout.session.completed') {
     const session = event.data.object
-    const { user_id, biz_id, reservation_id, type } = session.metadata!
+    const { user_id, biz_id, reservation_id, type, tier, days } = session.metadata!
 
     if (type === 'deposit') {
       await supabase.from('reservations').update({ deposit_paid: true, status: 'confirmed' }).eq('id', reservation_id)
     } else if (type === 'featured') {
-      await supabase.from('businesses').update({ featured: true }).eq('id', biz_id)
+      // Recién ahora que Stripe confirmó el pago activamos la visibilidad. El
+      // constraint de la BD exige tier junto a featured=true; el default es
+      // 'destacado'. `featured_until` marca el vencimiento del plan comprado.
+      const n = Number(days)
+      const until = n > 0 ? new Date(Date.now() + n * 86_400_000).toISOString() : null
+      await supabase.from('businesses').update({
+        featured: true,
+        tier: tier || 'destacado',
+        featured_until: until,
+      }).eq('id', biz_id)
     }
 
     await supabase.from('payments').insert({
-      user_id, biz_id, reservation_id,
+      user_id, biz_id,
+      // reservation_id es uuid; en pagos de Destacado no hay reserva asociada.
+      reservation_id: reservation_id || null,
       stripe_session_id: session.id,
       amount: session.amount_total! / 100,
       type,
