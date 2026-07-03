@@ -10,7 +10,7 @@ function timeGreeting(en: boolean): string {
   return h < 12 ? 'Buenos días' : h < 19 ? 'Buenas tardes' : 'Buenas noches'
 }
 import QRCode from 'qrcode'
-import { type Mode, type Business, type Service, BIZ, CATALOG, CITIES, STATES_DATA, COPY, slotsFromHours, upcomingDays, slotAvailability, isScheduled, inStock, tracksStock, dayOffered, findService, localSearch, servicesForSearch, activeAlert, findMunicipio } from '@/lib/data'
+import { type Mode, type Business, type Service, BIZ, CATALOG, CITIES, STATES_DATA, COPY, slotsFromHours, upcomingDays, slotAvailability, isScheduled, inStock, tracksStock, dayOffered, findService, localSearch, servicesForSearch, activeAlert, findMunicipio, featuredBadge } from '@/lib/data'
 import { fetchCityData, type CityData } from '@/lib/business-data'
 import { roveToken, ROVE_SERIALS, type RoveProgram } from '@/lib/rove'
 import { type RoveReward, type RoveRedemption as RoveRedemptionResult } from '@/lib/rove-rewards'
@@ -817,7 +817,9 @@ function HeroFeatured({ biz, mode, onOpen }: { biz: Business; mode: Mode; onOpen
   return (
     <div onClick={onOpen} style={{ margin: '0 16px 8px', borderRadius: 22, overflow: 'hidden', cursor: 'pointer', boxShadow: '0 10px 30px rgba(34,28,25,.10)', position: 'relative', height: 210, background: `linear-gradient(135deg,${biz.grad[0]},${biz.grad[1]})` }}>
       <span style={{ position: 'absolute', right: -10, bottom: -16, fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 200, opacity: .12, color: '#fff', lineHeight: 1 }}>{biz.mono}</span>
-      <div style={{ position: 'absolute', top: 12, left: 12, background: 'rgba(27,36,54,.85)', color: '#fff', fontSize: 10.5, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', padding: '5px 10px', borderRadius: 999 }}>✦ Destacado</div>
+      {(() => { const badge = featuredBadge(biz); return badge && (
+        <div style={{ position: 'absolute', top: 12, left: 12, background: 'rgba(27,36,54,.85)', color: '#fff', fontSize: 10.5, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', padding: '5px 10px', borderRadius: 999 }}>{badge.icon} {badge.label}</div>
+      ) })()}
       <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: 18, paddingTop: 50, background: 'linear-gradient(transparent,rgba(20,14,12,.82))', color: '#fff' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
           <Stars rating={biz.rating} />
@@ -837,7 +839,9 @@ function Discovery({ mode, onOpen, onBook, onModeToggle, onBell, onMsg }: { mode
   const cats = en ? ['All', 'Eat', 'Spa', 'Tours', 'Nightlife'] : ['Todo', 'Comer', 'Spa', 'Tours', 'Noche']
   const catKeys: (string | null)[] = [null, 'Comer', 'Spa', 'Tours', 'Vida nocturna']
   const [cat, setCat] = useState(0)
-  const featured = businesses.find(b => b.featured) ?? businesses[0]
+  // Premium tiene prioridad por el único spot destacado; si no hay Premium,
+  // cae al primer Destacado disponible.
+  const featured = businesses.find(b => b.tier === 'premium' && b.featured) ?? businesses.find(b => b.featured) ?? businesses[0]
   const catKey = catKeys[cat] ?? null
   const filteredBiz = catKey ? businesses.filter(b => b.cat === catKey) : businesses
   const favs = filteredBiz.filter(b => b.localFav)

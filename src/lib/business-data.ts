@@ -4,7 +4,7 @@
 // (businesses/services tables) — real data, thinner shape, mapped onto the
 // same Business/Service interfaces so the UI doesn't need to branch on source.
 import { createClient } from './supabase/client'
-import { BIZ, CATALOG, slotsFromHours, type Business, type Service } from './data'
+import { BIZ, CATALOG, slotsFromHours, type Business, type FeaturedTier, type Service } from './data'
 
 interface DbBusiness {
   id: string
@@ -17,6 +17,8 @@ interface DbBusiness {
   rating: number | null
   local_fav: boolean | null
   featured: boolean | null
+  tier: FeaturedTier | null
+  featured_until: string | null
   grad_from: string | null
   grad_to: string | null
   mono: string | null
@@ -49,6 +51,8 @@ function mapService(s: DbService, grad: [string, string]): Service {
 function mapBusiness(b: DbBusiness, grad: [string, string]): Business {
   const hours = b.hours || '09:00 – 21:00'
   const slots = slotsFromHours(hours, 60)
+  // Destacado solo si el plan sigue vigente (o no tiene fecha de expiración).
+  const isFeatured = !!b.featured && (!b.featured_until || new Date(b.featured_until).getTime() > Date.now())
   return {
     id: b.id,
     name: b.name,
@@ -61,7 +65,11 @@ function mapBusiness(b: DbBusiness, grad: [string, string]): Business {
     hood: b.hood || b.municipio || '',
     open: true,
     hours,
-    featured: !!b.featured,
+    // Vencido = deja de estar destacado. `featured_until` NULL = sin expiración.
+    featured: isFeatured,
+    // Nivel real de la BD (migración 007). Si está destacado sin nivel
+    // explícito, cae en 'destacado' por compatibilidad.
+    tier: isFeatured ? (b.tier ?? 'destacado') : undefined,
     grad,
     mono: b.mono || b.name.charAt(0).toUpperCase(),
     en: `${b.name} — ${b.type || 'local favorite'} in ${b.hood || b.municipio}.`,
@@ -88,7 +96,7 @@ export async function fetchCityData(municipio: string): Promise<CityData> {
   const supabase = createClient()
   const { data: bizRows, error } = await supabase
     .from('businesses')
-    .select('id,name,type,kind,hood,municipio,hours,rating,local_fav,featured,grad_from,grad_to,mono')
+    .select('id,name,type,kind,hood,municipio,hours,rating,local_fav,featured,tier,featured_until,grad_from,grad_to,mono')
     .eq('municipio', municipio)
 
   if (error || !bizRows || bizRows.length === 0) return LOS_CABOS_DATA

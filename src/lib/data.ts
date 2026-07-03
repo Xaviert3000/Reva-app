@@ -101,6 +101,10 @@ export interface Business {
   open: boolean
   hours: string
   featured: boolean
+  // Qué nivel de visibilidad compró el negocio. Solo aplica si featured=true.
+  // 'premium' = ★ máx. visibilidad (spot #1); 'destacado' = ✦ franja de destacados.
+  // Si featured=true y no hay tier, se asume 'destacado'.
+  tier?: FeaturedTier
   grad: [string, string]
   mono: string
   en: string
@@ -109,6 +113,18 @@ export interface Business {
   reviews: Array<{ who: string; txt: string; es: boolean }>
   slots: string[]
   alerts?: ProactiveAlert[]
+}
+
+// Niveles de visibilidad pagada, alineados con DEST_TIERS del panel de negocios.
+export type FeaturedTier = 'premium' | 'destacado'
+
+// Etiqueta única que la app cliente pinta sobre un negocio destacado.
+// Devuelve null si el negocio no es destacado. Premium tiene prioridad visual.
+export function featuredBadge(biz: { featured: boolean; tier?: FeaturedTier }): { icon: string; label: string } | null {
+  if (!biz.featured) return null
+  return biz.tier === 'premium'
+    ? { icon: '★', label: 'Premium' }
+    : { icon: '✦', label: 'Destacado' }
 }
 
 // A bookable service/product in a business catalog.
@@ -282,7 +298,7 @@ export const BIZ: Business[] = [
   {
     id: 'huerta', name: 'Huerta del Mar', cat: 'Comer', type: 'Farm-to-table · $$$',
     price: 3, rating: 4.9, localFav: true, dist: 11.2, hood: 'Ánimas Bajas',
-    open: true, hours: '18:00 – 22:30', featured: true,
+    open: true, hours: '18:00 – 22:30', featured: true, tier: 'premium',
     grad: ['#7FA36B', '#3F6B49'], mono: 'H',
     en: 'Candle-lit garden dinner, everything grown on the farm. A Cabo rite of passage.',
     es: 'Cena en el huerto a la luz de velas, todo de la granja. Un must en Cabo.',
@@ -310,7 +326,7 @@ export const BIZ: Business[] = [
   {
     id: 'azul', name: 'Cabo Azul Sunset Sail', cat: 'Tours', type: 'Catamarán · 2.5 h',
     price: 2, rating: 4.7, localFav: false, dist: 3.8, hood: 'Marina Cabo San Lucas',
-    open: true, hours: 'Zarpa 17:30', featured: true,
+    open: true, hours: 'Zarpa 17:30', featured: true, tier: 'destacado',
     grad: ['#E9A24A', '#C25C3C'], mono: 'A',
     en: 'Small-group catamaran past El Arco at golden hour. Open bar, no crowds.',
     es: 'Catamarán de grupo chico pasando El Arco al atardecer. Barra libre, sin multitudes.',

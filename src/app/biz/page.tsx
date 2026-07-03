@@ -5,6 +5,7 @@ import { parseRoveToken, ROVE_SERIALS, type RoveProgram } from '@/lib/rove'
 import { type RoveReward, type RewardCategory } from '@/lib/rove-rewards'
 import { type Mode, type ProactiveAlert, type AlertType, CATALOG, AGENDA, BIZ, slotsFromHours, slotAvailability, endTime, tracksStock, inStock } from '@/lib/data'
 import { saveStock, decrementStock as decrementStockDB, fetchStock } from '@/lib/inventory'
+import { activateFeatured, clearFeatured } from '@/lib/featured'
 
 // ── Design tokens ──────────────────────────────────────────
 const R = {
@@ -2914,11 +2915,20 @@ function DestacadoView({ vert }: { vert: Vert }) {
   const ocupados = T.otros + (heldHere ? 1 : 0)
   const disponibles = Math.max(0, T.cupos - ocupados)
   const lleno = disponibles === 0 && !heldHere
+  const bizId = SHARED_BIZ_ID[vert.id] ?? vert.id
 
   function pay() {
     setFeatured({ tier, label: sel.label, days: sel.days, what: whatLabel })
     setWaitlisted(false)
     setConfirming(false)
+    // Persiste el nivel a la BD (no-op en modo demo). La app del cliente lo lee
+    // vía featuredBadge() para pintar ★ Premium o ✦ Destacado.
+    void activateFeatured(bizId, tier, sel.days)
+  }
+
+  function pause() {
+    setFeatured(null)
+    void clearFeatured(bizId)
   }
 
   return (
@@ -2933,7 +2943,7 @@ function DestacadoView({ vert }: { vert: Vert }) {
             <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 20 }}>Estás en {DEST_TIERS[featured.tier].label} ✦</div>
             <div style={{ fontSize: 13.5, opacity: .85, marginTop: 4 }}>Destacando <strong style={{ fontWeight: 700 }}>{featured.what}</strong> · {featured.days} días restantes ({featured.label}) · rotación equitativa</div>
           </div>
-          <button onClick={() => setFeatured(null)} style={{ background: 'rgba(255,255,255,.16)', color: '#fff', border: 'none', borderRadius: 999, padding: '10px 18px', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5, cursor: 'pointer', flexShrink: 0 }}>Pausar</button>
+          <button onClick={pause} style={{ background: 'rgba(255,255,255,.16)', color: '#fff', border: 'none', borderRadius: 999, padding: '10px 18px', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5, cursor: 'pointer', flexShrink: 0 }}>Pausar</button>
         </div>
       ) : (
         <div style={{ borderRadius: 18, background: `linear-gradient(120deg, ${R.dusk}, ${R.duskSoft})`, color: '#fff', padding: '24px', marginBottom: 16 }}>
@@ -3108,7 +3118,7 @@ const OPT_CONFIG: Record<string, { label: string; placeholder: string }> = {
 }
 
 function PromosView({ vert }: { vert: Vert }) {
-  const [tab, setTab] = useState<'ofertas' | 'lealtad'>('ofertas')
+  const [tab, setTab] = useState<'ofertas' | 'lealtad' | 'revamas'>('ofertas')
   const [promos, setPromos] = useState(promoSeed)
   const [editing, setEditing] = useState<number | 'new' | null>(null)
   const [form, setForm] = useState({ title: '', type: 'Descuento' as PromoType, detail: '', vig: 'Permanente', active: true })
@@ -3142,6 +3152,19 @@ function PromosView({ vert }: { vert: Vert }) {
   const activas = promos.filter(p => p.active).length
   const canjes = promos.reduce((a, p) => a + p.canjes, 0)
 
+  const enabledOpts = bm.options.filter(o => o.on)
+  const stampsOn = enabledOpts.some(o => o.id === 'stamps')
+  const extras = enabledOpts.filter(o => o.id !== 'stamps')
+  const connBanner = bm.connected ? (
+    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 12.5, fontWeight: 600, color: '#16614c', background: R.jadeTint, padding: '6px 12px', borderRadius: 999, marginBottom: 16 }}>
+      <Icon n="spark" size={13} color={R.jade} fill={R.jade} /> Lealtad activa · powered by BoomerangMe
+    </div>
+  ) : (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: R.amberDeep, background: R.amberTint, padding: '10px 14px', borderRadius: 12, marginBottom: 16 }}>
+      <Icon n="clock" size={15} color={R.amberDeep} /> La plataforma está conectando BoomerangMe. Tus opciones se activarán muy pronto.
+    </div>
+  )
+
   return (
     <div style={{ padding: '24px 28px', maxWidth: 960 }}>
       {/* KPIs */}
@@ -3153,7 +3176,7 @@ function PromosView({ vert }: { vert: Vert }) {
 
       {/* Tabs */}
       <div style={{ display: 'inline-flex', gap: 4, background: R.bgAlt, borderRadius: 999, padding: 4, marginBottom: 18 }}>
-        {([['ofertas', 'Ofertas'], ['lealtad', 'Lealtad · Reva+']] as [typeof tab, string][]).map(([id, label]) => (
+        {([['ofertas', 'Ofertas'], ['lealtad', 'Lealtad'], ['revamas', 'Reva+']] as [typeof tab, string][]).map(([id, label]) => (
           <button key={id} onClick={() => setTab(id)} style={{ padding: '8px 18px', borderRadius: 999, border: 'none', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5, background: tab === id ? R.surface : 'transparent', color: tab === id ? R.ink : R.inkSoft, boxShadow: tab === id ? '0 1px 3px rgba(0,0,0,.08)' : 'none' }}>{label}</button>
         ))}
       </div>
@@ -3196,21 +3219,9 @@ function PromosView({ vert }: { vert: Vert }) {
         </>
       )}
 
-      {tab === 'lealtad' && (() => {
-        const enabled = bm.options.filter(o => o.on)
-        const stampsOn = enabled.some(o => o.id === 'stamps')
-        const extras = enabled.filter(o => o.id !== 'stamps')
-        return (
-          <>
-            {bm.connected ? (
-              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 12.5, fontWeight: 600, color: '#16614c', background: R.jadeTint, padding: '6px 12px', borderRadius: 999, marginBottom: 16 }}>
-                <Icon n="spark" size={13} color={R.jade} fill={R.jade} /> Lealtad activa · powered by BoomerangMe
-              </div>
-            ) : (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: R.amberDeep, background: R.amberTint, padding: '10px 14px', borderRadius: 12, marginBottom: 16 }}>
-                <Icon n="clock" size={15} color={R.amberDeep} /> La plataforma está conectando BoomerangMe. Tus opciones se activarán muy pronto.
-              </div>
-            )}
+      {tab === 'revamas' && (
+        <>
+          {connBanner}
 
             {stampsOn ? (
               <>
@@ -3244,9 +3255,18 @@ function PromosView({ vert }: { vert: Vert }) {
               <BCard style={{ textAlign: 'center', padding: '32px 0', color: R.inkSoft }}>La tarjeta de sellos no está habilitada por la plataforma.</BCard>
             )}
 
-            {extras.length > 0 && (
+            {/* ── Recompensas Reva+ Marketplace ── */}
+            <RoveRewardsSection bizId={vert.id} bizName={vert.name} bizColor={R.coral} />
+        </>
+      )}
+
+      {tab === 'lealtad' && (
+        <>
+          {connBanner}
+
+            {extras.length > 0 ? (
               <>
-                <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink, margin: '26px 0 4px' }}>Más opciones de lealtad</div>
+                <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink, margin: '4px 0 4px' }}>Más opciones de lealtad</div>
                 <div style={{ fontSize: 13, color: R.inkSoft, marginBottom: 14 }}>Habilitadas por Reva para tu negocio. Actívalas cuando quieras.</div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 14 }}>
                   {extras.map(o => {
@@ -3279,14 +3299,12 @@ function PromosView({ vert }: { vert: Vert }) {
                   })}
                 </div>
               </>
+            ) : (
+              <BCard style={{ textAlign: 'center', padding: '32px 0', color: R.inkSoft }}>Aún no hay más opciones de lealtad habilitadas por la plataforma.</BCard>
             )}
             <div style={{ fontSize: 12.5, color: R.inkFaint, marginTop: 14 }}>Las opciones disponibles las define Reva (plataforma) vía BoomerangMe. Reva sella automáticamente al confirmar cada visita.</div>
-
-          {/* ── Recompensas Rove Marketplace ── */}
-          <RoveRewardsSection bizId={vert.id} bizName={vert.name} bizColor={R.coral} />
-          </>
-        )
-      })()}
+        </>
+      )}
 
       {/* Modal activar opción de lealtad */}
       {actOpt && (() => {

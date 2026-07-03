@@ -1,5 +1,5 @@
 'use client'
-import { type Business, type Mode } from '@/lib/data'
+import { type Business, type Mode, featuredBadge } from '@/lib/data'
 import { clsx } from 'clsx'
 
 interface BizCardProps {
@@ -43,11 +43,11 @@ export function BizCard({ biz, mode, onOpen, onBook, compact }: BizCardProps) {
           style={{ fontSize: (compact ? 110 : 150) * 0.9, fontFamily: 'var(--font-display)' }}>
           {biz.mono}
         </span>
-        {biz.featured && (
+        {(() => { const badge = featuredBadge(biz); return badge && (
           <span className="absolute top-3 left-3 flex items-center gap-1 text-[10.5px] font-bold tracking-wide uppercase bg-dusk/85 text-white px-2.5 py-1 rounded-full backdrop-blur-sm">
-            ✦ Destacado
+            {badge.icon} {badge.label}
           </span>
-        )}
+        ) })()}
         {biz.localFav && (
           <span className="absolute bottom-3 left-3 flex items-center gap-1 text-[11px] font-bold text-amber-deep bg-amber-tint px-2 py-0.5 rounded-full">
             ★ {en ? 'Local fav' : 'Favorito local'}
