@@ -18,10 +18,15 @@ const config: CapacitorConfig = {
   // `webDir` es el fallback local; el contenido real llega desde server.url.
   webDir: 'www',
   server: {
-    // 👇 REEMPLAZA por tu URL pública de Vercel cuando la tengas.
-    // Ejemplo: 'https://reva.vercel.app'
-    url: 'https://REEMPLAZA-CON-TU-URL.vercel.app',
+    // La app abre directo en la experiencia de cliente (ruta /app),
+    // no en la landing de marketing (raíz).
+    // ── PRODUCCIÓN (activo): ──
+    url: 'https://reva-app-ten.vercel.app/app',
     cleartext: false,
+    // ── DEV LOCAL (para probar en el simulador contra `npm run dev`):
+    //    comenta las 2 líneas de arriba y descomenta estas 2, luego `npx cap sync ios`.
+    // url: 'http://localhost:3000/app',
+    // cleartext: true,
   },
   ios: {
     contentInset: 'automatic',
