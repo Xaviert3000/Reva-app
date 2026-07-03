@@ -1,9 +1,19 @@
-import type { Metadata } from 'next'
+import type { Metadata, Viewport } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
   title: 'Reva — Tu concierge local',
   description: 'Un amigo local muy bien conectado en tu bolsillo. Reserva mesas, agenda citas, vive Los Cabos.',
+}
+
+// viewport-fit=cover exposes the device safe-area insets (notch / Dynamic Island /
+// home indicator) to CSS via env(safe-area-inset-*), which the app UI consumes so
+// content never sits under the iOS status bar when wrapped in Capacitor.
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+  viewportFit: 'cover',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

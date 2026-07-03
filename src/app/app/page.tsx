@@ -100,7 +100,7 @@ function AppHeader({
 }) {
   const en = useContext(LangContext) === 'en'
   return (
-    <div style={{ padding: '52px 18px 14px', background: '#FAF5EE' }}>
+    <div style={{ padding: 'max(52px, calc(env(safe-area-inset-top) + 16px)) 18px 14px', background: '#FAF5EE' }}>
       {label && <div style={{ fontSize: 12, color: '#A89E94', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 2 }}>{label}</div>}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <h1 style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 32, color: '#221C19', letterSpacing: '-.03em', lineHeight: 1 }}>
@@ -530,7 +530,7 @@ function ServiceDetail({ biz, service, mode, onClose, onBook }: { biz: Business;
           <span style={{ position: 'absolute', right: 6, bottom: -12, fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 120, opacity: .16, color: '#fff', lineHeight: 1 }}>{biz.mono}</span>
           <button onClick={onClose} style={{ position: 'absolute', top: 14, right: 16, width: 34, height: 34, borderRadius: '50%', background: 'rgba(255,255,255,.92)', border: 'none', cursor: 'pointer', color: '#221C19', fontSize: 20, display: 'grid', placeItems: 'center' }}>×</button>
         </div>
-        <div style={{ padding: '18px 20px 30px' }}>
+        <div style={{ padding: '18px 20px calc(30px + env(safe-area-inset-bottom, 0px))' }}>
           <div style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 22, color: '#221C19', lineHeight: 1.1 }}>{service.name}</div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 7, color: '#6B615A', fontSize: 13.5 }}>
             <Icon n="pin" size={14} color="#A89E94" /> {biz.name} · {biz.hood}
@@ -975,10 +975,10 @@ function BizDetail({ biz, mode, onClose, onBook }: { biz: Business; mode: Mode; 
         {/* hero */}
         <div style={{ height: 290, background: `linear-gradient(135deg,${biz.grad[0]},${biz.grad[1]})`, position: 'relative' }}>
           <span style={{ position: 'absolute', right: -10, bottom: -16, fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 220, opacity: .14, color: '#fff', lineHeight: 1 }}>{biz.mono}</span>
-          <button onClick={onClose} style={{ position: 'absolute', top: 56, left: 16, width: 40, height: 40, borderRadius: '50%', background: 'rgba(255,255,255,.92)', border: 'none', display: 'grid', placeItems: 'center', cursor: 'pointer' }}>
+          <button onClick={onClose} style={{ position: 'absolute', top: 'max(56px, calc(env(safe-area-inset-top) + 20px))', left: 16, width: 40, height: 40, borderRadius: '50%', background: 'rgba(255,255,255,.92)', border: 'none', display: 'grid', placeItems: 'center', cursor: 'pointer' }}>
             <Icon n="chevL" size={20} color="#221C19" />
           </button>
-          <button style={{ position: 'absolute', top: 56, right: 16, width: 40, height: 40, borderRadius: '50%', background: 'rgba(255,255,255,.92)', border: 'none', display: 'grid', placeItems: 'center', cursor: 'pointer' }}>
+          <button style={{ position: 'absolute', top: 'max(56px, calc(env(safe-area-inset-top) + 20px))', right: 16, width: 40, height: 40, borderRadius: '50%', background: 'rgba(255,255,255,.92)', border: 'none', display: 'grid', placeItems: 'center', cursor: 'pointer' }}>
             <Icon n="heart" size={19} color="#E8505B" />
           </button>
         </div>
@@ -1162,7 +1162,7 @@ function Booking({ biz, mode, service, onClose, onConfirm }: { biz: Business; mo
 
   return (
     <div style={{ position: 'absolute', inset: 0, zIndex: 50, background: 'rgba(0,0,0,.5)', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }} onClick={onClose}>
-      <div style={{ background: '#FAF5EE', borderRadius: '30px 30px 0 0', padding: '20px 20px 40px' }} onClick={e => e.stopPropagation()}>
+      <div style={{ background: '#FAF5EE', borderRadius: '30px 30px 0 0', padding: '20px 20px calc(40px + env(safe-area-inset-bottom, 0px))' }} onClick={e => e.stopPropagation()}>
         {step === 'success' ? (
           <div style={{ textAlign: 'center', padding: '32px 0' }}>
             <div style={{ width: 64, height: 64, borderRadius: '50%', background: '#DDF0E8', display: 'grid', placeItems: 'center', margin: '0 auto 16px' }}>
@@ -1874,7 +1874,7 @@ type ProfilePageId = 'idioma' | 'pago' | 'notif' | 'cancelacion' | 'ayuda'
 function PageShell({ title, onBack, children }: { title: string; onBack: () => void; children: React.ReactNode }) {
   return (
     <div style={{ position: 'absolute', inset: 0, zIndex: 30, background: '#FAF5EE', display: 'flex', flexDirection: 'column' }}>
-      <div style={{ padding: '54px 16px 12px', display: 'flex', alignItems: 'center', gap: 12, background: '#FAF5EE', flexShrink: 0 }}>
+      <div style={{ padding: 'max(54px, calc(env(safe-area-inset-top) + 18px)) 16px 12px', display: 'flex', alignItems: 'center', gap: 12, background: '#FAF5EE', flexShrink: 0 }}>
         <button onClick={onBack} style={{ width: 38, height: 38, borderRadius: '50%', border: '1px solid #E9E0D5', background: '#fff', cursor: 'pointer', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
           <Icon n="chevL" size={18} color="#221C19" />
         </button>
@@ -2087,7 +2087,7 @@ function SupportChatScreen({ mode, onClose }: { mode: Mode; onClose: () => void 
 
   return (
     <div style={{ position: 'absolute', inset: 0, zIndex: 50, background: '#FAF5EE', display: 'flex', flexDirection: 'column' }}>
-      <div style={{ padding: '54px 16px 12px', display: 'flex', alignItems: 'center', gap: 12, background: '#FAF5EE', flexShrink: 0, borderBottom: '1px solid #F1EADF' }}>
+      <div style={{ padding: 'max(54px, calc(env(safe-area-inset-top) + 18px)) 16px 12px', display: 'flex', alignItems: 'center', gap: 12, background: '#FAF5EE', flexShrink: 0, borderBottom: '1px solid #F1EADF' }}>
         <button onClick={onClose} style={{ width: 38, height: 38, borderRadius: '50%', border: '1px solid #E9E0D5', background: '#fff', cursor: 'pointer', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
           <Icon n="chevL" size={18} color="#221C19" />
         </button>
@@ -2485,7 +2485,7 @@ function MessagesScreen({ mode, onClose }: { mode: Mode; onClose: () => void }) 
 
   return (
     <div style={{ position: 'absolute', inset: 0, zIndex: 40, background: '#FAF5EE', display: 'flex', flexDirection: 'column' }}>
-      <div style={{ padding: '54px 16px 12px', display: 'flex', alignItems: 'center', gap: 12, background: '#FAF5EE', flexShrink: 0 }}>
+      <div style={{ padding: 'max(54px, calc(env(safe-area-inset-top) + 18px)) 16px 12px', display: 'flex', alignItems: 'center', gap: 12, background: '#FAF5EE', flexShrink: 0 }}>
         <button onClick={() => thread ? setThread(false) : onClose()} style={{ width: 38, height: 38, borderRadius: '50%', border: '1px solid #E9E0D5', background: '#fff', cursor: 'pointer', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
           <Icon n="chevL" size={18} color="#221C19" />
         </button>
@@ -2583,7 +2583,7 @@ function NotificationsScreen({ mode, onClose, onMessages }: { mode: Mode; onClos
 
   return (
     <div style={{ position: 'absolute', inset: 0, zIndex: 40, background: '#FAF5EE', display: 'flex', flexDirection: 'column' }}>
-      <div style={{ padding: '54px 16px 12px', display: 'flex', alignItems: 'center', gap: 12, background: '#FAF5EE', flexShrink: 0 }}>
+      <div style={{ padding: 'max(54px, calc(env(safe-area-inset-top) + 18px)) 16px 12px', display: 'flex', alignItems: 'center', gap: 12, background: '#FAF5EE', flexShrink: 0 }}>
         <button onClick={onClose} style={{ width: 38, height: 38, borderRadius: '50%', border: '1px solid #E9E0D5', background: '#fff', cursor: 'pointer', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
           <Icon n="chevL" size={18} color="#221C19" />
         </button>
@@ -2760,7 +2760,7 @@ export default function AppPage() {
       </div>
 
       {/* Bottom nav */}
-      <nav style={{ display: 'flex', borderTop: '1px solid #E9E0D5', background: '#fff' }}>
+      <nav style={{ display: 'flex', borderTop: '1px solid #E9E0D5', background: '#fff', paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
         {tabs.map(t => (
           <button key={t.id} onClick={() => setTab(t.id)}
             style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, padding: '10px 0 14px', background: 'none', border: 'none', cursor: 'pointer', color: tab === t.id ? '#E8505B' : '#A89E94' }}>
