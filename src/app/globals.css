@@ -50,6 +50,15 @@
 
 * { box-sizing: border-box; }
 
+/* Full-height chain scoped to the consumer app shell only. iOS WKWebView
+   (Capacitor) can under-compute 100dvh and leave a gap at the bottom of the
+   screen; a height:100% chain (html → body → shell) resolves against the webview
+   bounds reliably. Scoped via :has() so document-flow pages (landing/biz/admin)
+   keep normal scrolling — forcing height:100% on body globally would trap their
+   scroll. */
+html:has(.reva-app-root), body:has(.reva-app-root) { height: 100%; }
+body:has(.reva-app-root) { overflow: hidden; }
+
 body {
   background: var(--bg);
   color: var(--ink);
