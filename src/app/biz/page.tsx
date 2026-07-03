@@ -2916,6 +2916,14 @@ function DestacadoView({ vert }: { vert: Vert }) {
   const disponibles = Math.max(0, T.cupos - ocupados)
   const lleno = disponibles === 0 && !heldHere
   const bizId = SHARED_BIZ_ID[vert.id] ?? vert.id
+  // Cupos libres por modalidad en este municipio/vertical (demo: DEST_TIERS.otros
+  // modela lo ya ocupado por otros negocios). Si tú ocupas un cupo aquí, cuenta.
+  const availFor = (id: TierId) => {
+    const D = DEST_TIERS[id]
+    return Math.max(0, D.cupos - D.otros - (featured?.tier === id ? 1 : 0))
+  }
+  // ¿Ambas modalidades sin cupo en el municipio? (y no tienes uno tú)
+  const todoCubierto = !featured && availFor('premium') === 0 && availFor('destacado') === 0
 
   function pay() {
     setFeatured({ tier, label: sel.label, days: sel.days, what: whatLabel })
@@ -2967,22 +2975,35 @@ function DestacadoView({ vert }: { vert: Vert }) {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 20 }}>
         {(['premium', 'destacado'] as TierId[]).map(id => {
           const D = DEST_TIERS[id]; const on = tier === id; const ac = D.accent
+          const free = availFor(id); const soldOut = free === 0 && featured?.tier !== id
           return (
             <button key={id} onClick={() => setTier(id)} style={{ textAlign: 'left', cursor: 'pointer', borderRadius: 16, padding: 18, border: `1.5px solid ${on ? ac.main : R.line}`, background: on ? ac.tint : R.surface, fontFamily: R.ui }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
                 <span style={{ fontFamily: R.display, fontWeight: 800, fontSize: 16, color: on ? ac.press : R.ink }}>{D.badge}</span>
-                {id === 'premium' && <span style={{ fontSize: 10, fontWeight: 700, color: '#fff', background: ac.press, padding: '3px 8px', borderRadius: 999, textTransform: 'uppercase', letterSpacing: '.03em' }}>Máx. visibilidad</span>}
+                {soldOut
+                  ? <span style={{ fontSize: 10, fontWeight: 700, color: '#fff', background: R.inkSoft, padding: '3px 8px', borderRadius: 999, textTransform: 'uppercase', letterSpacing: '.03em' }}>Sin cupos</span>
+                  : id === 'premium' && <span style={{ fontSize: 10, fontWeight: 700, color: '#fff', background: ac.press, padding: '3px 8px', borderRadius: 999, textTransform: 'uppercase', letterSpacing: '.03em' }}>Máx. visibilidad</span>}
               </div>
               <div style={{ fontSize: 12.5, color: R.inkSoft, marginBottom: 12, lineHeight: 1.45 }}>{D.blurb}</div>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
                 <span style={{ fontSize: 12, color: R.inkSoft }}>desde</span>
                 <span style={{ fontFamily: R.display, fontWeight: 800, fontSize: 22, color: R.ink }}>{D.from}</span>
-                <span style={{ fontSize: 12, color: R.inkSoft }}>· {D.cupos} cupos</span>
+                <span style={{ fontSize: 12, color: soldOut ? R.coralPress : R.inkSoft, fontWeight: soldOut ? 700 : 400 }}>· {featured?.tier === id ? 'tu cupo activo' : soldOut ? 'sin cupos' : `${free} de ${D.cupos} libres`}</span>
               </div>
             </button>
           )
         })}
       </div>
+
+      {/* Todo cubierto en el municipio */}
+      {todoCubierto && (
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '13px 16px', borderRadius: 14, background: R.amberTint, border: `1px solid ${R.amber}`, marginBottom: 20 }}>
+          <Icon n="clock" size={17} color={R.amberDeep} />
+          <div style={{ fontSize: 13, color: R.amberDeep, lineHeight: 1.5 }}>
+            <b>Ambos niveles están cubiertos en {vert.kind} · {vert.hood} ahora mismo.</b> No hay cupos de Premium ni de Destacado disponibles. Elige un nivel y únete a la lista de espera — te avisamos en cuanto se libere uno.
+          </div>
+        </div>
+      )}
 
       {/* Qué destacar */}
       <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink, marginBottom: 4 }}>¿Qué quieres destacar?</div>
