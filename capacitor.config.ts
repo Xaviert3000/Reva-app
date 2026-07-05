@@ -35,7 +35,12 @@ const config: CapacitorConfig = {
     // cleartext: true,
   },
   ios: {
-    contentInset: 'automatic',
+    // `never`: la web ya maneja los safe-areas por CSS (viewport-fit=cover +
+    // env(safe-area-inset-*) en headers y bottom nav). Con `automatic`, WKWebView
+    // añade OTRA VEZ esos insets encima → doble inset y un hueco blanco debajo de
+    // la barra inferior. `never` deja que el CSS sea la única fuente de verdad y
+    // la web ocupa la pantalla de borde a borde.
+    contentInset: 'never',
   },
   plugins: {
     SplashScreen: {
