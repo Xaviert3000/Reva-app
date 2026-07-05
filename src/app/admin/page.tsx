@@ -110,7 +110,7 @@ const WAITLIST: { biz: string; cat: string; mun: string; nivel: Niv }[] = [
   { biz: 'Lounge 22', cat: 'Bar / Vida nocturna', mun: 'Cabo San Lucas', nivel: 'Premium' },
 ]
 
-type Biz = { name: string; mono: string; cat: string; mun: string; plan: string; estado: 'Activo' | 'Pausado'; dest: string; reservas: number; grad: [string, string] }
+type Biz = { name: string; mono: string; cat: string; mun: string; plan: string; estado: 'Activo' | 'Pausado'; dest: string; reservas: number; grad: [string, string]; email?: string; invitePending?: boolean }
 const BIZES_INIT: Biz[] = [
   { name: 'La Lupita', mono: 'L', cat: 'Restaurantes', mun: 'San José del Cabo', plan: 'Reva', estado: 'Activo', dest: 'Destacado', reservas: 142, grad: ['#E27A52', '#B5472F'] },
   { name: 'Sereno Spa', mono: 'S', cat: 'Spa & Bienestar', mun: 'San José del Cabo', plan: 'Reva', estado: 'Activo', dest: 'Premium', reservas: 96, grad: ['#C9A2B4', '#6E4A63'] },
@@ -533,6 +533,7 @@ export default function AdminPage() {
   const [newBizPlan, setNewBizPlan] = useState<'Reva'>('Reva')
   const [newBizError, setNewBizError] = useState('')
   const [addBizLoading, setAddBizLoading] = useState(false)
+  const [resendLoading, setResendLoading] = useState(false)
   const newBizMunicipios = STATES_DATA.find(s => s.name === newBizState)?.municipalities ?? []
 
   function selectBizState(name: string) {
@@ -731,6 +732,7 @@ export default function AdminPage() {
         name, mono: name.trim().charAt(0).toUpperCase(), cat: newBizCat, mun: newBizMun,
         plan: newBizPlan, estado: 'Pausado', dest: '—', reservas: 0,
         grad: BIZ_GRADIENTS[bizes.length % BIZ_GRADIENTS.length],
+        email, invitePending: true,
       }
       setBizes(prev => [...prev, newBiz])
       setInviteSent(data.warning ? `${email} (revisa logs — posible error de envío)` : email)
@@ -746,6 +748,24 @@ export default function AdminPage() {
       setAddBizOpen(false)
     } finally {
       setAddBizLoading(false)
+    }
+  }
+
+  async function resendInvite(biz: Biz) {
+    if (!biz.email || resendLoading) return
+    setResendLoading(true)
+    try {
+      const res = await fetch('/api/resend-invitation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: biz.email }),
+      })
+      const data = await res.json()
+      if (!res.ok) { setNewBizError(data.error ?? 'No se pudo reenviar la invitación.'); return }
+      setInviteSent(data.warning ? `${biz.email} (revisa logs — posible error de envío)` : biz.email)
+      setTimeout(() => setInviteSent(null), 5000)
+    } finally {
+      setResendLoading(false)
     }
   }
 
@@ -2192,6 +2212,12 @@ export default function AdminPage() {
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '11px 14px', borderTop: `1px solid ${R.lineSoft}` }}><span style={{ fontSize: 13, color: R.inkSoft }}>Reservas (mes)</span><span style={{ fontSize: 13.5, fontWeight: 600, color: R.ink }}>{detail.reservas}</span></div>
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '11px 14px', borderTop: `1px solid ${R.lineSoft}` }}><span style={{ fontSize: 13, color: R.inkSoft }}>Estado</span><span style={{ fontSize: 13.5, fontWeight: 700, color: detail.estado === 'Activo' ? R.jade : R.inkFaint }}>{detail.estado}</span></div>
             </div>
+            {detail.invitePending && detail.email && (
+              <button onClick={() => resendInvite(detail)} disabled={resendLoading} style={{ width: '100%', padding: '12px', border: `1px solid ${R.line}`, borderRadius: 12, background: R.surface, color: R.ink, cursor: resendLoading ? 'default' : 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14, marginBottom: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, opacity: resendLoading ? .6 : 1 }}>
+                <Icon n="mail" size={16} color={R.ink} />
+                {resendLoading ? 'Reenviando…' : 'Reenviar invitación'}
+              </button>
+            )}
             <button onClick={() => { toggleBiz(selBiz!) }} style={{ width: '100%', padding: '12px', border: 'none', borderRadius: 12, background: detail.estado === 'Activo' ? R.bgAlt : R.jade, color: detail.estado === 'Activo' ? R.ink : '#fff', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14 }}>
               {detail.estado === 'Activo' ? 'Pausar negocio' : 'Reactivar negocio'}
             </button>
