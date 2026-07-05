@@ -22,6 +22,12 @@ const config: CapacitorConfig = {
     // no en la landing de marketing (raíz).
     // ── PRODUCCIÓN (activo): ──
     url: 'https://reva-app-ten.vercel.app/app',
+    // IMPORTANTE: sin esto, Capacitor compara la navegación contra la URL
+    // COMPLETA (incluyendo `/app`), así que rutas como `/auth/register` o
+    // `/auth/login` se consideran "externas" y se abren en Safari en vez de
+    // quedarse dentro de la app. Al whitelistar el host, TODA navegación al
+    // mismo dominio se mantiene dentro del webview.
+    allowNavigation: ['reva-app-ten.vercel.app'],
     cleartext: false,
     // ── DEV LOCAL (para probar en el simulador contra `npm run dev`):
     //    comenta las 2 líneas de arriba y descomenta estas 2, luego `npx cap sync ios`.

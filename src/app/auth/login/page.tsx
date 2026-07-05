@@ -85,7 +85,7 @@ export default function LoginPage() {
           <Link href="/auth/register" className="text-coral font-semibold hover:underline">Crear cuenta</Link>
         </p>
         <p className="text-center mt-3">
-          <Link href="/" className="text-[13px] text-ink-faint hover:text-ink">← Volver al inicio</Link>
+          <Link href="/app" className="text-[13px] text-ink-faint hover:text-ink">← Volver al inicio</Link>
         </p>
       </div>
     </div>
