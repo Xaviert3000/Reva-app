@@ -10,7 +10,7 @@ export const maxDuration = 30
 // desde /admin → Integraciones → OpenRouter (promptOverride), o el default.
 export async function POST(req: Request) {
   try {
-    const { messages, bizName, bizType, greeting, services, hours, depositPolicy, depositAmount, mode } = await req.json() as {
+    const { messages, bizName, bizType, greeting, services, hours, depositPolicy, depositAmount, mode, tone, instructions, maxDiscount } = await req.json() as {
       messages: ChatMessage[]
       bizName: string
       bizType: string
@@ -20,11 +20,14 @@ export async function POST(req: Request) {
       depositPolicy: 'none' | 'deposit'
       depositAmount?: number
       mode: Mode
+      tone?: string
+      instructions?: string
+      maxDiscount?: number
     }
 
     const cfg = await loadPlatformConfig()
     const system = bizChatSystemPrompt(
-      { bizName, bizType, greeting, services, hours, depositPolicy, depositAmount, mode },
+      { bizName, bizType, greeting, services, hours, depositPolicy, depositAmount, mode, tone, instructions, maxDiscount },
       resolvedPrompt(cfg, 'biz-chat'),
     )
     const fullMessages: ChatMessage[] = [{ role: 'system', content: system }, ...messages]

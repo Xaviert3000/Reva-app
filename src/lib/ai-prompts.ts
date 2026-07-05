@@ -136,10 +136,19 @@ const T_BIZ_CHAT = `Eres el agente de IA de {{bizName}} ({{bizType}}). Atiendes 
 TU VOZ (saludo base, mantén este tono)
 {{greeting}}
 
+TONO
+{{tone}}
+
 QUÉ OFRECES
 - Servicios: {{services}}.
 - Horario: {{hours}}.
 - Depósito: {{deposit}}
+
+INSTRUCCIONES DEL DUEÑO (respétalas siempre)
+{{instructions}}
+
+DESCUENTOS
+Puedes ofrecer como máximo {{maxDiscount}}% de descuento. Nunca ofrezcas ni prometas un descuento mayor a ese límite.
 
 CÓMO ATIENDES — el flujo
 1. Responde la duda del cliente de forma clara y breve, solo con información real del negocio.
@@ -170,7 +179,7 @@ export const PROMPT_DEFS: PromptDef[] = [
   { id: 'concierge-vecino', label: 'Conserje · Vecino (local)', user: 'cliente', description: 'Chat del cliente local. Habla en español, de tú.', placeholders: ['{{BIZ_CONTEXT}}'], template: T_CONCIERGE_VECINO },
   { id: 'negotiation', label: 'Agente de reservas de Reva', user: 'cliente', description: 'Negocia la reserva con el negocio. Devuelve JSON.', placeholders: [], template: T_NEGOTIATION },
   { id: 'biz-agent', label: 'Agente del negocio · decisiones', user: 'negocio', description: 'Decide aprobar / contraofertar / rechazar reservas. Devuelve JSON.', placeholders: ['{{bizName}}', '{{bizType}}'], template: T_BIZ_AGENT },
-  { id: 'biz-chat', label: 'Agente del negocio · mensajes', user: 'negocio', description: 'Responde dudas del cliente en la voz del negocio.', placeholders: ['{{bizName}}', '{{bizType}}', '{{greeting}}', '{{services}}', '{{hours}}', '{{deposit}}', '{{lang}}'], template: T_BIZ_CHAT },
+  { id: 'biz-chat', label: 'Agente del negocio · mensajes', user: 'negocio', description: 'Responde dudas del cliente en la voz del negocio.', placeholders: ['{{bizName}}', '{{bizType}}', '{{greeting}}', '{{tone}}', '{{services}}', '{{hours}}', '{{deposit}}', '{{instructions}}', '{{maxDiscount}}', '{{lang}}'], template: T_BIZ_CHAT },
 ]
 
 export const DEFAULT_PROMPTS = PROMPT_DEFS.reduce((acc, d) => {
@@ -268,8 +277,19 @@ Configuración del negocio:
 Decide sobre esta solicitud de reserva.`
 }
 
-// B.2 — Agente conversacional del negocio (pestaña Mensajes). Listo para conectar
-// a un endpoint /api/biz-chat cuando se cablee la pestaña Mensajes.
+// Traduce el tono elegido por el dueño (Cálido/Neutral/Formal) a una guía concreta
+// de registro para la IA. Sirve tanto para el chat como para las decisiones.
+export function toneGuidance(tone?: string): string {
+  switch (tone) {
+    case 'Formal': return 'Formal y cortés: trato de usted, lenguaje pulido y profesional, sin emojis.'
+    case 'Neutral': return 'Neutral y claro: profesional pero cercano, sin exceso de formalidad ni relleno.'
+    default: return 'Cálido y cercano: como un amigo que atiende con gusto; un emoji ocasional está bien.'
+  }
+}
+
+// B.2 — Agente conversacional del negocio (pestaña Mensajes). Recibe la config del
+// Agente de IA del dueño (tono, instrucciones, límite de descuento) para modular
+// cómo responde. Ver /lib/biz-agent-config.ts.
 export function bizChatSystemPrompt(args: {
   bizName: string
   bizType: string
@@ -279,6 +299,9 @@ export function bizChatSystemPrompt(args: {
   depositPolicy: 'none' | 'deposit'
   depositAmount?: number
   mode: Mode
+  tone?: string
+  instructions?: string
+  maxDiscount?: number
 }, template?: string): string {
   const lang = args.mode === 'explorer'
     ? 'Responde en inglés.'
@@ -290,9 +313,12 @@ export function bizChatSystemPrompt(args: {
     bizName: args.bizName,
     bizType: args.bizType,
     greeting: args.greeting,
+    tone: toneGuidance(args.tone),
     services: args.services.join(', ') || 'según el negocio',
     hours: args.hours,
     deposit,
+    instructions: args.instructions?.trim() || 'Sin instrucciones adicionales del dueño.',
+    maxDiscount: String(args.maxDiscount ?? 0),
     lang,
   })
 }

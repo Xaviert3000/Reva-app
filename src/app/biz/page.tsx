@@ -6,6 +6,7 @@ import { type RoveReward, type RewardCategory } from '@/lib/rove-rewards'
 import { type Mode, type ProactiveAlert, type AlertType, CATALOG, AGENDA, BIZ, slotsFromHours, slotAvailability, endTime, tracksStock, inStock } from '@/lib/data'
 import { saveStock, decrementStock as decrementStockDB, fetchStock } from '@/lib/inventory'
 import { clearFeatured } from '@/lib/featured'
+import { loadAgentConfig, saveAgentConfig, DEFAULT_AGENT_CONFIG, type BizAgentConfig } from '@/lib/biz-agent-config'
 
 // ── Design tokens ──────────────────────────────────────────
 const R = {
@@ -826,7 +827,7 @@ function MonthAgenda({ todayCount }: { todayCount: number }) {
 }
 
 type ThreadItem = { from: string; txt: string }
-function MessagesView({ vert }: { vert: Vert }) {
+function MessagesView({ vert, agentCfg }: { vert: Vert; agentCfg: BizAgentConfig }) {
   const [active, setActive] = useState(0)
   const [reply, setReply] = useState('')
   const [sending, setSending] = useState(false)
@@ -834,6 +835,9 @@ function MessagesView({ vert }: { vert: Vert }) {
   const thread = threads[active]
   const scrollRef = useRef<HTMLDivElement>(null)
   useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight }, [active, threads])
+  // Threads que la IA ya atendió sola fuera de horario (evita disparos repetidos).
+  const autoFiredRef = useRef<Record<number, boolean>>({})
+  const open = isOpenNow(vert.hours)
 
   function appendToActive(item: ThreadItem) {
     setThreads(prev => prev.map((m, i) => i === active ? { ...m, thread: [...m.thread, item], last: item.txt, unread: false } : m))
@@ -847,7 +851,7 @@ function MessagesView({ vert }: { vert: Vert }) {
   }
 
   async function replyWithAgent() {
-    if (sending) return
+    if (sending || !agentCfg.on) return
     setSending(true)
     const t = threads[active]
     const mode: Mode = t.via === 'Explorer' ? 'explorer' : 'vecino'
@@ -871,6 +875,9 @@ function MessagesView({ vert }: { vert: Vert }) {
           depositPolicy: depositItem ? 'deposit' : 'none',
           depositAmount,
           mode,
+          tone: agentCfg.tone,
+          instructions: agentCfg.instructions,
+          maxDiscount: agentCfg.maxDiscount,
         }),
       })
       if (!res.ok || !res.body) throw new Error('API error')
@@ -911,6 +918,21 @@ function MessagesView({ vert }: { vert: Vert }) {
     }
   }
 
+  // Guardia fuera de horario: si el dueño lo habilitó y el negocio está cerrado,
+  // la IA contesta sola el chat activo cuando el último mensaje es del cliente y
+  // sigue sin respuesta. Solo una vez por conversación (autoFiredRef).
+  useEffect(() => {
+    if (!agentCfg.on || !agentCfg.autoReplyOffHours || open || sending) return
+    const last = thread?.thread[thread.thread.length - 1]
+    if (last?.from !== 'guest' || autoFiredRef.current[active]) return
+    autoFiredRef.current[active] = true
+    // Pequeña pausa para que se sienta como que el agente "toma" el mensaje.
+    const id = setTimeout(() => { replyWithAgent() }, 500)
+    return () => clearTimeout(id)
+    // replyWithAgent es estable en su comportamiento; el ref evita re-disparos.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, threads, agentCfg.on, agentCfg.autoReplyOffHours, open, sending])
+
   return (
     <div style={{ display: 'flex', flex: 1, overflow: 'hidden', height: '100%' }}>
       {/* thread list */}
@@ -944,8 +966,13 @@ function MessagesView({ vert }: { vert: Vert }) {
           ))}
         </div>
         <div style={{ padding: '12px 16px', borderTop: `1px solid ${R.line}` }}>
-          <button onClick={replyWithAgent} disabled={sending} style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, background: sending ? R.amberTint : R.bgAlt, border: `1px solid ${R.line}`, borderRadius: 12, padding: '10px 14px', cursor: sending ? 'default' : 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13, color: sending ? R.amberDeep : R.ink, marginBottom: 10 }}>
-            <Icon n="spark" size={15} color={sending ? R.amberDeep : R.coral} /> {sending ? 'El agente está escribiendo…' : 'Responder con el agente'}
+          {agentCfg.on && agentCfg.autoReplyOffHours && !open && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7, background: R.jadeTint, borderRadius: 10, padding: '8px 12px', marginBottom: 10, fontSize: 12.5, fontWeight: 600, color: '#16614c' }}>
+              <Icon n="spark" size={14} color="#16614c" /> Fuera de horario — el agente responde solo a los clientes.
+            </div>
+          )}
+          <button onClick={replyWithAgent} disabled={sending || !agentCfg.on} style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, background: sending ? R.amberTint : R.bgAlt, border: `1px solid ${R.line}`, borderRadius: 12, padding: '10px 14px', cursor: !agentCfg.on ? 'not-allowed' : sending ? 'default' : 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13, color: !agentCfg.on ? R.inkFaint : sending ? R.amberDeep : R.ink, marginBottom: 10, opacity: !agentCfg.on ? 0.6 : 1 }}>
+            <Icon n="spark" size={15} color={!agentCfg.on ? R.inkFaint : sending ? R.amberDeep : R.coral} /> {!agentCfg.on ? 'Agente pausado — actívalo en Ajustes' : sending ? 'El agente está escribiendo…' : agentCfg.autoReplyOffHours && !open ? 'Responder ahora (regenerar)' : 'Responder con el agente'}
           </button>
           <div style={{ display: 'flex', gap: 8 }}>
             <input value={reply} onChange={e => setReply(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') sendManual() }} placeholder="Responder a mano…"
@@ -1179,6 +1206,19 @@ const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6]
 function splitHours(h: string): [string, string] {
   const m = (h || '').match(/(\d{1,2}:\d{2})\s*[–—-]\s*(\d{1,2}:\d{2})/)
   return m ? [m[1], m[2]] : ['', '']
+}
+
+const toMin = (t: string): number => { const [h, m] = t.split(':').map(Number); return h * 60 + m }
+
+// ¿El negocio está abierto ahora, según su horario "HH:MM – HH:MM"? Soporta
+// horarios que cruzan medianoche (ej. 16:00 – 01:00). Si no hay horario válido,
+// asume abierto (no bloquea nada).
+function isOpenNow(hoursStr: string, now: Date = new Date()): boolean {
+  const [open, close] = splitHours(hoursStr)
+  if (!open || !close) return true
+  const cur = now.getHours() * 60 + now.getMinutes()
+  const o = toMin(open), c = toMin(close)
+  return o <= c ? cur >= o && cur < c : cur >= o || cur < c // rango normal vs. cruza medianoche
 }
 
 function CatalogView({ vert, items, setItems }: { vert: Vert; items: CatItem[]; setItems: React.Dispatch<React.SetStateAction<CatItem[]>> }) {
@@ -2337,7 +2377,9 @@ function ReportsView({ vert, items, onGo, bizInfo }: { vert: Vert; items: CatIte
 type EmpRole = 'Dueño' | 'Admin' | 'Caja'
 type Employee = { id: number; name: string; email: string; role: EmpRole; status: 'activo' | 'invitado' }
 
-function SettingsView({ agentOn, setAgentOn, taxMode, setTaxMode, bizInfo, setBizInfo, vert, onGo }: { agentOn: boolean; setAgentOn: (v: boolean) => void; taxMode: TaxMode; setTaxMode: (v: TaxMode) => void; bizInfo: BizInfo; setBizInfo: (v: BizInfo) => void; vert: Vert; onGo: (v: string) => void }) {
+function SettingsView({ agentCfg, setAgentCfg, taxMode, setTaxMode, bizInfo, setBizInfo, vert, onGo }: { agentCfg: BizAgentConfig; setAgentCfg: (u: BizAgentConfig | ((c: BizAgentConfig) => BizAgentConfig)) => void; taxMode: TaxMode; setTaxMode: (v: TaxMode) => void; bizInfo: BizInfo; setBizInfo: (v: BizInfo) => void; vert: Vert; onGo: (v: string) => void }) {
+  const agentOn = agentCfg.on
+  const setAgentOn = (v: boolean) => setAgentCfg(c => ({ ...c, on: v }))
   const bizFields: { key: keyof BizInfo; label: string; placeholder: string }[] = [
     { key: 'rfc', label: 'RFC', placeholder: 'Ej. LUP190423K10' },
     { key: 'address', label: 'Dirección', placeholder: 'Calle, número, colonia, ciudad' },
@@ -2361,7 +2403,6 @@ function SettingsView({ agentOn, setAgentOn, taxMode, setTaxMode, bizInfo, setBi
   const [hrs] = (vert.hours || '13:00 – 23:00').split('–').map(s => s.trim())
   const [profile, setProfile] = useState({ name: vert.full, desc: `${vert.kind} en ${vert.hood}. Reserva y paga con Reva.`, img: '' })
   const [horario, setHorario] = useState({ open: hrs || '13:00', close: (vert.hours || '').split('–')[1]?.trim() || '23:00', capacity: String(vert.capacity.total) })
-  const [agente, setAgente] = useState({ tone: 'Cálido', instructions: 'Sé amable, confirma rápido y ofrece la terraza si hay disponibilidad. No prometas descuentos arriba del límite.', maxDiscount: '10' })
   const [pagos, setPagos] = useState({ deposit: false, depositAmount: '200', methods: ['Efectivo', 'Tarjeta', 'Transferencia'] })
 
   // Stripe Connect — estado de la cuenta del negocio para recibir pagos.
@@ -2643,19 +2684,30 @@ function SettingsView({ agentOn, setAgentOn, taxMode, setTaxMode, bizInfo, setBi
                 <div>
                   <span style={lblStyle}>Tono</span>
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                    {['Cálido', 'Neutral', 'Formal'].map(t => {
-                      const on = agente.tone === t
-                      return <button key={t} onClick={() => setAgente({ ...agente, tone: t })} style={{ padding: '8px 16px', borderRadius: 999, border: `1px solid ${on ? R.coral : R.line}`, background: on ? R.coralTint : R.surface, color: on ? R.coralPress : R.inkSoft, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13 }}>{t}</button>
+                    {(['Cálido', 'Neutral', 'Formal'] as const).map(t => {
+                      const on = agentCfg.tone === t
+                      return <button key={t} onClick={() => setAgentCfg(c => ({ ...c, tone: t }))} style={{ padding: '8px 16px', borderRadius: 999, border: `1px solid ${on ? R.coral : R.line}`, background: on ? R.coralTint : R.surface, color: on ? R.coralPress : R.inkSoft, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13 }}>{t}</button>
                     })}
                   </div>
                 </div>
-                <label><span style={lblStyle}>Instrucciones</span><textarea value={agente.instructions} onChange={e => setAgente({ ...agente, instructions: e.target.value })} rows={4} style={{ ...fieldStyle, resize: 'vertical' }} /></label>
+                <label><span style={lblStyle}>Instrucciones</span><textarea value={agentCfg.instructions} onChange={e => setAgentCfg(c => ({ ...c, instructions: e.target.value }))} rows={4} style={{ ...fieldStyle, resize: 'vertical' }} /></label>
                 <label><span style={lblStyle}>Límite de descuento que puede ofrecer</span>
                   <div style={{ position: 'relative' }}>
-                    <input inputMode="numeric" value={agente.maxDiscount} onChange={e => setAgente({ ...agente, maxDiscount: e.target.value.replace(/\D/g, '') })} style={{ ...fieldStyle, paddingRight: 34 }} />
+                    <input inputMode="numeric" value={String(agentCfg.maxDiscount)} onChange={e => setAgentCfg(c => ({ ...c, maxDiscount: Number(e.target.value.replace(/\D/g, '')) || 0 }))} style={{ ...fieldStyle, paddingRight: 34 }} />
                     <span style={{ position: 'absolute', right: 13, top: '50%', transform: 'translateY(-50%)', color: R.inkSoft, fontSize: 14 }}>%</span>
                   </div>
                 </label>
+                {/* Guardia fuera de horario */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', background: agentCfg.autoReplyOffHours ? R.jadeTint : R.surface, border: `1px solid ${agentCfg.autoReplyOffHours ? R.jade : R.line}`, borderRadius: 12 }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 13.5, fontWeight: 700, color: R.ink }}>Atender fuera de horario</div>
+                    <div style={{ fontSize: 12, color: R.inkSoft, marginTop: 2 }}>Cuando el negocio está cerrado ({vert.hours}), la IA responde sola las dudas de los clientes en el chat.</div>
+                  </div>
+                  <button onClick={() => setAgentCfg(c => ({ ...c, autoReplyOffHours: !c.autoReplyOffHours }))} style={{ width: 46, height: 27, borderRadius: 999, border: 'none', cursor: 'pointer', background: agentCfg.autoReplyOffHours ? R.jade : R.line, position: 'relative', flexShrink: 0 }}>
+                    <span style={{ position: 'absolute', top: 3, left: agentCfg.autoReplyOffHours ? 22 : 3, width: 21, height: 21, borderRadius: '50%', background: '#fff', transition: 'left .18s', boxShadow: '0 1px 3px rgba(0,0,0,.2)' }} />
+                  </button>
+                </div>
+                <div style={{ fontSize: 11.5, color: R.inkFaint }}>Dentro del horario, tú sigues respondiendo (a mano o con el botón del agente).</div>
               </div>
             )}
 
@@ -4031,7 +4083,9 @@ export default function BizPage() {
   const [ready, setReady] = useState(false)
   const [vertIdx, setVertIdx] = useState(0)
   const [view, setView] = useState('requests')
-  const [agentOn, setAgentOn] = useState(true)
+  // Config del Agente de IA (tono, instrucciones, límite de descuento, on/off).
+  // Es por negocio y se persiste; la consumen Ajustes y la pestaña Mensajes.
+  const [agentCfg, setAgentCfgState] = useState<BizAgentConfig>(DEFAULT_AGENT_CONFIG)
   const [switcher, setSwitcher] = useState(false)
   const [notifOpen, setNotifOpen] = useState(false)
   // Catálogo compartido: lo edita CatalogView y lo consume el Punto de venta
@@ -4042,7 +4096,19 @@ export default function BizPage() {
     const v = VERTICALS[vertIdx]
     setCatalog(v.catalog.map(c => ({ ...c, active: true })))
     setBizInfo({ rfc: v.rfc, address: v.address, phone: v.phone })
+    setAgentCfgState(loadAgentConfig(v.id))
   }, [vertIdx])
+  // Actualiza + persiste la config del agente en un solo paso (evita el race de un
+  // efecto de guardado al cambiar de negocio).
+  function setAgentCfg(updater: BizAgentConfig | ((c: BizAgentConfig) => BizAgentConfig)) {
+    setAgentCfgState(prev => {
+      const next = typeof updater === 'function' ? updater(prev) : updater
+      saveAgentConfig(VERTICALS[vertIdx].id, next)
+      return next
+    })
+  }
+  const agentOn = agentCfg.on
+  const setAgentOn = (v: boolean) => setAgentCfg(c => ({ ...c, on: v }))
   // Hidrata las existencias reales desde Supabase (si está configurado), para que
   // el panel refleje lo que la app del cliente ya vendió/descontó. Se emparejan
   // por id de servicio; en modo demo `fetchStock` devuelve null y no toca nada.
@@ -4088,7 +4154,7 @@ export default function BizPage() {
   function renderView() {
     if (view === 'requests') return <RequestsView vert={vert} onGo={setView} />
     if (view === 'agenda') return <AgendaView vert={vert} />
-    if (view === 'messages') return <MessagesView key={vert.id} vert={vert} />
+    if (view === 'messages') return <MessagesView key={vert.id} vert={vert} agentCfg={agentCfg} />
     if (view === 'metrics') return <MetricsView vert={vert} />
     if (view === 'reports') return <ReportsView vert={vert} items={catalog} onGo={setView} bizInfo={bizInfo} />
     if (view === 'catalog') return <CatalogView vert={vert} items={catalog} setItems={setCatalog} />
@@ -4097,7 +4163,7 @@ export default function BizPage() {
     if (view === 'destacado') return <DestacadoView vert={vert} />
     if (view === 'promos') return <PromosView vert={vert} />
     if (view === 'scanner') return <ScannerView key={vert.id} vert={vert} />
-    if (view === 'settings') return <SettingsView agentOn={agentOn} setAgentOn={setAgentOn} taxMode={taxMode} setTaxMode={setTaxMode} bizInfo={bizInfo} setBizInfo={setBizInfo} vert={vert} onGo={setView} />
+    if (view === 'settings') return <SettingsView agentCfg={agentCfg} setAgentCfg={setAgentCfg} taxMode={taxMode} setTaxMode={setTaxMode} bizInfo={bizInfo} setBizInfo={setBizInfo} vert={vert} onGo={setView} />
     return <PlaceholderView title={VIEW_TITLES[view]?.[0] ?? view} />
   }
 
@@ -4223,7 +4289,7 @@ export default function BizPage() {
                 {agentOn && <span style={{ position: 'absolute', inset: -4, borderRadius: '50%', border: `2px solid ${R.jade}`, opacity: .4, animation: 'ping 1.6s infinite' }} />}
               </span>
               <span style={{ fontSize: 13.5, fontWeight: 700, color: agentOn ? '#16614c' : R.inkSoft, whiteSpace: 'nowrap' }}>Agente {agentOn ? 'activo' : 'pausado'}</span>
-              <button onClick={() => setAgentOn(a => !a)} style={{ width: 34, height: 20, borderRadius: 999, border: 'none', cursor: 'pointer', background: agentOn ? R.jade : R.inkFaint, position: 'relative', flexShrink: 0 }}>
+              <button onClick={() => setAgentOn(!agentOn)} style={{ width: 34, height: 20, borderRadius: 999, border: 'none', cursor: 'pointer', background: agentOn ? R.jade : R.inkFaint, position: 'relative', flexShrink: 0 }}>
                 <span style={{ position: 'absolute', top: 2, left: agentOn ? 16 : 2, width: 16, height: 16, borderRadius: '50%', background: '#fff', transition: 'left .18s' }} />
               </button>
             </div>

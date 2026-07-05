@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect, useRef, type ReactNode, type CSSProperties } from 'react'
 import { BM_OPTIONS_DEFAULT, loadBMConfig, saveBMConfig, type BMOption } from '@/lib/boomerangme-config'
-import { STRIPE_OPTIONS_DEFAULT, loadStripeConfig, saveStripeConfig, stripeMode, type StripeOption } from '@/lib/stripe-config'
+import { STRIPE_OPTIONS_DEFAULT, loadStripeConfig, saveStripeConfig, type StripeOption } from '@/lib/stripe-config'
 import { OR_OPTIONS_DEFAULT, OR_DEFAULT_MODEL, loadORConfig, saveORConfig, type OROption } from '@/lib/openrouter-config'
 import { PROMPT_DEFS, DEFAULT_PROMPTS, type PromptId } from '@/lib/ai-prompts'
 import { STATES_DATA } from '@/lib/data'
@@ -628,17 +628,12 @@ export default function AdminPage() {
   function disconnectBM() { setBmConnected(false); setBmKey(''); setBmSecret(''); saveBMConfig({ connected: false, options: bmOptions }) }
   function toggleBM(id: string) { setBmOptions(prev => { const next = prev.map(o => o.id === id ? { ...o, on: !o.on } : o); saveBMConfig({ connected: bmConnected, options: next }); return next }) }
 
-  // Integraciones · Stripe
-  const [stPk, setStPk] = useState('')
-  const [stSk, setStSk] = useState('')
-  const [stWh, setStWh] = useState('')
-  const [stConnected, setStConnected] = useState(false)
+  // Integraciones · Stripe — las llaves reales (pk/sk/webhook) viven en variables
+  // de entorno de la plataforma (Vercel), no en la app. Aquí el super admin sólo
+  // decide qué cobros habilita Reva a través de Stripe.
   const [stOptions, setStOptions] = useState<StripeOption[]>(STRIPE_OPTIONS_DEFAULT)
-  useEffect(() => { const c = loadStripeConfig(); setStConnected(c.connected); setStOptions(c.options) }, [])
-  function connectStripe() { if (stPk.trim() && stSk.trim()) { setStConnected(true); saveStripeConfig({ connected: true, options: stOptions }) } }
-  function disconnectStripe() { setStConnected(false); setStPk(''); setStSk(''); setStWh(''); saveStripeConfig({ connected: false, options: stOptions }) }
-  function toggleStripe(id: string) { setStOptions(prev => { const next = prev.map(o => o.id === id ? { ...o, on: !o.on } : o); saveStripeConfig({ connected: stConnected, options: next }); return next }) }
-  const stMode = stripeMode(stPk)
+  useEffect(() => { setStOptions(loadStripeConfig().options) }, [])
+  function toggleStripe(id: string) { setStOptions(prev => { const next = prev.map(o => o.id === id ? { ...o, on: !o.on } : o); saveStripeConfig({ connected: true, options: next }); return next }) }
 
   // Integraciones · OpenRouter
   const [orKey, setOrKey] = useState('')
@@ -1471,7 +1466,7 @@ export default function AdminPage() {
                   <div style={{ fontSize: 13.5, color: R.inkSoft, marginBottom: 16 }}>Elige una conexión para configurar su módulo.</div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(330px, 1fr))', gap: 14 }}>
                     {INTEGRATIONS.map(it => {
-                      const connected = it.id === 'openrouter' ? orConnected : it.id === 'boomerangme' ? bmConnected : stConnected
+                      const connected = it.id === 'openrouter' ? orConnected : it.id === 'boomerangme' ? bmConnected : true
                       return (
                         <Card key={it.id} onClick={() => setInteg(it.id)} style={{ padding: 18, cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: 13 }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 13 }}>
@@ -1700,53 +1695,26 @@ export default function AdminPage() {
                   <button onClick={() => setInteg(null)} style={{ display: 'inline-flex', alignItems: 'center', gap: 7, background: 'transparent', border: 'none', cursor: 'pointer', color: R.inkSoft, fontFamily: R.ui, fontWeight: 700, fontSize: 13.5, padding: 0, marginBottom: 18 }}>
                     <Icon n="back" size={17} color={R.inkSoft} /> Integraciones
                   </button>
-                  {/* Conexión Stripe */}
+                  {/* Conexión Stripe — gestionada por variables de entorno */}
                   <Card style={{ marginBottom: 22 }}>
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, marginBottom: 18 }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, marginBottom: 16 }}>
                   <div style={{ width: 48, height: 48, borderRadius: 13, background: 'linear-gradient(140deg,#635BFF,#4B45C6)', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
                     <Icon n="card" size={24} color="#fff" />
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                       <span style={{ fontFamily: R.display, fontWeight: 800, fontSize: 18, color: R.ink }}>Stripe</span>
-                      {stConnected
-                        ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 700, color: '#16614c', background: R.jadeTint, padding: '3px 10px', borderRadius: 999 }}><span style={{ width: 7, height: 7, borderRadius: '50%', background: R.jade }} /> Conectado</span>
-                        : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 700, color: R.amberDeep, background: R.amberTint, padding: '3px 10px', borderRadius: 999 }}><Icon n="clock" size={12} color={R.amberDeep} /> Pendiente · faltan llaves</span>}
-                      {stMode && <span style={{ fontSize: 11, fontWeight: 700, color: stMode === 'live' ? '#16614c' : R.amberDeep, background: stMode === 'live' ? R.jadeTint : R.amberTint, padding: '3px 9px', borderRadius: 999 }}>{stMode === 'live' ? 'Modo producción' : 'Modo prueba'}</span>}
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 700, color: '#16614c', background: R.jadeTint, padding: '3px 10px', borderRadius: 999 }}><span style={{ width: 7, height: 7, borderRadius: '50%', background: R.jade }} /> Conectado</span>
                     </div>
                     <div style={{ fontSize: 13.5, color: R.inkSoft, marginTop: 4 }}>Pagos y cobros de la plataforma: depósitos de reserva y campañas de Destacados. La conexión es a nivel plataforma.</div>
                   </div>
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
-                  <div>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 8 }}>Clave publicable</div>
-                    <input value={stPk} onChange={e => setStPk(e.target.value)} disabled={stConnected} placeholder="pk_live_…" style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 10, padding: '11px 13px', fontSize: 14, color: R.ink, outline: 'none', fontFamily: R.ui, background: stConnected ? R.bgAlt : R.surface }} />
+                <div style={{ padding: '12px 14px', background: R.bgAlt, borderRadius: 12, fontSize: 12.5, color: R.inkSoft, lineHeight: 1.5 }}>
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: R.ink, fontWeight: 700, marginBottom: 4 }}>
+                    <Icon n="shield" size={14} color={R.jade} /> Llaves gestionadas en el entorno
                   </div>
-                  <div>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 8 }}>Clave secreta</div>
-                    <input value={stSk} onChange={e => setStSk(e.target.value)} disabled={stConnected} type="password" placeholder="sk_live_…" style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 10, padding: '11px 13px', fontSize: 14, color: R.ink, outline: 'none', fontFamily: R.ui, background: stConnected ? R.bgAlt : R.surface }} />
-                  </div>
+                  Las llaves de Stripe (publicable, secreta y firma del webhook) viven en las variables de entorno de la plataforma y no se editan aquí. Endpoint del webhook: <code style={{ background: R.surface, padding: '2px 6px', borderRadius: 6, fontSize: 12, color: R.ink }}>/api/stripe/webhook</code>
                 </div>
-                <div style={{ marginBottom: 14 }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 8 }}>Firma del webhook</div>
-                  <input value={stWh} onChange={e => setStWh(e.target.value)} disabled={stConnected} type="password" placeholder="whsec_…" style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 10, padding: '11px 13px', fontSize: 14, color: R.ink, outline: 'none', fontFamily: R.ui, background: stConnected ? R.bgAlt : R.surface }} />
-                  <div style={{ fontSize: 12, color: R.inkFaint, marginTop: 7 }}>Endpoint del webhook: <code style={{ background: R.bgAlt, padding: '2px 6px', borderRadius: 6, fontSize: 12, color: R.ink }}>/api/stripe/webhook</code></div>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-                  {stConnected ? (
-                    <button onClick={disconnectStripe} style={{ padding: '11px 18px', border: `1px solid ${R.line}`, borderRadius: 12, background: 'transparent', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14, color: R.coralPress }}>Desconectar</button>
-                  ) : (
-                    <button onClick={connectStripe} disabled={!stPk.trim() || !stSk.trim()} style={{ padding: '11px 20px', border: 'none', borderRadius: 12, background: (stPk.trim() && stSk.trim()) ? R.coral : R.coralTint, cursor: (stPk.trim() && stSk.trim()) ? 'pointer' : 'not-allowed', fontFamily: R.ui, fontWeight: 700, fontSize: 14, color: (stPk.trim() && stSk.trim()) ? '#fff' : R.coralPress }}>Conectar</button>
-                  )}
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: R.inkFaint }}>
-                    <Icon n="shield" size={14} color={R.jade} /> Las llaves se guardan cifradas a nivel plataforma.
-                  </span>
-                </div>
-                {!stConnected && (
-                  <div style={{ marginTop: 14, padding: '11px 13px', background: R.amberTint, borderRadius: 10, fontSize: 12.5, color: R.amberDeep }}>
-                    <strong>Pendiente:</strong> agrega tus llaves del Dashboard de Stripe para activar los cobros. Todo lo demás ya está listo.
-                  </div>
-                )}
               </Card>
 
               {/* Cobros habilitados */}
@@ -1755,7 +1723,7 @@ export default function AdminPage() {
                 <span style={{ fontSize: 12.5, fontWeight: 700, color: R.coralPress, background: R.coralTint, padding: '3px 10px', borderRadius: 999 }}>{stOptions.filter(o => o.on).length} de {stOptions.length}</span>
               </div>
               <div style={{ fontSize: 13, color: R.inkSoft, marginBottom: 14 }}>Define qué cobros realiza Reva a través de Stripe.</div>
-              <Card style={{ padding: 0, overflow: 'hidden', opacity: stConnected ? 1 : .85 }}>
+              <Card style={{ padding: 0, overflow: 'hidden' }}>
                 {stOptions.map((o, i) => (
                   <div key={o.id} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 18px', borderTop: i ? `1px solid ${R.lineSoft}` : 'none' }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
@@ -1768,7 +1736,6 @@ export default function AdminPage() {
                   </div>
                 ))}
               </Card>
-              {!stConnected && <div style={{ fontSize: 12.5, color: R.inkFaint, marginTop: 10 }}>Puedes preconfigurar qué cobros habilitar; se activarán al conectar Stripe.</div>}
                 </>
               )}
             </div>
