@@ -43,9 +43,17 @@ export async function POST(req: NextRequest) {
     })
 
     if (fnErr) {
-      console.error('Edge function error:', fnErr)
+      // supabase-js wraps a non-2xx function response in a FunctionsHttpError whose
+      // `context` is the raw Response — read it so the real reason (e.g. Resend
+      // sandbox restriction / unverified domain) actually shows up in the logs.
+      let detail: unknown = fnErr.message
+      const ctx = (fnErr as { context?: Response }).context
+      if (ctx && typeof ctx.text === 'function') {
+        try { detail = await ctx.clone().json() } catch { detail = await ctx.text() }
+      }
+      console.error('Edge function error (send-biz-invite):', detail)
       // Invitation row already created — log the error but don't fail the request
-      return NextResponse.json({ ok: true, warning: 'Invitation saved but email delivery failed' })
+      return NextResponse.json({ ok: true, warning: 'Invitation saved but email delivery failed', detail })
     }
 
     return NextResponse.json({ ok: true })
