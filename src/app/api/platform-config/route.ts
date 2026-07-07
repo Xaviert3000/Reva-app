@@ -1,12 +1,11 @@
 import { loadPlatformConfig, savePlatformConfig, type PlatformConfig } from '@/lib/platform-config'
+import { requireAdmin } from '@/lib/admin-auth'
 
 // Config de IA de la plataforma para el panel del super admin.
 // GET  → config actual (modelo, respaldos, prompts, toggles).
-// POST → guarda un patch parcial.
-//
-// SEGURIDAD (pendiente para producción): este POST aún no está protegido por auth
-// real de admin (el login del panel es demo, solo cliente). Antes de desplegar,
-// protégelo con auth/rol de admin en Supabase. No cambia la arquitectura de config.
+// POST → guarda un patch parcial (solo admin, Fase 9).
+
+export const dynamic = 'force-dynamic'
 
 export async function GET() {
   const cfg = await loadPlatformConfig(true)
@@ -14,6 +13,8 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
+  const admin = await requireAdmin()
+  if (!admin) return Response.json({ error: 'No autorizado' }, { status: 403 })
   try {
     const patch = (await req.json()) as Partial<PlatformConfig>
     const cfg = await savePlatformConfig(patch)

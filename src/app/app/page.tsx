@@ -1,5 +1,5 @@
 'use client'
-import { useState, useRef, useEffect, useContext, createContext } from 'react'
+import { useState, useRef, useEffect, useContext, useCallback, createContext } from 'react'
 
 const LangContext = createContext<'es'|'en'>('en')
 
@@ -12,6 +12,7 @@ function timeGreeting(en: boolean): string {
 import QRCode from 'qrcode'
 import { type Mode, type Business, type Service, BIZ, CATALOG, CITIES, STATES_DATA, COPY, slotsFromHours, upcomingDays, slotAvailability, isScheduled, inStock, tracksStock, dayOffered, findService, localSearch, servicesForSearch, activeAlert, findMunicipio, featuredBadge } from '@/lib/data'
 import { fetchCityData, type CityData } from '@/lib/business-data'
+import { createClient } from '@/lib/supabase/client'
 import { roveToken, ROVE_SERIALS, type RoveProgram } from '@/lib/rove'
 import { type RoveReward, type RoveRedemption as RoveRedemptionResult } from '@/lib/rove-rewards'
 import { clsx } from 'clsx'
@@ -1000,7 +1001,7 @@ function Discovery({ mode, onOpen, onBook, onModeToggle, onBell, onMsg }: { mode
 }
 
 // ── Business Detail (full-screen) ──────────────────────────
-function BizDetail({ biz, mode, onClose, onBook }: { biz: Business; mode: Mode; onClose: () => void; onBook: (service?: Service) => void }) {
+function BizDetail({ biz, mode, onClose, onBook, onMessage }: { biz: Business; mode: Mode; onClose: () => void; onBook: (service?: Service) => void; onMessage: () => void }) {
   const en = useContext(LangContext) === 'en'
   const { catalog } = useContext(BizDataContext)
   const services = catalog[biz.id] ?? []
@@ -1157,6 +1158,10 @@ function BizDetail({ biz, mode, onClose, onBook }: { biz: Business; mode: Mode; 
           <div style={{ fontSize: 12, color: '#A89E94', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{selected ? selected.name : (en ? 'from' : 'desde')}</div>
           <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 18, color: '#221C19', whiteSpace: 'nowrap' }}>{selected ? selected.price : `${'$'.repeat(biz.price)} · ${biz.cat}`}</div>
         </div>
+        <button onClick={onMessage} aria-label={en ? 'Message' : 'Mensaje'}
+          style={{ flexShrink: 0, width: 50, height: 50, background: '#fff', color: '#221C19', border: '1px solid #E9E0D5', borderRadius: 16, cursor: 'pointer', display: 'grid', placeItems: 'center' }}>
+          <Icon n="chat" size={20} color="#221C19" />
+        </button>
         <button onClick={() => onBook(selected ?? undefined)}
           style={{ flex: 1, background: '#E8505B', color: '#fff', border: 'none', borderRadius: 16, padding: '14px 0', fontFamily: 'var(--font-ui)', fontWeight: 700, fontSize: 15, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
           <Icon n="spark" size={17} color="#fff" />
@@ -1199,6 +1204,24 @@ function Booking({ biz, mode, service, onClose, onConfirm }: { biz: Business; mo
         body: JSON.stringify({ bizId: biz.id, bizName: biz.name, userRequest: service ? `${scheduled ? 'Reserve' : 'Request'} ${service.name} at ${biz.name}` : `Reserve at ${biz.name}`, service: service?.name, servicePrice: service?.price, partySize: party, preferredTime: scheduled ? slot : '', preferredDate: scheduled ? days[dayIdx].iso : '', scheduled, mode }),
       })
     } catch { /* proceed */ }
+    // Persiste la reserva real (el usuario ya tiene sesión: tryBook lo garantiza).
+    // service.id sólo se envía si es un uuid real de la BD (no un slug demo).
+    try {
+      const isUuid = !!service?.id && /^[0-9a-f-]{36}$/i.test(service.id)
+      const slotIso = scheduled && slot ? `${days[dayIdx].iso}T${slot}:00` : null
+      await fetch('/api/reservations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          biz_id: biz.id,
+          service_id: isUuid ? service!.id : null,
+          slot: slotIso,
+          party,
+          notes: service?.name ?? null,
+          deposit_amount: 0,
+        }),
+      })
+    } catch { /* la confirmación local sigue mostrándose */ }
     setStep('success')
     setTimeout(() => onConfirm({ biz, date: scheduled ? days[dayIdx].label : '', time: scheduled ? slot : '', party, service }), 2500)
   }
@@ -1840,14 +1863,59 @@ function Rove({ mode, onModeToggle, onBell, onMsg, isRegistered, onRegister, onL
 // ── Trips ──────────────────────────────────────────────────
 type Booking = { biz: Business; date: string; time: string; party: number; service?: Service }
 
-function Trips({ mode, bookings, onModeToggle, onBell, onMsg }: { mode: Mode; bookings: Booking[]; onModeToggle: () => void; onBell: () => void; onMsg: () => void }) {
+// Reserva real tal como la devuelve GET /api/reservations (con datos del negocio).
+type DbReservation = {
+  id: string
+  biz_id: string
+  slot: string | null
+  party: number | null
+  status: string
+  notes: string | null
+  businesses?: { name: string; hood: string; type: string } | null
+}
+
+function Trips({ mode, onModeToggle, onBell, onMsg }: { mode: Mode; onModeToggle: () => void; onBell: () => void; onMsg: () => void }) {
   const en = useContext(LangContext) === 'en'
   const { businesses } = useContext(BizDataContext)
-  const pastBiz = businesses.find(b => b.id === 'lupita') ?? businesses[0]
-  const past: Booking[] = pastBiz ? [{ biz: pastBiz, date: en ? 'Fri 12' : 'Vie 12', time: '20:00', party: 2 }] : []
   const [reviewed, setReviewed] = useState<Record<string, boolean>>({})
 
-  const PassCard = ({ bk, past = false }: { bk: Booking; past?: boolean }) => (
+  // Carga las reservas reales del usuario con sesión.
+  const [rsvs, setRsvs] = useState<DbReservation[]>([])
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/reservations')
+      .then(r => r.ok ? r.json() : { reservations: [] })
+      .then(d => { if (!cancelled) setRsvs(d.reservations ?? []) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [])
+
+  // Convierte una reserva de BD a la forma Booking que pinta PassCard.
+  const toBooking = (r: DbReservation): Booking => {
+    const biz = businesses.find(b => b.id === r.biz_id)
+      ?? ({ id: r.biz_id, name: r.businesses?.name ?? 'Negocio', mono: (r.businesses?.name ?? 'R').charAt(0).toUpperCase(), grad: ['#E27A52', '#B5472F'] } as Business)
+    const d = r.slot ? new Date(r.slot) : null
+    const date = d ? d.toLocaleDateString(en ? 'en-US' : 'es-MX', { weekday: 'short', day: 'numeric', month: 'short' }) : ''
+    const time = d ? d.toLocaleTimeString(en ? 'en-US' : 'es-MX', { hour: '2-digit', minute: '2-digit' }) : ''
+    return { biz, date, time, party: r.party ?? 1, service: r.notes ? ({ name: r.notes } as Service) : undefined }
+  }
+
+  const now = Date.now()
+  const isPast = (r: DbReservation) => r.status === 'completed' || r.status === 'cancelled' || (r.slot ? new Date(r.slot).getTime() < now : false)
+  const upcoming = rsvs.filter(r => !isPast(r))
+  const past = rsvs.filter(isPast)
+
+  const statusOf = (r: DbReservation): { label: string; tone: 'pending' | 'ok' | 'past' } => {
+    if (r.status === 'cancelled') return { label: en ? 'Cancelled' : 'Cancelada', tone: 'past' }
+    if (isPast(r)) return { label: en ? 'Completed' : 'Completada', tone: 'past' }
+    if (r.status === 'pending') return { label: en ? 'Pending' : 'Por confirmar', tone: 'pending' }
+    return { label: en ? 'Confirmed' : 'Confirmada', tone: 'ok' }
+  }
+
+  const toneBg = { pending: '#FBEFD7', ok: '#DDF0E8', past: '#F3EADD' }
+  const toneFg = { pending: '#9A6C1C', ok: '#1F8A6D', past: '#6B615A' }
+
+  const PassCard = ({ bk, status, rid }: { bk: Booking; status: { label: string; tone: 'pending' | 'ok' | 'past' }; rid: string }) => (
     <div style={{ background: '#fff', border: '1px solid #E9E0D5', borderRadius: 18, overflow: 'hidden', boxShadow: '0 2px 10px rgba(34,28,25,.06)' }}>
       <div style={{ display: 'flex', gap: 13, padding: 15, alignItems: 'center' }}>
         <div style={{ width: 52, height: 52, borderRadius: 13, flexShrink: 0, background: `linear-gradient(140deg,${bk.biz.grad[0]},${bk.biz.grad[1]})`, display: 'grid', placeItems: 'center', fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 22, color: '#fff' }}>
@@ -1855,25 +1923,25 @@ function Trips({ mode, bookings, onModeToggle, onBell, onMsg }: { mode: Mode; bo
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 16, color: '#221C19' }}>{bk.biz.name}</div>
-          {bk.service && <div style={{ fontSize: 13, fontWeight: 600, color: '#221C19', marginTop: 2 }}>{bk.service.name} · {bk.service.price}</div>}
+          {bk.service && <div style={{ fontSize: 13, fontWeight: 600, color: '#221C19', marginTop: 2 }}>{bk.service.name}</div>}
           <div style={{ fontSize: 13, color: '#6B615A', marginTop: 3 }}>{[bk.date, bk.time, `${bk.party} ${en ? 'guests' : 'pers.'}`].filter(Boolean).join(' · ') || (en ? 'Reva coordinating' : 'Reva coordina')}</div>
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, marginTop: 8, fontSize: 12, fontWeight: 700, padding: '3px 9px', borderRadius: 999, background: past ? '#F3EADD' : '#DDF0E8', color: past ? '#6B615A' : '#1F8A6D' }}>
-            <Icon n="check" size={12} color={past ? '#6B615A' : '#1F8A6D'} stroke={3} />
-            {past ? (en ? 'Completed' : 'Completada') : (en ? 'Confirmed' : 'Confirmada')}
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, marginTop: 8, fontSize: 12, fontWeight: 700, padding: '3px 9px', borderRadius: 999, background: toneBg[status.tone], color: toneFg[status.tone] }}>
+            {status.tone !== 'pending' && <Icon n="check" size={12} color={toneFg[status.tone]} stroke={3} />}
+            {status.label}
           </div>
         </div>
-        {!past && <Icon n="chevR" size={18} color="#A89E94" />}
+        {status.tone === 'ok' && <Icon n="chevR" size={18} color="#A89E94" />}
       </div>
-      {past && !reviewed['past-0'] && (
+      {status.tone === 'past' && !reviewed[rid] && (
         <div style={{ padding: '0 15px 15px' }}>
-          <button onClick={() => setReviewed(r => ({ ...r, 'past-0': true }))}
+          <button onClick={() => setReviewed(r => ({ ...r, [rid]: true }))}
             style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, width: '100%', padding: 12, borderRadius: 13, border: 'none', cursor: 'pointer', background: '#FBEFD7', color: '#9A6C1C', fontFamily: 'var(--font-ui)', fontWeight: 700, fontSize: 14 }}>
             <Icon n="star" size={16} color="#9A6C1C" fill="#9A6C1C" />
             {en ? 'How was it? Leave a review' : '¿Cómo te fue? Deja tu reseña'}
           </button>
         </div>
       )}
-      {past && reviewed['past-0'] && (
+      {status.tone === 'past' && reviewed[rid] && (
         <div style={{ margin: '0 15px 15px', display: 'flex', alignItems: 'center', gap: 8, padding: '11px 14px', background: '#DDF0E8', borderRadius: 13, fontSize: 13, fontWeight: 600, color: '#16614c' }}>
           <Icon n="check" size={15} color="#1F8A6D" stroke={3} /> {en ? 'Review published — thanks!' : 'Reseña publicada — ¡gracias!'}
         </div>
@@ -1885,7 +1953,7 @@ function Trips({ mode, bookings, onModeToggle, onBell, onMsg }: { mode: Mode; bo
     <div style={{ overflowY: 'auto', height: '100%', background: '#FAF5EE' }}>
       <AppHeader mode={mode} title={en ? 'Trips' : 'Reservas'} hasNotif showModeBadge={false} onModeToggle={onModeToggle} onBell={onBell} onMsg={onMsg} />
       <div style={{ padding: '0 16px 32px' }}>
-        {bookings.length === 0 ? (
+        {rsvs.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '40px 24px' }}>
             <div style={{ width: 64, height: 64, borderRadius: '50%', background: '#F3EADD', display: 'grid', placeItems: 'center', margin: '0 auto 16px' }}>
               <Icon n="cal" size={28} color="#A89E94" />
@@ -1895,16 +1963,24 @@ function Trips({ mode, bookings, onModeToggle, onBell, onMsg }: { mode: Mode; bo
           </div>
         ) : (
           <>
-            <p style={{ fontSize: 11, fontWeight: 700, color: '#A89E94', textTransform: 'uppercase', letterSpacing: '.07em', marginBottom: 12 }}>{en ? 'Upcoming' : 'Próximas'}</p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 24 }}>
-              {bookings.map((bk, i) => <PassCard key={i} bk={bk} />)}
-            </div>
+            {upcoming.length > 0 && (
+              <>
+                <p style={{ fontSize: 11, fontWeight: 700, color: '#A89E94', textTransform: 'uppercase', letterSpacing: '.07em', marginBottom: 12 }}>{en ? 'Upcoming' : 'Próximas'}</p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 24 }}>
+                  {upcoming.map(r => <PassCard key={r.id} rid={r.id} bk={toBooking(r)} status={statusOf(r)} />)}
+                </div>
+              </>
+            )}
+            {past.length > 0 && (
+              <>
+                <p style={{ fontSize: 11, fontWeight: 700, color: '#A89E94', textTransform: 'uppercase', letterSpacing: '.07em', marginBottom: 12 }}>{en ? 'Past' : 'Pasadas'}</p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  {past.map(r => <PassCard key={r.id} rid={r.id} bk={toBooking(r)} status={statusOf(r)} />)}
+                </div>
+              </>
+            )}
           </>
         )}
-        <p style={{ fontSize: 11, fontWeight: 700, color: '#A89E94', textTransform: 'uppercase', letterSpacing: '.07em', marginBottom: 12 }}>{en ? 'Past' : 'Pasadas'}</p>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {past.map((bk, i) => <PassCard key={i} bk={bk} past />)}
-        </div>
       </div>
     </div>
   )
@@ -2434,94 +2510,80 @@ function Profile({ mode, homeState, homeCity, currentCity, onCityChange, onModeS
 type Tab = 'concierge' | 'discover' | 'bookings' | 'rove' | 'profile'
 
 // ── Messages Screen ────────────────────────────────────────
-const GUEST_CHATS = {
-  explorer: {
-    bizId: 'lupita', time: '2m', unread: false,
-    last: 'Is the terrace pet-friendly?',
-    thread: [
-      { from: 'reva', txt: "I connected you with La Lupita for your anniversary table tonight · 19:30." },
-      { from: 'user', txt: 'Is the terrace pet-friendly? Bringing our small dog 🐶' },
-      { from: 'reva', txt: "Sent to La Lupita — I'll ping you here the moment they reply." },
-    ],
-  },
-  vecino: {
-    bizId: 'lupita', time: '18m', unread: true,
-    last: '¡Claro! Te aparto una botella.',
-    thread: [
-      { from: 'reva', txt: 'Te conecté con La Lupita — tu mesa de siempre, hoy 21:00.' },
-      { from: 'user', txt: '¿Tienen el mezcal de la casa esta noche?' },
-      { from: 'biz', txt: '¡Claro! Te aparto una botella.' },
-    ],
-  },
+// Chat cliente↔negocio real, persistido en la tabla `messages` (Fase 4).
+type GMsg = { from: string; txt: string } // from: user | biz | reva
+type GThread = { bizId: string; bizName: string; grad: [string, string]; mono: string; last: string; time: string; unread: boolean; msgs: GMsg[] }
+interface ApiThread { bizId: string; bizName: string; grad_from: string | null; grad_to: string | null; mono: string | null; last: string; created_at: string; messages: { from_role: string; body: string }[] }
+
+function msgRelTime(iso: string): string {
+  const min = Math.floor((Date.now() - new Date(iso).getTime()) / 60000)
+  if (min < 1) return 'ahora'
+  if (min < 60) return `${min}m`
+  const h = Math.floor(min / 60)
+  return h < 24 ? `${h}h` : `${Math.floor(h / 24)}d`
 }
 
-function MessagesScreen({ mode, onClose }: { mode: Mode; onClose: () => void }) {
+function MessagesScreen({ mode, onClose, startBizId }: { mode: Mode; onClose: () => void; startBizId?: string | null }) {
   const en = useContext(LangContext) === 'en'
-  const chat = GUEST_CHATS[mode]
-  const biz = BIZ.find(b => b.id === chat.bizId)!
-  const [thread, setThread] = useState(false)
-  const [msgs, setMsgs] = useState(chat.thread)
+  const { businesses } = useContext(BizDataContext)
+  const [threads, setThreads] = useState<GThread[]>([])
+  const [activeBizId, setActiveBizId] = useState<string | null>(startBizId ?? null)
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => { setThread(false); setMsgs(chat.thread); setInput('') }, [mode])
-  useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight }, [msgs, thread])
+  const load = useCallback(async () => {
+    try {
+      const r = await fetch('/api/messages')
+      if (!r.ok) return
+      const d = await r.json()
+      setThreads((d.threads ?? []).map((t: ApiThread): GThread => ({
+        bizId: t.bizId,
+        bizName: t.bizName,
+        grad: [t.grad_from || '#E27A52', t.grad_to || '#B5472F'],
+        mono: t.mono || (t.bizName || 'R').charAt(0).toUpperCase(),
+        last: t.last,
+        time: msgRelTime(t.created_at),
+        unread: false,
+        msgs: (t.messages ?? []).map(m => ({ from: m.from_role, txt: m.body })),
+      })))
+    } catch { /* mantiene lo que haya */ }
+  }, [])
+  useEffect(() => { load() }, [load])
+  useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight }, [threads, activeBizId])
 
-  // Respuesta de respaldo (sin IA disponible): degrada al aviso de Reva de antes.
-  const fallback = () => ({ from: 'reva', txt: en ? `Sent to ${biz.name} — I'll let you know when they reply.` : `Enviado a ${biz.name} — te aviso cuando respondan.` })
+  // Abre (creando un hilo vacío si hace falta) la conversación con un negocio.
+  useEffect(() => {
+    if (!startBizId) return
+    setThreads(prev => {
+      if (prev.some(t => t.bizId === startBizId)) return prev
+      const b = businesses.find(x => x.id === startBizId)
+      return [{ bizId: startBizId, bizName: b?.name ?? 'Negocio', grad: b?.grad ?? ['#E27A52', '#B5472F'], mono: b?.mono ?? 'R', last: '', time: '', unread: false, msgs: [] }, ...prev]
+    })
+    setActiveBizId(startBizId)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [startBizId])
+
+  const active = threads.find(t => t.bizId === activeBizId) ?? null
 
   async function send() {
-    const t = input.trim(); if (!t || sending) return
+    const t = input.trim()
+    if (!t || sending || !activeBizId) return
     setInput('')
-    const history = [...msgs, { from: 'user', txt: t }]
-    setMsgs(history)
+    setThreads(prev => prev.map(x => x.bizId === activeBizId ? { ...x, msgs: [...x.msgs, { from: 'user', txt: t }], last: t } : x))
     setSending(true)
     try {
-      // El cliente le habla al agente del negocio: user = cliente, biz = agente.
-      const apiMsgs = history.map(x => ({
-        role: (x.from === 'biz' ? 'assistant' : 'user') as 'assistant' | 'user',
-        content: x.from === 'reva' ? `[Reva] ${x.txt}` : x.txt,
-      }))
-      const res = await fetch('/api/biz-chat', {
+      const res = await fetch('/api/messages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messages: apiMsgs,
-          bizName: biz.name,
-          bizType: biz.type,
-          greeting: en ? `Hi, I'm the agent for ${biz.name}.` : `Hola, soy el agente de ${biz.name}.`,
-          services: biz.tags,
-          hours: biz.hours,
-          depositPolicy: 'none',
-          mode,
-        }),
+        body: JSON.stringify({ biz_id: activeBizId, body: t, mode }),
       })
-      if (!res.ok || !res.body) throw new Error('api')
-      setMsgs(m => [...m, { from: 'biz', txt: '' }])
-      const reader = res.body.getReader()
-      const decoder = new TextDecoder()
-      let acc = ''
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        for (const line of decoder.decode(value).split('\n')) {
-          if (!line.startsWith('data: ')) continue
-          const data = line.slice(6).trim()
-          if (data === '[DONE]') break
-          try {
-            const delta: string = JSON.parse(data).choices?.[0]?.delta?.content ?? ''
-            if (delta) {
-              acc += delta
-              setMsgs(m => { const c = [...m]; c[c.length - 1] = { from: 'biz', txt: acc }; return c })
-            }
-          } catch { /* skip */ }
-        }
+      if (res.ok) {
+        const d = await res.json()
+        const replyTxt: string = d.reply?.body ?? ''
+        if (replyTxt) setThreads(prev => prev.map(x => x.bizId === activeBizId ? { ...x, msgs: [...x.msgs, { from: 'biz', txt: replyTxt }], last: replyTxt } : x))
       }
-      if (!acc) setMsgs(m => [...m.slice(0, -1), fallback()])
-    } catch {
-      setMsgs(m => [...m, fallback()])
-    } finally {
+    } catch { /* el mensaje del cliente ya se muestra */ } finally {
       setSending(false)
     }
   }
@@ -2529,21 +2591,21 @@ function MessagesScreen({ mode, onClose }: { mode: Mode; onClose: () => void }) 
   return (
     <div style={{ position: 'absolute', inset: 0, zIndex: 40, background: '#FAF5EE', display: 'flex', flexDirection: 'column' }}>
       <div style={{ padding: 'max(54px, calc(env(safe-area-inset-top) + 18px)) 16px 12px', display: 'flex', alignItems: 'center', gap: 12, background: '#FAF5EE', flexShrink: 0 }}>
-        <button onClick={() => thread ? setThread(false) : onClose()} style={{ width: 38, height: 38, borderRadius: '50%', border: '1px solid #E9E0D5', background: '#fff', cursor: 'pointer', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+        <button onClick={() => active ? setActiveBizId(null) : onClose()} style={{ width: 38, height: 38, borderRadius: '50%', border: '1px solid #E9E0D5', background: '#fff', cursor: 'pointer', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
           <Icon n="chevL" size={18} color="#221C19" />
         </button>
         <div style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 22, color: '#221C19', letterSpacing: '-.02em' }}>
-          {thread ? biz.name.split(' ').slice(0, 2).join(' ') : en ? 'Messages' : 'Mensajes'}
+          {active ? active.bizName.split(' ').slice(0, 2).join(' ') : en ? 'Messages' : 'Mensajes'}
         </div>
       </div>
 
-      {thread ? (
+      {active ? (
         <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', padding: '0 16px 16px' }}>
           {/* biz header */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, paddingBottom: 14, borderBottom: '1px solid #F1EADF', flexShrink: 0 }}>
-            <div style={{ width: 42, height: 42, borderRadius: 12, background: `linear-gradient(140deg,${biz.grad[0]},${biz.grad[1]})`, display: 'grid', placeItems: 'center', fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 17, color: '#fff', flexShrink: 0 }}>{biz.mono}</div>
+            <div style={{ width: 42, height: 42, borderRadius: 12, background: `linear-gradient(140deg,${active.grad[0]},${active.grad[1]})`, display: 'grid', placeItems: 'center', fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 17, color: '#fff', flexShrink: 0 }}>{active.mono}</div>
             <div>
-              <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 16, color: '#221C19' }}>{biz.name}</div>
+              <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 16, color: '#221C19' }}>{active.bizName}</div>
               <div style={{ fontSize: 12, color: '#6B615A', display: 'flex', alignItems: 'center', gap: 5, marginTop: 1 }}>
                 <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#E8505B', flexShrink: 0 }} />
                 {en ? 'Connected via Reva' : 'Conectado vía Reva'}
@@ -2552,7 +2614,12 @@ function MessagesScreen({ mode, onClose }: { mode: Mode; onClose: () => void }) 
           </div>
           {/* thread */}
           <div ref={scrollRef} style={{ flex: 1, overflow: 'auto', padding: '14px 2px', display: 'flex', flexDirection: 'column', gap: 11 }}>
-            {msgs.map((m, i) => {
+            {active.msgs.length === 0 && (
+              <div style={{ textAlign: 'center', fontSize: 12.5, color: '#A89E94', marginTop: 24, lineHeight: 1.5, padding: '0 24px' }}>
+                {en ? `Say hi to ${active.bizName} — Reva delivers your message.` : `Salúdalo — Reva le hace llegar tu mensaje a ${active.bizName}.`}
+              </div>
+            )}
+            {active.msgs.map((m, i) => {
               if (m.from === 'reva') return (
                 <div key={i} style={{ alignSelf: 'center', maxWidth: '92%', textAlign: 'center', fontSize: 12, color: '#9A6C1C', background: '#FBEFD7', padding: '7px 13px', borderRadius: 13, lineHeight: 1.4 }}>
                   <Icon n="spark" size={11} color="#9A6C1C" fill="#9A6C1C" /> {m.txt}
@@ -2567,7 +2634,7 @@ function MessagesScreen({ mode, onClose }: { mode: Mode; onClose: () => void }) 
           {/* composer */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#FAF5EE', border: '1px solid #E9E0D5', borderRadius: 999, padding: '5px 5px 5px 15px', flexShrink: 0 }}>
             <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()}
-              placeholder={en ? `Message ${biz.name.split(' ').slice(0, 2).join(' ')}…` : `Escribe a ${biz.name.split(' ').slice(0, 2).join(' ')}…`}
+              placeholder={en ? `Message ${active.bizName.split(' ').slice(0, 2).join(' ')}…` : `Escribe a ${active.bizName.split(' ').slice(0, 2).join(' ')}…`}
               style={{ flex: 1, border: 'none', outline: 'none', background: 'transparent', fontFamily: 'var(--font-ui)', fontSize: 14.5, color: '#221C19' }} />
             <button onClick={send} disabled={sending} style={{ width: 38, height: 38, borderRadius: '50%', border: 'none', background: input.trim() && !sending ? '#E8505B' : '#F1EADF', cursor: sending ? 'default' : 'pointer', display: 'grid', placeItems: 'center', transition: 'background .15s', flexShrink: 0 }}>
               <Icon n="send" size={17} color={input.trim() && !sending ? '#fff' : '#A89E94'} />
@@ -2576,23 +2643,22 @@ function MessagesScreen({ mode, onClose }: { mode: Mode; onClose: () => void }) 
         </div>
       ) : (
         <div style={{ flex: 1, overflow: 'auto', padding: '6px 16px 18px' }}>
-          <div onClick={() => setThread(true)} style={{ display: 'flex', alignItems: 'center', gap: 13, background: '#fff', border: '1px solid #E9E0D5', borderRadius: 18, padding: 15, cursor: 'pointer', boxShadow: '0 2px 8px rgba(34,28,25,.06)' }}>
-            <div style={{ width: 46, height: 46, borderRadius: 12, background: `linear-gradient(140deg,${biz.grad[0]},${biz.grad[1]})`, display: 'grid', placeItems: 'center', fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 19, color: '#fff', flexShrink: 0 }}>{biz.mono}</div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 15.5, color: '#221C19' }}>{biz.name}</span>
-                <span style={{ fontSize: 11.5, color: '#A89E94', flexShrink: 0, marginLeft: 8 }}>{chat.time}</span>
-              </div>
-              <div style={{ fontSize: 13, color: chat.unread ? '#221C19' : '#6B615A', fontWeight: chat.unread ? 600 : 400, marginTop: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{chat.last}</div>
-              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, marginTop: 7, fontSize: 11.5, fontWeight: 700, color: '#9A6C1C', background: '#FBEFD7', padding: '2px 9px', borderRadius: 999 }}>
-                <Icon n="spark" size={11} color="#9A6C1C" fill="#9A6C1C" /> {en ? 'Connected via Reva' : 'Conectado vía Reva'}
+          {threads.length === 0 ? (
+            <div style={{ textAlign: 'center', fontSize: 12.5, color: '#A89E94', marginTop: 40, lineHeight: 1.5, padding: '0 24px' }}>
+              {en ? 'No messages yet. Open a business and tap “Message” to start a chat.' : 'Aún no tienes mensajes. Abre un negocio y toca “Mensaje” para empezar un chat.'}
+            </div>
+          ) : threads.map(t => (
+            <div key={t.bizId} onClick={() => setActiveBizId(t.bizId)} style={{ display: 'flex', alignItems: 'center', gap: 13, background: '#fff', border: '1px solid #E9E0D5', borderRadius: 18, padding: 15, cursor: 'pointer', boxShadow: '0 2px 8px rgba(34,28,25,.06)', marginBottom: 10 }}>
+              <div style={{ width: 46, height: 46, borderRadius: 12, background: `linear-gradient(140deg,${t.grad[0]},${t.grad[1]})`, display: 'grid', placeItems: 'center', fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 19, color: '#fff', flexShrink: 0 }}>{t.mono}</div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 15.5, color: '#221C19' }}>{t.bizName}</span>
+                  <span style={{ fontSize: 11.5, color: '#A89E94', flexShrink: 0, marginLeft: 8 }}>{t.time}</span>
+                </div>
+                <div style={{ fontSize: 13, color: '#6B615A', marginTop: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.last || (en ? 'New conversation' : 'Nueva conversación')}</div>
               </div>
             </div>
-            {chat.unread && <span style={{ width: 9, height: 9, borderRadius: '50%', background: '#E8505B', flexShrink: 0 }} />}
-          </div>
-          <div style={{ textAlign: 'center', fontSize: 12.5, color: '#A89E94', marginTop: 18, lineHeight: 1.5, padding: '0 24px' }}>
-            {en ? 'Chats open when you book or ask a business something via Reva.' : 'Los chats se abren cuando reservas o le preguntas algo a un negocio vía Reva.'}
-          </div>
+          ))}
         </div>
       )}
     </div>
@@ -2732,15 +2798,25 @@ export default function AppPage() {
   const [bookingBiz, setBookingBiz] = useState<Business | null>(null)
   const [bookingService, setBookingService] = useState<Service | null>(null)
   const [detailService, setDetailService] = useState<{ biz: Business; service: Service } | null>(null)
-  const [confirmedBookings, setConfirmedBookings] = useState<Booking[]>([])
   const [showMessages, setShowMessages] = useState(false)
+  const [messagesBizId, setMessagesBizId] = useState<string | null>(null)
   const [showNotifs, setShowNotifs] = useState(false)
   const [showSupport, setShowSupport] = useState(false)
 
-  // Auth gate: track registration state and pending booking intent
+  // Auth gate: track registration state and pending booking intent.
+  // isRegistered ahora refleja la sesión real de Supabase.
   const [isRegistered, setIsRegistered] = useState(false)
   const [pendingBook, setPendingBook] = useState<{ biz: Business; service: Service | null } | null>(null)
   const [showAuthModal, setShowAuthModal] = useState(false)
+
+  useEffect(() => {
+    const supabase = createClient()
+    supabase.auth.getUser().then(({ data }) => setIsRegistered(!!data.user))
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
+      setIsRegistered(!!session?.user)
+    })
+    return () => sub.subscription.unsubscribe()
+  }, [])
 
   const en = useContext(LangContext) === 'en'
 
@@ -2753,6 +2829,14 @@ export default function AppPage() {
     }
     setBookingService(service)
     setBookingBiz(biz)
+  }
+
+  // Abrir chat con un negocio (requiere sesión: los mensajes se persisten).
+  const tryMessage = (biz: Business) => {
+    if (!isRegistered) { setShowAuthModal(true); return }
+    setOpenBiz(null)
+    setMessagesBizId(biz.id)
+    setShowMessages(true)
   }
 
   const handleAuthDismiss = () => {
@@ -2797,7 +2881,7 @@ export default function AppPage() {
       <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
         {tab === 'concierge' && <Concierge mode={mode} onOpen={setOpenBiz} onBook={(b) => tryBook(b, null)} onBookService={(b, s) => tryBook(b, s)} onServiceDetail={(b, s) => setDetailService({ biz: b, service: s })} onModeToggle={() => setTab('profile')} onBell={() => setShowNotifs(true)} onMsg={() => setShowMessages(true)} />}
         {tab === 'discover' && <Discovery mode={mode} onOpen={setOpenBiz} onBook={(b) => tryBook(b, null)} onModeToggle={() => setTab('profile')} onBell={() => setShowNotifs(true)} onMsg={() => setShowMessages(true)} />}
-        {tab === 'bookings' && <Trips mode={mode} bookings={confirmedBookings} onModeToggle={() => setTab('profile')} onBell={() => setShowNotifs(true)} onMsg={() => setShowMessages(true)} />}
+        {tab === 'bookings' && <Trips mode={mode} onModeToggle={() => setTab('profile')} onBell={() => setShowNotifs(true)} onMsg={() => setShowMessages(true)} />}
         {tab === 'rove' && <Rove mode={mode} onModeToggle={() => setTab('profile')} onBell={() => setShowNotifs(true)} onMsg={() => setShowMessages(true)} isRegistered={isRegistered} onRegister={() => { window.location.href = '/auth/register' }} onLogin={() => { window.location.href = '/auth/login' }} />}
         {tab === 'profile' && <Profile mode={mode} homeState={homeState} homeCity={homeCity} currentCity={currentCity} onCityChange={handleCityChange} onModeSwitch={() => {}} onLangChange={setLang} onChatSupport={() => setShowSupport(true)} onBell={() => setShowNotifs(true)} onMsg={() => setShowMessages(true)} isRegistered={isRegistered} onRegister={() => { window.location.href = '/auth/register' }} onLogin={() => { window.location.href = '/auth/login' }} />}
       </div>
@@ -2817,10 +2901,10 @@ export default function AppPage() {
 
       {/* Overlays */}
       {openBiz && (
-        <BizDetail biz={openBiz} mode={mode} onClose={() => setOpenBiz(null)} onBook={(svc) => { setOpenBiz(null); tryBook(openBiz, svc ?? null) }} />
+        <BizDetail biz={openBiz} mode={mode} onClose={() => setOpenBiz(null)} onBook={(svc) => { setOpenBiz(null); tryBook(openBiz, svc ?? null) }} onMessage={() => tryMessage(openBiz)} />
       )}
       {bookingBiz && (
-        <Booking biz={bookingBiz} mode={mode} service={bookingService ?? undefined} onClose={() => { setBookingBiz(null); setBookingService(null) }} onConfirm={(bk) => { setConfirmedBookings(b => [...b, bk]); setBookingBiz(null); setBookingService(null) }} />
+        <Booking biz={bookingBiz} mode={mode} service={bookingService ?? undefined} onClose={() => { setBookingBiz(null); setBookingService(null) }} onConfirm={() => { setBookingBiz(null); setBookingService(null) }} />
       )}
       {detailService && (
         <ServiceDetail biz={detailService.biz} service={detailService.service} mode={mode}
@@ -2828,7 +2912,7 @@ export default function AppPage() {
           onBook={() => { setDetailService(null); tryBook(detailService.biz, detailService.service) }} />
       )}
       {showMessages && (
-        <MessagesScreen mode={mode} onClose={() => setShowMessages(false)} />
+        <MessagesScreen mode={mode} startBizId={messagesBizId} onClose={() => { setShowMessages(false); setMessagesBizId(null) }} />
       )}
       {showNotifs && (
         <NotificationsScreen mode={mode} onClose={() => setShowNotifs(false)} onMessages={() => { setShowNotifs(false); setShowMessages(true) }} />

@@ -1,6 +1,7 @@
 import { openrouterChat, type ChatMessage } from '@/lib/openrouter'
 import { bizChatSystemPrompt } from '@/lib/ai-prompts'
 import { loadPlatformConfig, resolvedPrompt, modelChain } from '@/lib/platform-config'
+import { enforceRateLimit } from '@/lib/rate-limit'
 import type { Mode } from '@/lib/data'
 
 export const maxDuration = 30
@@ -9,6 +10,8 @@ export const maxDuration = 30
 // negocio (pestaña Mensajes del panel /biz). Usa el prompt 'biz-chat' editable
 // desde /admin → Integraciones → OpenRouter (promptOverride), o el default.
 export async function POST(req: Request) {
+  const limited = enforceRateLimit(req, 'ai')
+  if (limited) return limited
   try {
     const { messages, bizName, bizType, greeting, services, hours, depositPolicy, depositAmount, mode, tone, instructions, maxDiscount } = await req.json() as {
       messages: ChatMessage[]

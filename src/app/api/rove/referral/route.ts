@@ -1,12 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getReferralCode, getReferralStats, applyReferralCode } from '@/lib/rove-rewards'
+import { createClient } from '@/lib/supabase/server'
+import { getReferralStats, applyReferralCode } from '@/lib/rove-db'
 
-const DEMO_USER_ID = 'demo-user'
+export const dynamic = 'force-dynamic'
 
-// GET — devuelve el código y stats del usuario
+// GET — devuelve el código y stats del usuario con sesión.
 export async function GET() {
-  const stats = getReferralStats(DEMO_USER_ID)
-  const BASE = process.env.NEXT_PUBLIC_BASE_URL ?? 'https://reva.app'
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ code: '', link: '', totalReferred: 0, completed: 0, pending: 0 })
+
+  const stats = await getReferralStats(user.id)
+  const BASE = process.env.NEXT_PUBLIC_APP_URL ?? 'https://reva.mx'
   return NextResponse.json({
     code: stats.code,
     link: `${BASE}/join?ref=${stats.code}`,
@@ -16,15 +21,19 @@ export async function GET() {
   })
 }
 
-// POST — nuevo usuario aplica un código de referido
+// POST — el usuario con sesión aplica un código de referido.
 export async function POST(req: NextRequest) {
-  const { code, userId } = await req.json()
-  if (!code || !userId) return NextResponse.json({ error: 'code y userId requeridos' }, { status: 400 })
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
 
-  const result = applyReferralCode(code, userId)
+  const { code } = await req.json()
+  if (!code) return NextResponse.json({ error: 'code requerido' }, { status: 400 })
+
+  const result = await applyReferralCode(code, user.id)
   if (!result.ok) {
     const status = result.error === 'code_not_found' ? 404 : 400
     return NextResponse.json({ error: result.error }, { status })
   }
-  return NextResponse.json({ referral: result.referral })
+  return NextResponse.json({ ok: true })
 }

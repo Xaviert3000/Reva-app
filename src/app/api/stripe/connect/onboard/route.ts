@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getStripe } from '@/lib/stripe'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { createClient } from '@/lib/supabase/server'
+
+export const dynamic = 'force-dynamic'
 
 // Inicia (o reanuda) el onboarding de Stripe Connect Express de un negocio.
 // Crea la cuenta conectada si no existe, guarda el acct_... en Supabase y
@@ -9,7 +12,13 @@ export async function POST(req: NextRequest) {
   const { biz_id, email } = await req.json()
   if (!biz_id) return NextResponse.json({ error: 'biz_id requerido' }, { status: 400 })
 
+  const session = await createClient()
+  const { data: { user } } = await session.auth.getUser()
+  if (!user) return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
+
   const supabase = createAdminClient()
+  const { data: member } = await supabase.from('biz_members').select('biz_id').eq('user_id', user.id).eq('biz_id', biz_id).maybeSingle()
+  if (!member) return NextResponse.json({ error: 'No autorizado' }, { status: 403 })
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'
 
   const { data: biz, error } = await supabase

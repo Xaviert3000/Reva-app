@@ -1,12 +1,13 @@
 import { NextResponse } from 'next/server'
-import { getBalance, getTicketHistory } from '@/lib/rove-rewards'
+import { createClient } from '@/lib/supabase/server'
+import { getBalance, getTicketHistory } from '@/lib/rove-db'
 
-// Demo: siempre resuelve como el usuario demo.
-// En producción: leer userId de la sesión Supabase.
-const DEMO_USER_ID = 'demo-user'
+export const dynamic = 'force-dynamic'
 
 export async function GET() {
-  const balance = getBalance(DEMO_USER_ID)
-  const history = getTicketHistory(DEMO_USER_ID)
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ balance: 0, history: [] })
+  const [balance, history] = await Promise.all([getBalance(user.id), getTicketHistory(user.id)])
   return NextResponse.json({ balance, history })
 }

@@ -1,6 +1,7 @@
 import { openrouterJSON, type ChatMessage } from '@/lib/openrouter'
 import { bizAgentSystemPrompt, bizAgentUserPrompt } from '@/lib/ai-prompts'
 import { loadPlatformConfig, resolvedPrompt, modelChain } from '@/lib/platform-config'
+import { enforceRateLimit } from '@/lib/rate-limit'
 
 export const maxDuration = 30
 
@@ -36,6 +37,8 @@ export interface BizAgentResponse {
 }
 
 export async function POST(req: Request) {
+  const limited = enforceRateLimit(req, 'ai')
+  if (limited) return limited
   try {
     const body: BizAgentRequest = await req.json()
     const { bizName, bizType, incomingRequest, bizConfig } = body

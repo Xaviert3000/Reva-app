@@ -1,11 +1,17 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { completeReferral } from '@/lib/rove-rewards'
+import { NextResponse } from 'next/server'
+import { createClient } from '@/lib/supabase/server'
+import { completeReferral } from '@/lib/rove-db'
 
-// Llamado internamente cuando el usuario referido completa su primera reserva.
-export async function POST(req: NextRequest) {
-  const { userId } = await req.json()
-  if (!userId) return NextResponse.json({ error: 'userId requerido' }, { status: 400 })
+export const dynamic = 'force-dynamic'
 
-  const result = completeReferral(userId)
+// Marca como completado el referido del usuario con sesión (acredita al referidor).
+// Nota: la reserva ya llama a completeReferral() en el servidor; este endpoint
+// queda como respaldo autenticado y no confía en un userId del cliente.
+export async function POST() {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
+
+  const result = await completeReferral(user.id)
   return NextResponse.json(result)
 }

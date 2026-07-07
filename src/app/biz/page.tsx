@@ -1,12 +1,15 @@
 'use client'
-import { useState, useRef, useEffect, type CSSProperties } from 'react'
+import { useState, useRef, useEffect, useCallback, type CSSProperties } from 'react'
 import { BM_OPTIONS_DEFAULT, loadBMConfig, type BMOption, type BMConfig } from '@/lib/boomerangme-config'
 import { parseRoveToken, ROVE_SERIALS, type RoveProgram } from '@/lib/rove'
 import { type RoveReward, type RewardCategory } from '@/lib/rove-rewards'
 import { type Mode, type ProactiveAlert, type AlertType, CATALOG, AGENDA, BIZ, slotsFromHours, slotAvailability, endTime, tracksStock, inStock } from '@/lib/data'
 import { saveStock, decrementStock as decrementStockDB, fetchStock } from '@/lib/inventory'
 import { clearFeatured } from '@/lib/featured'
-import { loadAgentConfig, saveAgentConfig, DEFAULT_AGENT_CONFIG, type BizAgentConfig } from '@/lib/biz-agent-config'
+import { fetchPromotions, createPromotion, updatePromotion, setPromotionActive, deletePromotion, type Promo, fetchAlerts, createAlert, updateAlert, setAlertActive, deleteAlert, type BizAlert, type AlertInput } from '@/lib/promotions'
+import { loadAgentConfig, saveAgentConfig, parseAgentConfig, DEFAULT_AGENT_CONFIG, type BizAgentConfig } from '@/lib/biz-agent-config'
+import { loadOwnerSession, type OwnerBusiness } from '@/lib/biz-session'
+import type { Service as CatalogService } from '@/lib/data'
 
 // ── Design tokens ──────────────────────────────────────────
 const R = {
@@ -123,6 +126,119 @@ const VERTICALS = [
 
 type Vert = typeof VERTICALS[0]
 
+// Adapts a real business row (loaded for the logged-in owner) into the Vert
+// shape the panel renders. New businesses start empty — no requests, agenda,
+// messages or metrics — so the owner sees their own clean panel instead of the
+// demo data. Catalog is seeded from their saved services.
+function vertFromBusiness(b: OwnerBusiness): Vert {
+  const grad: [string, string] = [b.grad_from || '#E27A52', b.grad_to || '#B5472F']
+  const catalog: CatalogService[] = b.services
+    .filter(s => s.active !== false)
+    .map(s => ({
+      id: s.id,
+      name: s.name,
+      sub: s.description || '',
+      price: s.price != null ? `$${s.price}` : 'Cotización',
+      category: 'General',
+      grad,
+      scheduled: s.duration_min != null,
+      duration: s.duration_min ?? undefined,
+    }))
+  return {
+    id: b.id,
+    name: b.name,
+    full: b.full_name || b.name,
+    mono: (b.mono || b.name.charAt(0) || 'R').toUpperCase(),
+    grad,
+    hood: b.hood || 'Los Cabos',
+    kind: b.kind || b.type || 'Negocio',
+    unit: 'personas',
+    hours: b.hours || '09:00 – 21:00',
+    rfc: b.rfc || '',
+    address: b.address || '',
+    phone: b.phone || '',
+    capacity: { used: 0, total: b.capacity ?? 50, label: 'lugares' },
+    metrics: {
+      reservasHoy: 0, ingreso: '$0', viaReva: 0, rove: 0,
+      trend: [0, 0, 0, 0, 0, 0, 0], trendLabels: ['L', 'M', 'M', 'J', 'V', 'S', 'D'],
+    },
+    requests: [],
+    agenda: [],
+    messages: [],
+    catalog,
+  }
+}
+
+// ── Reservas reales del negocio (Fase 3) ───────────────────
+// Forma que devuelve GET /api/biz/reservations.
+interface PanelReservation {
+  id: string
+  biz_id: string
+  slot: string | null
+  party: number | null
+  notes: string | null
+  status: string
+  guest_name?: string
+}
+
+// Solicitud entrante (reserva pendiente) que pinta RequestsView.
+type PanelRequest = { id: string; who: string; via: string; party: number; time: string; when: string; note: string; state: 'action' }
+
+// Métricas reales del negocio (Fase 5), de /api/biz/metrics.
+interface BizMetrics {
+  reservasHoy: number
+  viaReva: number
+  ingreso7: number
+  rove: number
+  resSeries: { d7: number[]; d30: number[]; d90: number[] }
+  revSeries: { d7: number[]; d30: number[]; d90: number[] }
+}
+
+function rsvTime(slot: string | null): string {
+  return slot ? new Date(slot).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }) : '—'
+}
+function rsvWhen(slot: string | null): string {
+  if (!slot) return 'Solicitud'
+  const d = new Date(slot)
+  return d.toDateString() === new Date().toDateString()
+    ? 'Hoy'
+    : d.toLocaleDateString('es-MX', { weekday: 'short', day: 'numeric', month: 'short' })
+}
+function tagOfStatus(s: string): string {
+  return s === 'confirmed' ? 'Confirmada' : s === 'completed' ? 'Completada' : s === 'no_show' ? 'No llegó' : 'Pendiente'
+}
+
+// Reservas pendientes → solicitudes entrantes.
+function reservationsToRequests(rsvs: PanelReservation[]): PanelRequest[] {
+  return rsvs
+    .filter(r => r.status === 'pending')
+    .map(r => ({
+      id: r.id,
+      who: r.guest_name || 'Cliente',
+      via: 'Reva',
+      party: r.party ?? 1,
+      time: rsvTime(r.slot),
+      when: rsvWhen(r.slot),
+      note: r.notes || '',
+      state: 'action' as const,
+    }))
+}
+
+// Reservas confirmadas/completadas con horario → agenda.
+function reservationsToAgenda(rsvs: PanelReservation[]): AgItem[] {
+  return rsvs
+    .filter(r => r.slot && r.status !== 'cancelled' && r.status !== 'pending')
+    .map(r => ({
+      time: rsvTime(r.slot),
+      durationMin: 60,
+      who: r.guest_name || 'Cliente',
+      party: r.party ?? 1,
+      tag: tagOfStatus(r.status),
+      resource: '',
+      note: r.notes || '',
+    }))
+}
+
 const NAV = [
   { id: 'requests', icon: 'inbox', label: 'Solicitudes' },
   { id: 'agenda', icon: 'cal', label: 'Agenda' },
@@ -196,15 +312,37 @@ const BIZ_TYPES = [
     agent: '"Hola, soy el asistente de {negocio}. Para la clase de funcional tengo cupo hoy a las 19:00. ¿Te aparto tu lugar?"' },
 ]
 
-function BizOnboarding({ onDone }: { onDone: () => void }) {
+// Empareja el giro capturado en el registro (etiqueta en español) con un id de
+// BIZ_TYPES para preseleccionar el tipo en el onboarding.
+function matchBizType(type: string | null | undefined): string {
+  if (!type) return 'restaurante'
+  const t = type.toLowerCase()
+  const hit = BIZ_TYPES.find(b => b.label.toLowerCase().includes(t) || t.includes(b.label.toLowerCase().split(' ')[0]))
+  if (hit) return hit.id
+  if (t.includes('salón') || t.includes('salon') || t.includes('barber')) return 'salon'
+  if (t.includes('clínic') || t.includes('clinic') || t.includes('médic') || t.includes('medic')) return 'medico'
+  if (t.includes('spa')) return 'spa'
+  if (t.includes('bar')) return 'bar'
+  if (t.includes('tour') || t.includes('excursi')) return 'tours'
+  if (t.includes('inmob')) return 'inmobiliaria'
+  if (t.includes('despacho') || t.includes('legal')) return 'legal'
+  return 'restaurante'
+}
+
+function BizOnboarding({ biz, onDone }: { biz: OwnerBusiness | null; onDone: () => void }) {
+  const initialType = matchBizType(biz?.type)
+  const initialBt = BIZ_TYPES.find(t => t.id === initialType) ?? BIZ_TYPES[0]
   const [step, setStep] = useState(0)
-  const [bizType, setBizType] = useState('restaurante')
-  const [name, setName] = useState(BIZ_TYPES[0].name)
-  const [nameEdited, setNameEdited] = useState(false)
-  const [services, setServices] = useState(() => BIZ_TYPES[0].services.map(s => ({ name: s, desc: '', price: '', tax: 'IVA 16% incluido', on: true })))
+  const [bizType, setBizType] = useState(initialType)
+  const [name, setName] = useState(biz?.name || initialBt.name)
+  // Si ya viene un negocio real, su nombre es el válido — no lo sobrescribas al cambiar de tipo.
+  const [nameEdited, setNameEdited] = useState(!!biz?.name)
+  const [hoursOpen, setHoursOpen] = useState('13:00')
+  const [hoursClose, setHoursClose] = useState('23:00')
+  const [services, setServices] = useState(() => initialBt.services.map(s => ({ name: s, desc: '', price: '', tax: 'IVA 16% incluido', on: true })))
   const [draft, setDraft] = useState({ name: '', desc: '', price: '', tax: '' })
   const [editIdx, setEditIdx] = useState<number | null>(null)
-  const [agentMsg, setAgentMsg] = useState(() => BIZ_TYPES[0].agent.replace('{negocio}', BIZ_TYPES[0].name))
+  const [agentMsg, setAgentMsg] = useState(() => initialBt.agent.replace('{negocio}', biz?.name || initialBt.name))
   const [agentEdited, setAgentEdited] = useState(false)
   const [payMode, setPayMode] = useState<'none' | 'deposit'>('none')
   const [activating, setActivating] = useState(false)
@@ -255,7 +393,30 @@ function BizOnboarding({ onDone }: { onDone: () => void }) {
 
   const fieldStyle: CSSProperties = { width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 10, padding: '10px 12px', fontSize: 14, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.surface }
 
-  function activate() { setActivating(true); setTimeout(onDone, 2000) }
+  // Guarda el onboarding en Supabase (perfil del negocio + servicios) y marca
+  // onboarded=true para no volver a mostrar el asistente. Al terminar, onDone
+  // recarga la sesión del dueño con los datos ya persistidos.
+  async function activate() {
+    setActivating(true)
+    try {
+      await fetch('/api/biz/onboard', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          bizId: biz?.id,
+          name: name.trim(),
+          type: bt.label,
+          kind: bt.label,
+          hours: `${hoursOpen} – ${hoursClose}`,
+          agentActive: true,
+          services: services.map(s => ({ name: s.name, desc: s.desc, price: s.price, on: s.on })),
+        }),
+      })
+    } catch (e) {
+      console.error('onboarding save failed', e)
+    }
+    onDone()
+  }
 
   return (
     <div style={{ minHeight: '100vh', background: R.dusk, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
@@ -363,10 +524,10 @@ function BizOnboarding({ onDone }: { onDone: () => void }) {
             <>
               <h2 style={{ fontFamily: R.display, fontWeight: 800, fontSize: 20, color: R.ink, marginBottom: 16 }}>Horarios</h2>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 20 }}>
-                {[['Apertura', '13:00'], ['Cierre', '23:00']].map(([lbl, val]) => (
+                {([['Apertura', hoursOpen, setHoursOpen], ['Cierre', hoursClose, setHoursClose]] as const).map(([lbl, val, set]) => (
                   <div key={lbl}>
                     <label style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', display: 'block', marginBottom: 8 }}>{lbl}</label>
-                    <input type="time" defaultValue={val} style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 12, padding: '12px 14px', fontSize: 14.5, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.surface }} />
+                    <input type="time" value={val} onChange={e => set(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 12, padding: '12px 14px', fontSize: 14.5, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.surface }} />
                   </div>
                 ))}
               </div>
@@ -497,9 +658,9 @@ function TagBadge({ tag }: { tag: string }) {
 }
 
 // ── Views ──────────────────────────────────────────────────
-function RequestsView({ vert, onGo }: { vert: Vert; onGo: (v: string) => void }) {
+function RequestsView({ vert, onGo, requests, agenda, onResolve }: { vert: Vert; onGo: (v: string) => void; requests: PanelRequest[]; agenda: AgItem[]; onResolve: (id: string, status: 'confirmed' | 'cancelled') => void }) {
   const m = vert.metrics
-  const [reqs, setReqs] = useState(vert.requests)
+  const reqs = requests
 
   return (
     <div style={{ flex: 1, minHeight: 0, padding: '24px 28px', display: 'flex', gap: 24, boxSizing: 'border-box', overflow: 'hidden' }}>
@@ -533,18 +694,8 @@ function RequestsView({ vert, onGo }: { vert: Vert; onGo: (v: string) => void })
                 <StateChip state={r.state} />
               </div>
               <div style={{ display: 'flex', gap: 9, marginTop: 14, paddingLeft: 50, alignItems: 'center' }}>
-                {r.state === 'auto' ? (
-                  <span style={{ fontSize: 13, color: R.inkSoft, display: 'flex', alignItems: 'center', gap: 7 }}>
-                    <Icon n="check" size={15} color={R.jade} stroke={3} />
-                    Reva confirmará automáticamente en 30 s ·
-                    <button onClick={() => setReqs(rs => rs.filter(x => x.id !== r.id))} style={{ background: 'none', border: 'none', cursor: 'pointer', fontWeight: 700, color: R.coral, fontFamily: R.ui, fontSize: 13, padding: 0 }}>revisar</button>
-                  </span>
-                ) : (
-                  <>
-                    <button style={{ padding: '9px 18px', background: R.coral, color: '#fff', border: 'none', borderRadius: 999, fontFamily: R.ui, fontWeight: 700, fontSize: 13.5, cursor: 'pointer' }}>Abrir negociación</button>
-                    <button onClick={() => setReqs(rs => rs.filter(x => x.id !== r.id))} style={{ padding: '9px 18px', background: R.bgAlt, color: R.ink, border: 'none', borderRadius: 999, fontFamily: R.ui, fontWeight: 700, fontSize: 13.5, cursor: 'pointer' }}>Ver detalle</button>
-                  </>
-                )}
+                <button onClick={() => onResolve(r.id, 'confirmed')} style={{ padding: '9px 18px', background: R.coral, color: '#fff', border: 'none', borderRadius: 999, fontFamily: R.ui, fontWeight: 700, fontSize: 13.5, cursor: 'pointer' }}>Confirmar</button>
+                <button onClick={() => onResolve(r.id, 'cancelled')} style={{ padding: '9px 18px', background: R.bgAlt, color: R.ink, border: 'none', borderRadius: 999, fontFamily: R.ui, fontWeight: 700, fontSize: 13.5, cursor: 'pointer' }}>Rechazar</button>
               </div>
             </BCard>
           ))}
@@ -576,7 +727,7 @@ function RequestsView({ vert, onGo }: { vert: Vert; onGo: (v: string) => void })
             <span style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink }}>Agenda de hoy</span>
             <button onClick={() => onGo('agenda')} style={{ background: 'none', border: 'none', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5, color: R.coral, cursor: 'pointer', padding: 0 }}>Ver todo</button>
           </div>
-          {vert.agenda.slice(0, 5).map((a, i, arr) => {
+          {agenda.slice(0, 5).map((a, i, arr) => {
             const [tc] = TAG_COLORS[a.tag] ?? [R.inkSoft]
             return (
               <div key={i} style={{ display: 'flex', gap: 12, paddingBottom: 16 }}>
@@ -616,16 +767,16 @@ const MONTH_COUNTS: Record<number, number> = {
 type AgItem = { time: string; who: string; party: number; tag: string; resource: string; service?: string; durationMin?: number; note?: string }
 type SelRes = { time: string; who: string; party?: number; tag: string; resource?: string; service?: string; durationMin?: number; note?: string; idx: number | null }
 
-function AgendaView({ vert }: { vert: Vert }) {
+function AgendaView({ vert, dayAgenda }: { vert: Vert; dayAgenda: AgItem[] }) {
   const [mode, setMode] = useState<'dia' | 'semana' | 'mes'>('dia')
-  const [agenda, setAgenda] = useState<AgItem[]>(vert.agenda as AgItem[])
+  const [agenda, setAgenda] = useState<AgItem[]>(dayAgenda)
   const [sel, setSel] = useState<SelRes | null>(null)
   const [query, setQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState('Todas')
   const modes: [typeof mode, string][] = [['dia', 'Día'], ['semana', 'Semana'], ['mes', 'Mes']]
   const title = mode === 'dia' ? 'Hoy · Sábado 13 jun' : mode === 'semana' ? '8 – 14 jun · Esta semana' : 'Junio 2026'
 
-  useEffect(() => { setAgenda(vert.agenda as AgItem[]); setSel(null) }, [vert.id])
+  useEffect(() => { setAgenda(dayAgenda); setSel(null) }, [vert.id, dayAgenda])
 
   const statuses = ['Todas', ...Array.from(new Set(agenda.map(a => a.tag)))]
   const rows = agenda
@@ -827,11 +978,34 @@ function MonthAgenda({ todayCount }: { todayCount: number }) {
 }
 
 type ThreadItem = { from: string; txt: string }
+
+// Hilo real del inbox del negocio (Fase 4), mapeado desde /api/biz/messages.
+type UiThread = { userId: string; who: string; via: string; last: string; time: string; unread: boolean; thread: ThreadItem[] }
+interface DbBizThread { userId: string; who: string; last: string; created_at: string; unread: boolean; messages: { from_role: string; body: string }[] }
+function roleToFrom(r: string): string { return r === 'user' ? 'guest' : r === 'reva' ? 'reva' : 'biz' }
+function relTime(iso: string): string {
+  const min = Math.floor((Date.now() - new Date(iso).getTime()) / 60000)
+  if (min < 1) return 'ahora'
+  if (min < 60) return `${min}m`
+  const h = Math.floor(min / 60)
+  return h < 24 ? `${h}h` : `${Math.floor(h / 24)}d`
+}
+function mapBizThread(t: DbBizThread): UiThread {
+  return { userId: t.userId, who: t.who, via: 'Explorer', last: t.last, time: relTime(t.created_at), unread: t.unread, thread: t.messages.map(m => ({ from: roleToFrom(m.from_role), txt: m.body })) }
+}
+
 function MessagesView({ vert, agentCfg }: { vert: Vert; agentCfg: BizAgentConfig }) {
   const [active, setActive] = useState(0)
   const [reply, setReply] = useState('')
   const [sending, setSending] = useState(false)
-  const [threads, setThreads] = useState(() => vert.messages.map(m => ({ ...m, thread: m.thread.map(x => ({ ...x })) })))
+  const [threads, setThreads] = useState<UiThread[]>([])
+  const loadThreads = useCallback(async () => {
+    try {
+      const r = await fetch(`/api/biz/messages?biz_id=${encodeURIComponent(vert.id)}`)
+      if (r.ok) { const d = await r.json(); setThreads((d.threads ?? []).map(mapBizThread)) }
+    } catch { /* deja los hilos como están */ }
+  }, [vert.id])
+  useEffect(() => { loadThreads() }, [loadThreads])
   const thread = threads[active]
   const scrollRef = useRef<HTMLDivElement>(null)
   useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight }, [active, threads])
@@ -845,9 +1019,15 @@ function MessagesView({ vert, agentCfg }: { vert: Vert; agentCfg: BizAgentConfig
 
   function sendManual() {
     const txt = reply.trim()
-    if (!txt || sending) return
+    const t = threads[active]
+    if (!txt || sending || !t) return
     appendToActive({ from: 'biz', txt })
     setReply('')
+    fetch('/api/biz/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ biz_id: vert.id, user_id: t.userId, body: txt }),
+    }).catch(() => { /* la respuesta ya se ve localmente */ })
   }
 
   async function replyWithAgent() {
@@ -910,6 +1090,13 @@ function MessagesView({ vert, agentCfg }: { vert: Vert; agentCfg: BizAgentConfig
       if (!acc) {
         setThreads(prev => prev.map((m, i) => i === active ? { ...m, thread: m.thread.slice(0, -1) } : m))
         appendToActive({ from: 'biz', txt: 'No pude generar la respuesta — revisa la conexión de OpenRouter en Ajustes.' })
+      } else {
+        // Persiste la respuesta del agente en la conversación real.
+        fetch('/api/biz/messages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ biz_id: vert.id, user_id: t.userId, body: acc }),
+        }).catch(() => {})
       }
     } catch {
       appendToActive({ from: 'biz', txt: 'No pude generar la respuesta — revisa la conexión de OpenRouter en Ajustes.' })
@@ -932,6 +1119,17 @@ function MessagesView({ vert, agentCfg }: { vert: Vert; agentCfg: BizAgentConfig
     // replyWithAgent es estable en su comportamiento; el ref evita re-disparos.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, threads, agentCfg.on, agentCfg.autoReplyOffHours, open, sending])
+
+  if (threads.length === 0) {
+    return (
+      <div style={{ display: 'flex', flex: 1, alignItems: 'center', justifyContent: 'center', height: '100%', color: R.inkSoft, fontFamily: R.ui, fontSize: 14, padding: 24, textAlign: 'center' }}>
+        <div>
+          <Icon n="chat" size={28} color={R.inkFaint} />
+          <div style={{ marginTop: 10 }}>Aún no tienes mensajes. Cuando un cliente te escriba, aparecerá aquí.</div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div style={{ display: 'flex', flex: 1, overflow: 'hidden', height: '100%' }}>
@@ -998,16 +1196,20 @@ function MiniBar({ values, color, highlight }: { values: number[]; color: string
   )
 }
 
-function MetricsView({ vert }: { vert: Vert }) {
+function MetricsView({ vert, metrics }: { vert: Vert; metrics?: BizMetrics | null }) {
   const m = vert.metrics
   const [period, setPeriod] = useState<'7d' | '30d' | '90d'>('7d')
   const [hoveredBar, setHoveredBar] = useState<number | null>(null)
   const [hoveredRev, setHoveredRev] = useState<number | null>(null)
 
   const avgTicket = vert.id === 'resto' ? 420 : 1850
-  const base7 = m.trend
-  const base30 = Array.from({ length: 30 }, (_, i) => Math.round((base7[i % 7] ?? 10) * (0.8 + Math.sin(i * 0.4) * 0.2)))
-  const base90 = Array.from({ length: 90 }, (_, i) => Math.round((base7[i % 7] ?? 10) * (0.7 + Math.sin(i * 0.15) * 0.3 + i * 0.003)))
+  // Series reales (Fase 5) cuando existen; si no, cae al patrón sintético del demo.
+  const base7 = metrics?.resSeries.d7 ?? m.trend
+  const base30 = metrics?.resSeries.d30 ?? Array.from({ length: 30 }, (_, i) => Math.round((base7[i % 7] ?? 10) * (0.8 + Math.sin(i * 0.4) * 0.2)))
+  const base90 = metrics?.resSeries.d90 ?? Array.from({ length: 90 }, (_, i) => Math.round((base7[i % 7] ?? 10) * (0.7 + Math.sin(i * 0.15) * 0.3 + i * 0.003)))
+  const rev7 = metrics?.revSeries.d7 ?? base7.map(v => v * avgTicket)
+  const rev30 = metrics?.revSeries.d30 ?? base30.map(v => v * avgTicket)
+  const rev90 = metrics?.revSeries.d90 ?? base90.map(v => v * avgTicket)
 
   const periodData = period === '7d' ? base7 : period === '30d' ? base30 : base90
   const labels7 = m.trendLabels
@@ -1016,7 +1218,7 @@ function MetricsView({ vert }: { vert: Vert }) {
   const periodLabels = period === '7d' ? labels7 : period === '30d' ? labels30 : labels90
 
   const totalRes = periodData.reduce((a, b) => a + b, 0)
-  const revenueData = periodData.map(v => v * avgTicket)
+  const revenueData = period === '7d' ? rev7 : period === '30d' ? rev30 : rev90
   const totalRev = revenueData.reduce((a, b) => a + b, 0)
   const maxRes = Math.max(...periodData, 1)
   const maxRev = Math.max(...revenueData, 1)
@@ -1024,17 +1226,30 @@ function MetricsView({ vert }: { vert: Vert }) {
   const barGap = period === '7d' ? 14 : period === '30d' ? 6 : 3
   const barRadius = period === '7d' ? 9 : 5
 
-  const periodDelta: Record<string, { res: string; rev: string }> = {
-    '7d': { res: '19%', rev: '11%' }, '30d': { res: '14%', rev: '9%' }, '90d': { res: '22%', rev: '17%' },
+  // Delta real vs. periodo anterior (cuando hay métricas reales); si no, demo.
+  const sumArr = (a: number[]) => a.reduce((x, y) => x + y, 0)
+  const win = period === '7d' ? 7 : period === '30d' ? 30 : 90
+  const pctDelta = (arr: number[]): string => {
+    if (arr.length < win * 2) return '—'
+    const cur = sumArr(arr.slice(-win))
+    const prev = sumArr(arr.slice(-2 * win, -win))
+    if (prev <= 0) return cur > 0 ? '▲ nuevo' : '—'
+    const pct = Math.round((cur - prev) / prev * 100)
+    return `${pct >= 0 ? '▲' : '▼'} ${Math.abs(pct)}%`
   }
-  const delta = periodDelta[period]
+  const demoDelta: Record<string, { res: string; rev: string }> = {
+    '7d': { res: '▲ 19%', rev: '▲ 11%' }, '30d': { res: '▲ 14%', rev: '▲ 9%' }, '90d': { res: '▲ 22%', rev: '▲ 17%' },
+  }
+  const delta = metrics ? { res: pctDelta(base90), rev: pctDelta(rev90) } : demoDelta[period]
   const fmtRev = (n: number) => n >= 1000 ? `$${(n / 1000).toFixed(1)}k` : `$${n}`
 
   const viaReva = m.viaReva
   const direct = 100 - viaReva
 
+  const weekTotal = sumArr(base7)
+  const peakLabel = m.trendLabels[base7.indexOf(Math.max(...base7))] ?? ''
   const insights = [
-    { icon: 'bolt', color: R.jade, tint: R.jadeTint, text: `Sábado es tu día pico — ${Math.max(...base7)} reservas esta semana` },
+    { icon: 'bolt', color: R.jade, tint: R.jadeTint, text: weekTotal > 0 ? `Tu día pico: ${peakLabel} — ${Math.max(...base7)} reservas esta semana` : 'Aún sin reservas esta semana' },
     { icon: 'users', color: '#5A6FD6', tint: '#ECEFFE', text: `${viaReva}% de tus clientes llegan vía Reva` },
     { icon: 'spark', color: R.amber, tint: R.amberTint, text: `${m.rove} boletos Reva+ activos · ${Math.round(m.rove * 0.12)} canjes este mes` },
   ]
@@ -1056,7 +1271,7 @@ function MetricsView({ vert }: { vert: Vert }) {
         <div style={{ background: R.surface, border: `1px solid ${R.line}`, borderRadius: 18, padding: '18px 20px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
             <div style={{ width: 38, height: 38, borderRadius: 11, background: R.coralTint, display: 'grid', placeItems: 'center' }}><Icon n="cal" size={20} color={R.coral} /></div>
-            <span style={{ fontSize: 12, fontWeight: 700, color: '#16614c', background: R.jadeTint, padding: '3px 9px', borderRadius: 999 }}>▲ {delta.res}</span>
+            <span style={{ fontSize: 12, fontWeight: 700, color: '#16614c', background: R.jadeTint, padding: '3px 9px', borderRadius: 999 }}>{delta.res}</span>
           </div>
           <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 28, color: R.ink, lineHeight: 1 }}>{totalRes}</div>
           <div style={{ fontSize: 12.5, color: R.inkSoft, marginTop: 4 }}>Reservas</div>
@@ -1066,11 +1281,11 @@ function MetricsView({ vert }: { vert: Vert }) {
         <div style={{ background: R.surface, border: `1px solid ${R.line}`, borderRadius: 18, padding: '18px 20px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
             <div style={{ width: 38, height: 38, borderRadius: 11, background: R.jadeTint, display: 'grid', placeItems: 'center' }}><Icon n="bolt" size={20} color={R.jade} /></div>
-            <span style={{ fontSize: 12, fontWeight: 700, color: '#16614c', background: R.jadeTint, padding: '3px 9px', borderRadius: 999 }}>▲ {delta.rev}</span>
+            <span style={{ fontSize: 12, fontWeight: 700, color: '#16614c', background: R.jadeTint, padding: '3px 9px', borderRadius: 999 }}>{delta.rev}</span>
           </div>
           <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 28, color: R.ink, lineHeight: 1 }}>{fmtRev(totalRev)}</div>
           <div style={{ fontSize: 12.5, color: R.inkSoft, marginTop: 4 }}>Ingreso atribuido</div>
-          <div style={{ marginTop: 10 }}><MiniBar values={base7.map(v => v * avgTicket)} color={R.jade} highlight={base7.indexOf(Math.max(...base7))} /></div>
+          <div style={{ marginTop: 10 }}><MiniBar values={rev7} color={R.jade} highlight={rev7.indexOf(Math.max(...rev7))} /></div>
         </div>
 
         <div style={{ background: R.surface, border: `1px solid ${R.line}`, borderRadius: 18, padding: '18px 20px' }}>
@@ -1105,7 +1320,7 @@ function MetricsView({ vert }: { vert: Vert }) {
         <BCard style={{ padding: '22px 24px' }}>
           <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 20 }}>
             <span style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink }}>Reservas por día</span>
-            <span style={{ fontSize: 12, fontWeight: 700, color: R.coral, background: R.coralTint, padding: '3px 10px', borderRadius: 999 }}>▲ {delta.res} vs ant.</span>
+            <span style={{ fontSize: 12, fontWeight: 700, color: R.coral, background: R.coralTint, padding: '3px 10px', borderRadius: 999 }}>{delta.res} vs ant.</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'flex-end', gap: barGap, height: 160 }}>
             {periodData.map((v, i) => (
@@ -1123,7 +1338,7 @@ function MetricsView({ vert }: { vert: Vert }) {
         <BCard style={{ padding: '22px 24px' }}>
           <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 20 }}>
             <span style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink }}>Ingreso por día</span>
-            <span style={{ fontSize: 12, fontWeight: 700, color: R.jade, background: R.jadeTint, padding: '3px 10px', borderRadius: 999 }}>▲ {delta.rev} vs ant.</span>
+            <span style={{ fontSize: 12, fontWeight: 700, color: R.jade, background: R.jadeTint, padding: '3px 10px', borderRadius: 999 }}>{delta.rev} vs ant.</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'flex-end', gap: barGap, height: 160 }}>
             {revenueData.map((v, i) => (
@@ -3248,11 +3463,25 @@ const OPT_CONFIG: Record<string, { label: string; placeholder: string }> = {
   giftcard: { label: 'Montos sugeridos', placeholder: 'Ej. $200 / $500 / $1,000' },
 }
 
+const ALERT_TYPES: { id: AlertType; label: string }[] = [
+  { id: 'happy_hour', label: 'Happy hour' },
+  { id: 'evento', label: 'Evento' },
+  { id: 'promo', label: 'Promo' },
+  { id: 'ultimos_lugares', label: 'Últimos lugares' },
+]
+const ALERT_DEFAULT: AlertInput = { alertType: 'happy_hour', title: '', body: '', cta: 'Échale un ojo', startTime: '18:00', endTime: '20:00', days: [], active: true }
+
 function PromosView({ vert }: { vert: Vert }) {
-  const [tab, setTab] = useState<'ofertas' | 'lealtad' | 'revamas'>('ofertas')
-  const [promos, setPromos] = useState(promoSeed)
-  const [editing, setEditing] = useState<number | 'new' | null>(null)
+  const [tab, setTab] = useState<'ofertas' | 'alertas' | 'lealtad' | 'revamas'>('ofertas')
+  const [promos, setPromos] = useState<Promo[]>([])
+  // Alertas en vivo de cara al cliente.
+  const [alerts, setAlerts] = useState<BizAlert[]>([])
+  const [alertEditing, setAlertEditing] = useState<BizAlert | 'new' | null>(null)
+  const [alertForm, setAlertForm] = useState<AlertInput>(ALERT_DEFAULT)
+  const [alertBusy, setAlertBusy] = useState(false)
+  const [editing, setEditing] = useState<Promo | 'new' | null>(null)
   const [form, setForm] = useState({ title: '', type: 'Descuento' as PromoType, detail: '', vig: 'Permanente', active: true })
+  const [savingPromo, setSavingPromo] = useState(false)
   const [loyalty, setLoyalty] = useState({ stamps: 6, reward: 'Postre o bebida de cortesía' })
   const [editLoyal, setEditLoyal] = useState(false)
   const [lform, setLform] = useState(loyalty)
@@ -3264,21 +3493,75 @@ function PromosView({ vert }: { vert: Vert }) {
   function confirmActivate() { if (!actOpt) return; setActive(a => ({ ...a, [actOpt.id]: cfgVal.trim() })); setActOpt(null) }
   function deactivate(id: string) { setActive(a => { const n = { ...a }; delete n[id]; return n }) }
 
-  useEffect(() => { setPromos(promoSeed()); setEditing(null); setEditLoyal(false) }, [vert.id])
+  useEffect(() => {
+    let cancelled = false
+    fetchPromotions(vert.id).then(rows => {
+      if (cancelled) return
+      // Sin Supabase (demo): usa el seed local con ids ficticios.
+      setPromos(rows ?? promoSeed().map((p, i) => ({ ...p, id: `seed-${i}` })))
+    })
+    fetchAlerts(vert.id).then(rows => { if (!cancelled && rows) setAlerts(rows) })
+    setAlertEditing(null)
+    setEditing(null); setEditLoyal(false)
+    return () => { cancelled = true }
+  }, [vert.id])
   useEffect(() => { const sync = () => setBm(loadBMConfig()); sync(); window.addEventListener('storage', sync); return () => window.removeEventListener('storage', sync) }, [])
 
   const fieldStyle: CSSProperties = { width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 10, padding: '11px 13px', fontSize: 14, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.surface }
 
   function openNew() { setForm({ title: '', type: 'Descuento', detail: '', vig: 'Permanente', active: true }); setEditing('new') }
-  function openEdit(i: number) { const p = promos[i]; setForm({ title: p.title, type: p.type, detail: p.detail, vig: p.vig, active: p.active }); setEditing(i) }
-  function savePromo() {
-    if (!form.title.trim()) return
-    if (editing === 'new') setPromos(prev => [...prev, { ...form, title: form.title.trim(), detail: form.detail.trim(), vig: form.vig.trim() || 'Permanente', canjes: 0 }])
-    else if (typeof editing === 'number') setPromos(prev => prev.map((p, idx) => idx === editing ? { ...p, ...form, title: form.title.trim(), detail: form.detail.trim(), vig: form.vig.trim() || 'Permanente' } : p))
+  function openEdit(p: Promo) { setForm({ title: p.title, type: p.type, detail: p.detail, vig: p.vig, active: p.active }); setEditing(p) }
+  async function savePromo() {
+    if (!form.title.trim() || savingPromo) return
+    const payload = { title: form.title.trim(), type: form.type, detail: form.detail.trim(), vig: form.vig.trim() || 'Permanente', active: form.active }
+    setSavingPromo(true)
+    if (editing === 'new') {
+      const created = await createPromotion(vert.id, payload)
+      setPromos(prev => [...prev, created ?? { ...payload, id: `local-${Date.now()}`, canjes: 0 }])
+    } else if (editing) {
+      const id = editing.id
+      await updatePromotion(id, payload)
+      setPromos(prev => prev.map(p => p.id === id ? { ...p, ...payload } : p))
+    }
+    setSavingPromo(false)
     setEditing(null)
   }
-  function removePromo() { if (typeof editing === 'number') setPromos(prev => prev.filter((_, idx) => idx !== editing)); setEditing(null) }
-  function toggleActive(i: number) { setPromos(prev => prev.map((p, idx) => idx === i ? { ...p, active: !p.active } : p)) }
+  async function removePromo() {
+    if (editing && editing !== 'new') { const id = editing.id; await deletePromotion(id); setPromos(prev => prev.filter(p => p.id !== id)) }
+    setEditing(null)
+  }
+  function toggleActive(p: Promo) {
+    setPromos(prev => prev.map(x => x.id === p.id ? { ...x, active: !x.active } : x))
+    void setPromotionActive(p.id, !p.active)
+  }
+
+  // ── Alertas en vivo ──
+  function openNewAlert() { setAlertForm(ALERT_DEFAULT); setAlertEditing('new') }
+  function openEditAlert(a: BizAlert) { setAlertForm({ alertType: a.alertType, title: a.title, body: a.body, cta: a.cta, startTime: a.startTime, endTime: a.endTime, days: a.days, active: a.active }); setAlertEditing(a) }
+  function toggleAlertDay(d: number) { setAlertForm(f => ({ ...f, days: f.days.includes(d) ? f.days.filter(x => x !== d) : [...f.days, d].sort() })) }
+  async function saveAlert() {
+    if (!alertForm.title.trim() || alertBusy) return
+    const payload: AlertInput = { ...alertForm, title: alertForm.title.trim(), body: alertForm.body.trim(), cta: alertForm.cta.trim() || 'Échale un ojo' }
+    setAlertBusy(true)
+    if (alertEditing === 'new') {
+      const created = await createAlert(vert.id, payload)
+      setAlerts(prev => [...prev, created ?? { ...payload, id: `local-${Date.now()}` }])
+    } else if (alertEditing) {
+      const id = alertEditing.id
+      await updateAlert(id, payload)
+      setAlerts(prev => prev.map(a => a.id === id ? { ...a, ...payload } : a))
+    }
+    setAlertBusy(false)
+    setAlertEditing(null)
+  }
+  async function removeAlert() {
+    if (alertEditing && alertEditing !== 'new') { const id = alertEditing.id; await deleteAlert(id); setAlerts(prev => prev.filter(a => a.id !== id)) }
+    setAlertEditing(null)
+  }
+  function toggleAlert(a: BizAlert) {
+    setAlerts(prev => prev.map(x => x.id === a.id ? { ...x, active: !x.active } : x))
+    void setAlertActive(a.id, !a.active)
+  }
 
   const activas = promos.filter(p => p.active).length
   const canjes = promos.reduce((a, p) => a + p.canjes, 0)
@@ -3307,7 +3590,7 @@ function PromosView({ vert }: { vert: Vert }) {
 
       {/* Tabs */}
       <div style={{ display: 'inline-flex', gap: 4, background: R.bgAlt, borderRadius: 999, padding: 4, marginBottom: 18 }}>
-        {([['ofertas', 'Ofertas'], ['lealtad', 'Lealtad'], ['revamas', 'Reva+']] as [typeof tab, string][]).map(([id, label]) => (
+        {([['ofertas', 'Ofertas'], ['alertas', 'Alertas'], ['lealtad', 'Lealtad'], ['revamas', 'Reva+']] as [typeof tab, string][]).map(([id, label]) => (
           <button key={id} onClick={() => setTab(id)} style={{ padding: '8px 18px', borderRadius: 999, border: 'none', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5, background: tab === id ? R.surface : 'transparent', color: tab === id ? R.ink : R.inkSoft, boxShadow: tab === id ? '0 1px 3px rgba(0,0,0,.08)' : 'none' }}>{label}</button>
         ))}
       </div>
@@ -3324,14 +3607,14 @@ function PromosView({ vert }: { vert: Vert }) {
             <BCard style={{ textAlign: 'center', padding: '40px 0', color: R.inkSoft }}>Aún no tienes promociones. Crea la primera.</BCard>
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 14 }}>
-              {promos.map((p, i) => (
-                <BCard key={i} style={{ padding: 16, opacity: p.active ? 1 : .6 }}>
+              {promos.map(p => (
+                <BCard key={p.id} style={{ padding: 16, opacity: p.active ? 1 : .6 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
                     <div style={{ width: 36, height: 36, borderRadius: 10, background: R.coralTint, display: 'grid', placeItems: 'center', flexShrink: 0 }}>
                       <Icon n={PROMO_ICON[p.type]} size={18} color={R.coral} />
                     </div>
                     <span style={{ fontSize: 11, fontWeight: 700, color: R.coralPress, background: R.coralTint, padding: '3px 9px', borderRadius: 999 }}>{p.type}</span>
-                    <button onClick={() => toggleActive(i)} aria-label="Activar" style={{ marginLeft: 'auto', width: 34, height: 20, borderRadius: 999, border: 'none', cursor: 'pointer', background: p.active ? R.jade : R.inkFaint, position: 'relative', flexShrink: 0 }}>
+                    <button onClick={() => toggleActive(p)} aria-label="Activar" style={{ marginLeft: 'auto', width: 34, height: 20, borderRadius: 999, border: 'none', cursor: 'pointer', background: p.active ? R.jade : R.inkFaint, position: 'relative', flexShrink: 0 }}>
                       <span style={{ position: 'absolute', top: 2, left: p.active ? 16 : 2, width: 16, height: 16, borderRadius: '50%', background: '#fff', transition: 'left .18s' }} />
                     </button>
                   </div>
@@ -3341,7 +3624,86 @@ function PromosView({ vert }: { vert: Vert }) {
                     <Icon n="clock" size={14} color={R.inkFaint} />
                     <span style={{ fontSize: 12.5, color: R.inkSoft }}>{p.vig}</span>
                     <span style={{ fontSize: 12.5, color: R.inkFaint }}>· {p.canjes} canjes</span>
-                    <button onClick={() => openEdit(i)} style={{ marginLeft: 'auto', border: 'none', background: 'transparent', cursor: 'pointer', display: 'grid', placeItems: 'center', padding: 4 }} aria-label="Editar"><Icon n="edit" size={16} color={R.inkSoft} /></button>
+                    <button onClick={() => openEdit(p)} style={{ marginLeft: 'auto', border: 'none', background: 'transparent', cursor: 'pointer', display: 'grid', placeItems: 'center', padding: 4 }} aria-label="Editar"><Icon n="edit" size={16} color={R.inkSoft} /></button>
+                  </div>
+                </BCard>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      {tab === 'alertas' && (
+        <>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+            <div>
+              <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink }}>Alertas en vivo</div>
+              <div style={{ fontSize: 12.5, color: R.inkSoft, marginTop: 2 }}>Aparecen en tu ficha del cliente durante su ventana horaria.</div>
+            </div>
+            {!alertEditing && (
+              <button onClick={openNewAlert} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '10px 18px', background: R.ink, color: '#fff', border: 'none', borderRadius: 999, fontFamily: R.ui, fontWeight: 700, fontSize: 13.5, cursor: 'pointer' }}>
+                <Icon n="plus" size={16} color="#fff" /> Crear alerta
+              </button>
+            )}
+          </div>
+
+          {alertEditing ? (
+            <BCard style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 14, maxWidth: 520 }}>
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', display: 'block', marginBottom: 8 }}>Tipo</label>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {ALERT_TYPES.map(t => {
+                    const on = alertForm.alertType === t.id
+                    return <button key={t.id} onClick={() => setAlertForm(f => ({ ...f, alertType: t.id }))} style={{ padding: '8px 14px', borderRadius: 999, border: `1px solid ${on ? R.coral : R.line}`, background: on ? R.coralTint : R.surface, color: on ? R.coralPress : R.inkSoft, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13 }}>{t.label}</button>
+                  })}
+                </div>
+              </div>
+              <input value={alertForm.title} onChange={e => setAlertForm(f => ({ ...f, title: e.target.value }))} placeholder="Título (ej. Happy hour en la terraza)" style={fieldStyle} />
+              <textarea value={alertForm.body} onChange={e => setAlertForm(f => ({ ...f, body: e.target.value }))} rows={2} placeholder="Detalle que verá el cliente" style={{ ...fieldStyle, resize: 'vertical' }} />
+              <input value={alertForm.cta} onChange={e => setAlertForm(f => ({ ...f, cta: e.target.value }))} placeholder="Texto del botón (ej. Échale un ojo)" style={fieldStyle} />
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <label><span style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, display: 'block', marginBottom: 6 }}>Desde</span><input type="time" value={alertForm.startTime} onChange={e => setAlertForm(f => ({ ...f, startTime: e.target.value }))} style={fieldStyle} /></label>
+                <label><span style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, display: 'block', marginBottom: 6 }}>Hasta</span><input type="time" value={alertForm.endTime} onChange={e => setAlertForm(f => ({ ...f, endTime: e.target.value }))} style={fieldStyle} /></label>
+              </div>
+              <div>
+                <span style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, display: 'block', marginBottom: 8 }}>Días (vacío = todos)</span>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  {(['D', 'L', 'M', 'M', 'J', 'V', 'S'] as const).map((d, i) => {
+                    const on = alertForm.days.includes(i)
+                    return <button key={i} onClick={() => toggleAlertDay(i)} style={{ width: 34, height: 34, borderRadius: 10, border: `1px solid ${on ? R.coral : R.line}`, background: on ? R.coral : R.surface, color: on ? '#fff' : R.inkSoft, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13 }}>{d}</button>
+                  })}
+                </div>
+              </div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+                <button onClick={() => setAlertForm(f => ({ ...f, active: !f.active }))} style={{ width: 46, height: 27, borderRadius: 999, border: 'none', cursor: 'pointer', background: alertForm.active ? R.jade : R.line, position: 'relative', flexShrink: 0 }}>
+                  <span style={{ position: 'absolute', top: 3, left: alertForm.active ? 22 : 3, width: 21, height: 21, borderRadius: '50%', background: '#fff', transition: 'left .18s' }} />
+                </button>
+                <span style={{ fontSize: 14, color: R.ink }}>Activa</span>
+              </label>
+              <div style={{ display: 'flex', gap: 10 }}>
+                {alertEditing !== 'new' && <button onClick={removeAlert} style={{ padding: '12px 16px', border: `1px solid ${R.line}`, borderRadius: 12, background: 'transparent', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14, color: R.coralPress }}>Eliminar</button>}
+                <button onClick={() => setAlertEditing(null)} style={{ padding: '12px 16px', border: `1px solid ${R.line}`, borderRadius: 12, background: 'transparent', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14, color: R.inkSoft }}>Cancelar</button>
+                <button onClick={saveAlert} disabled={!alertForm.title.trim() || alertBusy} style={{ flex: 1, padding: '12px', border: 'none', borderRadius: 12, background: alertForm.title.trim() ? R.coral : R.coralTint, cursor: alertForm.title.trim() ? 'pointer' : 'not-allowed', fontFamily: R.ui, fontWeight: 700, fontSize: 14.5, color: alertForm.title.trim() ? '#fff' : R.coralPress }}>{alertEditing === 'new' ? 'Crear alerta' : 'Guardar cambios'}</button>
+              </div>
+            </BCard>
+          ) : alerts.length === 0 ? (
+            <BCard style={{ textAlign: 'center', padding: '40px 0', color: R.inkSoft }}>Aún no tienes alertas. Crea la primera para avisar a tus clientes en tiempo real.</BCard>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 14 }}>
+              {alerts.map(a => (
+                <BCard key={a.id} style={{ padding: 16, opacity: a.active ? 1 : .6 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: R.coralPress, background: R.coralTint, padding: '3px 9px', borderRadius: 999 }}>{ALERT_TYPES.find(t => t.id === a.alertType)?.label ?? a.alertType}</span>
+                    <button onClick={() => toggleAlert(a)} aria-label="Activar" style={{ marginLeft: 'auto', width: 34, height: 20, borderRadius: 999, border: 'none', cursor: 'pointer', background: a.active ? R.jade : R.inkFaint, position: 'relative', flexShrink: 0 }}>
+                      <span style={{ position: 'absolute', top: 2, left: a.active ? 16 : 2, width: 16, height: 16, borderRadius: '50%', background: '#fff', transition: 'left .18s' }} />
+                    </button>
+                  </div>
+                  <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 15.5, color: R.ink }}>{a.title}</div>
+                  {a.body && <div style={{ fontSize: 13, color: R.inkSoft, marginTop: 3 }}>{a.body}</div>}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, paddingTop: 12, borderTop: `1px solid ${R.lineSoft}` }}>
+                    <Icon n="clock" size={14} color={R.inkFaint} />
+                    <span style={{ fontSize: 12.5, color: R.inkSoft }}>{a.startTime}–{a.endTime}{a.days.length ? ' · ' + a.days.map(d => ['D', 'L', 'M', 'M', 'J', 'V', 'S'][d]).join('') : ' · todos'}</span>
+                    <button onClick={() => openEditAlert(a)} style={{ marginLeft: 'auto', border: 'none', background: 'transparent', cursor: 'pointer', display: 'grid', placeItems: 'center', padding: 4 }} aria-label="Editar"><Icon n="edit" size={16} color={R.inkSoft} /></button>
                   </div>
                 </BCard>
               ))}
@@ -3491,7 +3853,7 @@ function PromosView({ vert }: { vert: Vert }) {
               </button>
             </div>
             <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
-              {typeof editing === 'number' && <button onClick={removePromo} style={{ padding: '12px 16px', border: `1px solid ${R.line}`, borderRadius: 12, background: 'transparent', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14, color: R.coralPress }}>Eliminar</button>}
+              {editing !== null && editing !== 'new' && <button onClick={removePromo} style={{ padding: '12px 16px', border: `1px solid ${R.line}`, borderRadius: 12, background: 'transparent', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14, color: R.coralPress }}>Eliminar</button>}
               <button onClick={savePromo} disabled={!form.title.trim()} style={{ flex: 1, padding: '12px', border: 'none', borderRadius: 12, background: form.title.trim() ? R.coral : R.coralTint, cursor: form.title.trim() ? 'pointer' : 'not-allowed', fontFamily: R.ui, fontWeight: 700, fontSize: 14.5, color: form.title.trim() ? '#fff' : R.coralPress }}>{editing === 'new' ? 'Crear promoción' : 'Guardar cambios'}</button>
             </div>
           </div>
@@ -4080,7 +4442,14 @@ function PlaceholderView({ title }: { title: string }) {
 
 // ── Shell ──────────────────────────────────────────────────
 export default function BizPage() {
-  const [ready, setReady] = useState(false)
+  // Negocio(s) reales del dueño con sesión, adaptados a la forma Vert.
+  // null = aún cargando la sesión.
+  const [verts, setVerts] = useState<Vert[] | null>(null)
+  // Datos crudos del/los negocio(s) del dueño (incluye agent_config y tax_mode).
+  const [ownerBiz, setOwnerBiz] = useState<OwnerBusiness[]>([])
+  const [ownerReady, setOwnerReady] = useState(false)
+  const [needsOnboarding, setNeedsOnboarding] = useState(false)
+  const [onboardBiz, setOnboardBiz] = useState<OwnerBusiness | null>(null)
   const [vertIdx, setVertIdx] = useState(0)
   const [view, setView] = useState('requests')
   // Config del Agente de IA (tono, instrucciones, límite de descuento, on/off).
@@ -4089,32 +4458,83 @@ export default function BizPage() {
   const [switcher, setSwitcher] = useState(false)
   const [notifOpen, setNotifOpen] = useState(false)
   // Catálogo compartido: lo edita CatalogView y lo consume el Punto de venta
-  const [catalog, setCatalog] = useState<CatItem[]>(() => VERTICALS[0].catalog.map(c => ({ ...c, active: true })))
+  const [catalog, setCatalog] = useState<CatItem[]>([])
   // Datos fiscales/de contacto del negocio para el ticket
-  const [bizInfo, setBizInfo] = useState<BizInfo>(() => ({ rfc: VERTICALS[0].rfc, address: VERTICALS[0].address, phone: VERTICALS[0].phone }))
+  const [bizInfo, setBizInfo] = useState<BizInfo>({ rfc: '', address: '', phone: '' })
+  // Manejo de IVA en el Punto de venta: agregado al total o incluido en el precio
+  const [taxMode, setTaxMode] = useState<TaxMode>('added')
+
+  // Carga la sesión del dueño y su(s) negocio(s). Sin sesión → login.
+  // Con sesión pero sin negocio configurado → onboarding.
+  const reloadOwner = useCallback(async () => {
+    const session = await loadOwnerSession()
+    if (!session.userId) { window.location.href = '/biz/login'; return }
+    if (session.businesses.length === 0) {
+      // Registrado antes de crear el negocio: el onboarding lo completa.
+      setVerts([]); setNeedsOnboarding(true); setOnboardBiz(null); setOwnerReady(true)
+      return
+    }
+    const built = session.businesses.map(vertFromBusiness)
+    setVerts(built)
+    setOwnerBiz(session.businesses)
+    setVertIdx(i => (i < built.length ? i : 0))
+    const primary = session.businesses[0]
+    if (!primary.onboarded) { setNeedsOnboarding(true); setOnboardBiz(primary) }
+    else { setNeedsOnboarding(false); setOnboardBiz(null) }
+    setOwnerReady(true)
+  }, [])
+
+  useEffect(() => { reloadOwner() }, [reloadOwner])
+
+  // Al cambiar el negocio activo, refresca catálogo/datos/config del agente
+  // desde la BD (agent_config, tax_mode). Cae al default/localStorage si falta.
   useEffect(() => {
-    const v = VERTICALS[vertIdx]
+    if (!verts || verts.length === 0) return
+    const v = verts[vertIdx] ?? verts[0]
     setCatalog(v.catalog.map(c => ({ ...c, active: true })))
     setBizInfo({ rfc: v.rfc, address: v.address, phone: v.phone })
-    setAgentCfgState(loadAgentConfig(v.id))
-  }, [vertIdx])
-  // Actualiza + persiste la config del agente en un solo paso (evita el race de un
-  // efecto de guardado al cambiar de negocio).
+    const raw = ownerBiz[vertIdx] ?? ownerBiz.find(b => b.id === v.id)
+    setAgentCfgState(raw?.agent_config ? parseAgentConfig(raw.agent_config) : loadAgentConfig(v.id))
+    if (raw?.tax_mode === 'added' || raw?.tax_mode === 'included') setTaxMode(raw.tax_mode)
+  }, [vertIdx, verts, ownerBiz])
+
+  // Guardado de ajustes debounced hacia /api/biz/settings (evita un write por tecla).
+  const settingsTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pendingSettings = useRef<Record<string, unknown>>({})
+  const saveSettings = useCallback((patch: Record<string, unknown>) => {
+    const id = verts?.[vertIdx]?.id
+    if (!id) return
+    pendingSettings.current = { ...pendingSettings.current, ...patch }
+    if (settingsTimer.current) clearTimeout(settingsTimer.current)
+    settingsTimer.current = setTimeout(() => {
+      const payload = { biz_id: id, ...pendingSettings.current }
+      pendingSettings.current = {}
+      fetch('/api/biz/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }).catch(() => {})
+    }, 700)
+  }, [verts, vertIdx])
+
+  // Actualiza + persiste la config del agente (a la BD).
   function setAgentCfg(updater: BizAgentConfig | ((c: BizAgentConfig) => BizAgentConfig)) {
     setAgentCfgState(prev => {
       const next = typeof updater === 'function' ? updater(prev) : updater
-      saveAgentConfig(VERTICALS[vertIdx].id, next)
+      const id = verts?.[vertIdx]?.id
+      if (id) { saveAgentConfig(id, next); saveSettings({ agent_config: next }) }
       return next
     })
   }
+  // Ajustes fiscales e IVA con persistencia.
+  const persistBizInfo = (v: BizInfo) => { setBizInfo(v); saveSettings({ rfc: v.rfc, address: v.address, phone: v.phone }) }
+  const persistTaxMode = (v: TaxMode) => { setTaxMode(v); saveSettings({ tax_mode: v }) }
   const agentOn = agentCfg.on
   const setAgentOn = (v: boolean) => setAgentCfg(c => ({ ...c, on: v }))
   // Hidrata las existencias reales desde Supabase (si está configurado), para que
   // el panel refleje lo que la app del cliente ya vendió/descontó. Se emparejan
   // por id de servicio; en modo demo `fetchStock` devuelve null y no toca nada.
   useEffect(() => {
+    if (!verts || verts.length === 0) return
+    const v = verts[vertIdx] ?? verts[0]
     let cancelled = false
-    const bizId = SHARED_BIZ_ID[VERTICALS[vertIdx].id] ?? VERTICALS[vertIdx].id
+    const bizId = SHARED_BIZ_ID[v.id] ?? v.id
     fetchStock(bizId).then(rows => {
       if (cancelled || !rows || rows.length === 0) return
       setCatalog(prev => prev.map(c => {
@@ -4123,24 +4543,83 @@ export default function BizPage() {
       }))
     })
     return () => { cancelled = true }
-  }, [vertIdx])
-  // Manejo de IVA en el Punto de venta: agregado al total o incluido en el precio
-  const [taxMode, setTaxMode] = useState<TaxMode>('added')
+  }, [vertIdx, verts])
 
-  if (!ready) return <BizOnboarding onDone={() => setReady(true)} />
+  // Reservas reales del negocio activo (Fase 3): solicitudes entrantes + agenda.
+  const [reservations, setReservations] = useState<PanelReservation[]>([])
+  const reloadReservations = useCallback(async (bizId: string) => {
+    try {
+      const r = await fetch(`/api/biz/reservations?biz_id=${encodeURIComponent(bizId)}`)
+      if (r.ok) { const d = await r.json(); setReservations(d.reservations ?? []) }
+    } catch { /* deja la lista como está */ }
+  }, [])
+  useEffect(() => {
+    if (!verts || verts.length === 0) return
+    const v = verts[vertIdx] ?? verts[0]
+    reloadReservations(v.id)
+  }, [vertIdx, verts, reloadReservations])
+  async function resolveReservation(id: string, status: 'confirmed' | 'cancelled') {
+    setReservations(prev => prev.filter(r => r.id !== id)) // optimista: sale de "Entrantes"
+    try {
+      await fetch('/api/biz/reservations', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, status }),
+      })
+    } catch { /* ignora */ }
+    const v = verts?.[vertIdx]
+    if (v) reloadReservations(v.id)
+  }
 
-  const vert = VERTICALS[vertIdx]
+  // Métricas reales del negocio activo (Fase 5).
+  const [bizMetrics, setBizMetrics] = useState<BizMetrics | null>(null)
+  useEffect(() => {
+    if (!verts || verts.length === 0) return
+    const v = verts[vertIdx] ?? verts[0]
+    let cancelled = false
+    fetch(`/api/biz/metrics?biz_id=${encodeURIComponent(v.id)}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (!cancelled && d) setBizMetrics(d) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [vertIdx, verts])
+
+  // Gating — todos los hooks quedaron arriba.
+  if (!ownerReady) {
+    return (
+      <div style={{ minHeight: '100vh', background: R.bg, display: 'grid', placeItems: 'center', fontFamily: R.ui, color: R.inkSoft, fontSize: 14 }}>
+        Cargando tu panel…
+      </div>
+    )
+  }
+  if (needsOnboarding) return <BizOnboarding biz={onboardBiz} onDone={reloadOwner} />
+  if (!verts || verts.length === 0) {
+    return (
+      <div style={{ minHeight: '100vh', background: R.bg, display: 'grid', placeItems: 'center', fontFamily: R.ui, color: R.inkSoft, fontSize: 14 }}>
+        Cargando tu panel…
+      </div>
+    )
+  }
+
+  const vert = verts[vertIdx] ?? verts[0]
+  const panelRequests = reservationsToRequests(reservations)
+  const panelAgenda = reservationsToAgenda(reservations)
+
+  // Inyecta las métricas reales en la forma que ya consumen las vistas.
+  const fmtK = (n: number) => n >= 1000 ? `$${(n / 1000).toFixed(1)}k` : `$${Math.round(n)}`
+  const dayLetters = ['D', 'L', 'M', 'M', 'J', 'V', 'S']
+  const last7Labels = Array.from({ length: 7 }, (_, i) => { const d = new Date(); d.setDate(d.getDate() - (6 - i)); return dayLetters[d.getDay()] })
+  const vertM: Vert = bizMetrics
+    ? { ...vert, metrics: { ...vert.metrics, reservasHoy: bizMetrics.reservasHoy, ingreso: fmtK(bizMetrics.ingreso7), viaReva: bizMetrics.viaReva, rove: bizMetrics.rove, trend: bizMetrics.resSeries.d7, trendLabels: last7Labels } }
+    : vert
+
   const [mainTitle, mainSub] = VIEW_TITLES[view] ?? ['', '']
   const unreadMsgs = vert.messages.filter(m => m.unread).length
 
   // Notificaciones de la operación, derivadas de la actividad en vivo
   const notifs = [
-    ...vert.requests
-      .filter(r => r.state === 'action')
+    ...panelRequests
       .map(r => ({ id: `act-${r.id}`, icon: 'bolt', tint: R.coralTint, color: R.coralPress, title: 'Acción requerida', sub: `${r.who} · ${r.party} personas · ${r.when} ${r.time}`, time: r.when === 'Hoy' ? r.time : r.when, view: 'requests' })),
-    ...vert.requests
-      .filter(r => r.state === 'negotiating')
-      .map(r => ({ id: `neg-${r.id}`, icon: 'spark', tint: R.amberTint, color: R.amberDeep, title: 'Reva negociando', sub: `${r.who} · ${r.note}`, time: r.when === 'Hoy' ? r.time : r.when, view: 'requests' })),
     ...vert.messages
       .filter(m => m.unread)
       .map(m => ({ id: `msg-${m.who}`, icon: 'chat', tint: R.jadeTint, color: '#16614c', title: `Nuevo mensaje · ${m.who}`, sub: m.last, time: m.time, view: 'messages' })),
@@ -4152,18 +4631,18 @@ export default function BizPage() {
   }
 
   function renderView() {
-    if (view === 'requests') return <RequestsView vert={vert} onGo={setView} />
-    if (view === 'agenda') return <AgendaView vert={vert} />
+    if (view === 'requests') return <RequestsView vert={vertM} onGo={setView} requests={panelRequests} agenda={panelAgenda} onResolve={resolveReservation} />
+    if (view === 'agenda') return <AgendaView vert={vert} dayAgenda={panelAgenda} />
     if (view === 'messages') return <MessagesView key={vert.id} vert={vert} agentCfg={agentCfg} />
-    if (view === 'metrics') return <MetricsView vert={vert} />
-    if (view === 'reports') return <ReportsView vert={vert} items={catalog} onGo={setView} bizInfo={bizInfo} />
+    if (view === 'metrics') return <MetricsView vert={vertM} metrics={bizMetrics} />
+    if (view === 'reports') return <ReportsView vert={vertM} items={catalog} onGo={setView} bizInfo={bizInfo} />
     if (view === 'catalog') return <CatalogView vert={vert} items={catalog} setItems={setCatalog} />
     if (view === 'inventory') return <InventoryView vert={vert} items={catalog} setItems={setCatalog} onGo={setView} />
     if (view === 'pos') return <PosView vert={vert} items={catalog} setItems={setCatalog} onGo={setView} taxMode={taxMode} bizInfo={bizInfo} />
     if (view === 'destacado') return <DestacadoView vert={vert} />
     if (view === 'promos') return <PromosView vert={vert} />
     if (view === 'scanner') return <ScannerView key={vert.id} vert={vert} />
-    if (view === 'settings') return <SettingsView agentCfg={agentCfg} setAgentCfg={setAgentCfg} taxMode={taxMode} setTaxMode={setTaxMode} bizInfo={bizInfo} setBizInfo={setBizInfo} vert={vert} onGo={setView} />
+    if (view === 'settings') return <SettingsView agentCfg={agentCfg} setAgentCfg={setAgentCfg} taxMode={taxMode} setTaxMode={persistTaxMode} bizInfo={bizInfo} setBizInfo={persistBizInfo} vert={vert} onGo={setView} />
     return <PlaceholderView title={VIEW_TITLES[view]?.[0] ?? view} />
   }
 
@@ -4186,7 +4665,7 @@ export default function BizPage() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
           {NAV.map(it => {
             const on = view === it.id
-            const badge = it.id === 'requests' ? vert.requests.length : it.id === 'messages' ? unreadMsgs : 0
+            const badge = it.id === 'requests' ? panelRequests.length : it.id === 'messages' ? unreadMsgs : 0
             return (
               <button key={it.id} onClick={() => setView(it.id)} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 14px', borderRadius: 12, cursor: 'pointer', border: 'none', width: '100%', textAlign: 'left', background: on ? R.coralTint : 'transparent', color: on ? R.coralPress : R.inkSoft, fontWeight: on ? 700 : 500, fontSize: 14.5, fontFamily: R.ui }}>
                 <Icon n={it.icon} size={20} color={on ? R.coral : R.inkFaint} stroke={on ? 2.3 : 2} />
@@ -4201,7 +4680,7 @@ export default function BizPage() {
         <div style={{ marginTop: 'auto', position: 'relative' }}>
           {switcher && (
             <div style={{ position: 'absolute', bottom: 'calc(100% + 8px)', left: 0, right: 0, background: R.surface, borderRadius: 14, border: `1px solid ${R.line}`, boxShadow: '0 8px 32px rgba(34,28,25,.14)', overflow: 'hidden', zIndex: 20 }}>
-              {VERTICALS.map((v, i) => (
+              {verts.map((v, i) => (
                 <button key={v.id} onClick={() => { setVertIdx(i); setSwitcher(false); setView('requests') }} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 13px', width: '100%', border: 'none', cursor: 'pointer', textAlign: 'left', background: i === vertIdx ? R.bg : 'transparent', fontFamily: R.ui }}>
                   <div style={{ width: 30, height: 30, borderRadius: 8, background: `linear-gradient(140deg, ${v.grad[0]}, ${v.grad[1]})`, display: 'grid', placeItems: 'center', fontFamily: R.display, fontWeight: 800, color: '#fff', fontSize: 14, flexShrink: 0 }}>{v.mono}</div>
                   <div style={{ flex: 1, minWidth: 0 }}>

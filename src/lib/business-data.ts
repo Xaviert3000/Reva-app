@@ -1,10 +1,11 @@
 // Loads businesses + catalog for the city the guest is currently in.
-// Los Cabos keeps the rich curated demo dataset (bilingual copy, reviews,
-// alerts) baked into data.ts. Any other municipio is read live from Supabase
-// (businesses/services tables) — real data, thinner shape, mapped onto the
-// same Business/Service interfaces so the UI doesn't need to branch on source.
+// Every municipio (Los Cabos included) is read live from Supabase — the 9
+// Los Cabos businesses are seeded there (migration 011). The curated demo in
+// data.ts is only a last-resort fallback so the app never sees an empty city
+// (e.g. before migrations run). Rows are mapped onto the Business/Service
+// interfaces so the UI doesn't branch on source.
 import { createClient } from './supabase/client'
-import { BIZ, CATALOG, slotsFromHours, type Business, type FeaturedTier, type Service } from './data'
+import { BIZ, CATALOG, slotsFromHours, type Business, type FeaturedTier, type Service, type ProactiveAlert, type AlertType } from './data'
 
 interface DbBusiness {
   id: string
@@ -32,6 +33,27 @@ interface DbService {
   price: number | null
   duration_min: number | null
   stock: number | null
+  scheduled: boolean | null
+}
+
+interface DbReview {
+  biz_id: string
+  body: string | null
+  author: string | null
+  lang: string | null
+}
+
+interface DbAlert {
+  id: string
+  biz_id: string
+  alert_type: string | null
+  title: string
+  body: string | null
+  cta: string | null
+  start_time: string | null
+  end_time: string | null
+  days: number[] | null
+  active: boolean | null
 }
 
 function mapService(s: DbService, grad: [string, string]): Service {
@@ -43,12 +65,38 @@ function mapService(s: DbService, grad: [string, string]): Service {
     category: 'General',
     grad,
     duration: s.duration_min ?? undefined,
+    // false en la BD = producto/cotización sin calendario de reservas.
+    scheduled: s.scheduled ?? undefined,
     // null en la BD = disponibilidad ilimitada (sin seguimiento de inventario).
     stock: s.stock ?? undefined,
   }
 }
 
-function mapBusiness(b: DbBusiness, grad: [string, string]): Business {
+function mapReview(r: DbReview): { who: string; txt: string; es: boolean } {
+  return { who: r.author || 'Cliente', txt: r.body || '', es: (r.lang ?? 'es') === 'es' }
+}
+
+function mapAlert(a: DbAlert): ProactiveAlert {
+  return {
+    id: a.id,
+    bizId: a.biz_id,
+    type: (a.alert_type as AlertType) || 'promo',
+    title: a.title,
+    body: a.body || '',
+    cta: a.cta || '',
+    startTime: a.start_time || '00:00',
+    endTime: a.end_time || '23:59',
+    days: a.days ?? [],
+    active: a.active !== false,
+  }
+}
+
+function mapBusiness(
+  b: DbBusiness,
+  grad: [string, string],
+  reviews: Business['reviews'],
+  alerts: ProactiveAlert[],
+): Business {
   const hours = b.hours || '09:00 – 21:00'
   const slots = slotsFromHours(hours, 60)
   // Destacado solo si el plan sigue vigente (o no tiene fecha de expiración).
@@ -75,8 +123,9 @@ function mapBusiness(b: DbBusiness, grad: [string, string]): Business {
     en: `${b.name} — ${b.type || 'local favorite'} in ${b.hood || b.municipio}.`,
     es: `${b.name} — ${b.type || 'favorito local'} en ${b.hood || b.municipio}.`,
     tags: [],
-    reviews: [],
+    reviews,
     slots: slots.length > 0 ? slots : ['12:00', '14:00', '19:00'],
+    alerts: alerts.length > 0 ? alerts : undefined,
   }
 }
 
@@ -87,32 +136,48 @@ export interface CityData {
 
 export const LOS_CABOS_DATA: CityData = { businesses: BIZ, catalog: CATALOG }
 
-// Fetches real businesses + their active services for a given municipio.
-// Falls back to the curated Los Cabos demo data if the city has nothing in
-// Supabase yet (so the rest of the app never sees an empty city).
+// Fetches real businesses + their active services, reviews and live alerts for a
+// municipio (Los Cabos included — its 9 businesses are seeded in Supabase).
+// Falls back to the curated demo data only if the city has nothing yet, so the
+// app never renders an empty city.
 export async function fetchCityData(municipio: string): Promise<CityData> {
-  if (municipio === 'Los Cabos') return LOS_CABOS_DATA
-
   const supabase = createClient()
   const { data: bizRows, error } = await supabase
     .from('businesses')
     .select('id,name,type,kind,hood,municipio,hours,rating,local_fav,featured,tier,featured_until,grad_from,grad_to,mono')
     .eq('municipio', municipio)
 
-  if (error || !bizRows || bizRows.length === 0) return LOS_CABOS_DATA
+  if (error || !bizRows || bizRows.length === 0) {
+    // Sin datos reales todavía: usa el demo curado solo para Los Cabos.
+    return municipio === 'Los Cabos' ? LOS_CABOS_DATA : { businesses: [], catalog: {} }
+  }
 
   const ids = bizRows.map(b => b.id)
-  const { data: svcRows } = await supabase
-    .from('services')
-    .select('id,biz_id,name,description,price,duration_min,stock')
-    .in('biz_id', ids)
-    .eq('active', true)
+  const [{ data: svcRows }, { data: revRows }, { data: alertRows }] = await Promise.all([
+    supabase
+      .from('services')
+      .select('id,biz_id,name,description,price,duration_min,stock,scheduled')
+      .in('biz_id', ids)
+      .eq('active', true),
+    supabase
+      .from('reviews')
+      .select('biz_id,body,author,lang')
+      .in('biz_id', ids),
+    supabase
+      .from('promotions')
+      .select('id,biz_id,alert_type,title,body,cta,start_time,end_time,days,active')
+      .in('biz_id', ids)
+      .eq('kind', 'alerta')
+      .eq('active', true),
+  ])
 
   const catalog: Record<string, Service[]> = {}
   const businesses = bizRows.map(b => {
     const grad: [string, string] = [b.grad_from || '#5FA6B0', b.grad_to || '#2E6E78']
-    catalog[b.id] = (svcRows ?? []).filter(s => s.biz_id === b.id).map(s => mapService(s, grad))
-    return mapBusiness(b, grad)
+    catalog[b.id] = (svcRows ?? []).filter(s => s.biz_id === b.id).map(s => mapService(s as DbService, grad))
+    const reviews = (revRows ?? []).filter(r => r.biz_id === b.id).map(mapReview)
+    const alerts = (alertRows ?? []).filter(a => a.biz_id === b.id).map(a => mapAlert(a as DbAlert))
+    return mapBusiness(b, grad, reviews, alerts)
   })
 
   return { businesses, catalog }

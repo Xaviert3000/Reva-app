@@ -5,6 +5,8 @@ import {
   addPointsBySerial,
   redeemRewardBySerial,
 } from '@/lib/boomerangme'
+import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 export const maxDuration = 15
 
@@ -40,6 +42,15 @@ export async function POST(req: NextRequest) {
   if (action !== 'stamp' && action !== 'points' && action !== 'redeem') {
     return NextResponse.json({ ok: false, error: `Acción desconocida: ${action}` }, { status: 400 })
   }
+
+  // Auth (Fase 9): el escáner corre en el panel del dueño. Verifica sesión y que
+  // el usuario sea miembro del negocio que dice operar.
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ ok: false, error: 'No autenticado' }, { status: 401 })
+  const { data: membership } = await createAdminClient()
+    .from('biz_members').select('biz_id').eq('user_id', user.id).eq('biz_id', businessId).maybeSingle()
+  if (!membership) return NextResponse.json({ ok: false, error: 'No autorizado' }, { status: 403 })
 
   // Demo fallback: while the platform hasn't connected BoomerangMe, acknowledge the
   // transaction as simulated so the Escáner keeps working end-to-end.

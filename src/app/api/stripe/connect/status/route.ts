@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getStripe } from '@/lib/stripe'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { createClient } from '@/lib/supabase/server'
+
+export const dynamic = 'force-dynamic'
 
 // Consulta el estado actual de la cuenta Connect de un negocio directo desde
 // Stripe y lo persiste en Supabase. Se llama al volver del onboarding
@@ -10,6 +13,11 @@ export async function GET(req: NextRequest) {
   if (!biz_id) return NextResponse.json({ error: 'biz_id requerido' }, { status: 400 })
 
   const supabase = createAdminClient()
+  const session = await createClient()
+  const { data: { user } } = await session.auth.getUser()
+  if (!user) return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
+  const { data: member } = await supabase.from('biz_members').select('biz_id').eq('user_id', user.id).eq('biz_id', biz_id).maybeSingle()
+  if (!member) return NextResponse.json({ error: 'No autorizado' }, { status: 403 })
   const { data: biz } = await supabase
     .from('businesses')
     .select('stripe_account_id')

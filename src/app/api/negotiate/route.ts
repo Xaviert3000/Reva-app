@@ -1,6 +1,7 @@
 import { openrouterJSON, type ChatMessage } from '@/lib/openrouter'
 import { BIZ_AGENTS, negotiationSystemPrompt, negotiationUserPrompt } from '@/lib/ai-prompts'
 import { loadPlatformConfig, resolvedPrompt, modelChain } from '@/lib/platform-config'
+import { enforceRateLimit } from '@/lib/rate-limit'
 import type { Mode } from '@/lib/data'
 
 export const maxDuration = 30
@@ -26,6 +27,8 @@ export interface NegotiateResult {
 }
 
 export async function POST(req: Request) {
+  const limited = enforceRateLimit(req, 'ai')
+  if (limited) return limited
   try {
     const body: NegotiateRequest = await req.json()
     const { bizId, bizName, userRequest, partySize, preferredTime, preferredDate, mode } = body

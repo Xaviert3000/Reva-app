@@ -6,6 +6,7 @@ import { OR_OPTIONS_DEFAULT, OR_DEFAULT_MODEL, loadORConfig, saveORConfig, type 
 import { PROMPT_DEFS, DEFAULT_PROMPTS, type PromptId } from '@/lib/ai-prompts'
 import { STATES_DATA } from '@/lib/data'
 import { type RoveReward } from '@/lib/rove-rewards'
+import { createClient } from '@/lib/supabase/client'
 
 // ── Design tokens (compartidos con el panel del negocio) ───
 const R = {
@@ -18,10 +19,6 @@ const R = {
   dusk: '#1B2436', duskSoft: '#2A3550',
   display: 'var(--font-display)', ui: 'var(--font-ui)',
 }
-
-// Credenciales demo del super administrador
-const ADMIN_EMAIL = 'admin@reva.mx'
-const ADMIN_PASS = 'reva2026'
 
 function Icon({ n, size = 20, color = 'currentColor', stroke = 2, fill = 'none' }: {
   n: string; size?: number; color?: string; stroke?: number; fill?: string
@@ -111,6 +108,8 @@ const WAITLIST: { biz: string; cat: string; mun: string; nivel: Niv }[] = [
 ]
 
 type Biz = { name: string; mono: string; cat: string; mun: string; plan: string; estado: 'Activo' | 'Pausado'; dest: string; reservas: number; grad: [string, string]; email?: string; invitePending?: boolean }
+// Fila cruda de /api/admin/businesses (Fase 9).
+type AdminBizRow = { name: string; mono: string | null; kind: string | null; type: string | null; municipio: string | null; agent_active: boolean | null; tier: string | null; grad_from: string | null; grad_to: string | null }
 const BIZES_INIT: Biz[] = [
   { name: 'La Lupita', mono: 'L', cat: 'Restaurantes', mun: 'San José del Cabo', plan: 'Reva', estado: 'Activo', dest: 'Destacado', reservas: 142, grad: ['#E27A52', '#B5472F'] },
   { name: 'Sereno Spa', mono: 'S', cat: 'Spa & Bienestar', mun: 'San José del Cabo', plan: 'Reva', estado: 'Activo', dest: 'Premium', reservas: 96, grad: ['#C9A2B4', '#6E4A63'] },
@@ -157,14 +156,42 @@ const RESERVAS: { cuando: string; guest: string; biz: string; party: number; via
   { cuando: 'Sáb 13:00', guest: 'Ana G.', biz: 'Studio Cabo Hair', party: 1, via: 'Vecino', estado: 'Confirmada' },
   { cuando: 'Sáb 18:30', guest: 'Pablo N.', biz: 'Dental Cabo Sonríe', party: 1, via: 'Vecino', estado: 'Confirmada' },
 ]
+type ResaItem = typeof RESERVAS[number]
 
-type ModItem = { id: number; biz: string; mono: string; nivel: Niv; tipo: 'Servicio' | 'Negocio' | 'Promoción'; que: string; enviado: string; grad: [string, string] }
+// Fila cruda de /api/admin/reservations → forma que pinta la tabla de Reservas.
+type AdminResRow = { slot: string | null; created_at: string; party: number | null; status: string; guest_name?: string; businesses?: { name: string; hood: string } | null }
+function mapAdminReservation(r: AdminResRow): ResaItem {
+  const d = r.slot ? new Date(r.slot) : (r.created_at ? new Date(r.created_at) : null)
+  const cuando = d
+    ? (d.toDateString() === new Date().toDateString() ? 'Hoy ' : '') + d.toLocaleString('es-MX', { day: d.toDateString() === new Date().toDateString() ? undefined : 'numeric', month: d.toDateString() === new Date().toDateString() ? undefined : 'short', hour: '2-digit', minute: '2-digit' })
+    : 'Solicitud'
+  const estado: Estado = r.status === 'confirmed' ? 'Confirmada' : r.status === 'completed' ? 'Sentados' : (r.status === 'cancelled' || r.status === 'no_show') ? 'Cancelada' : 'Por confirmar'
+  return { cuando, guest: r.guest_name || 'Cliente', biz: r.businesses?.name || 'Negocio', party: r.party ?? 1, via: 'Explorer', estado }
+}
+
+type ModItem = { id: string; biz: string; mono: string; nivel: Niv; tipo: 'Servicio' | 'Negocio' | 'Promoción'; que: string; enviado: string; grad: [string, string] }
 const MOD_INIT: ModItem[] = [
-  { id: 1, biz: 'Mariscos El Faro', mono: 'M', nivel: 'Destacado', tipo: 'Servicio', que: 'Torre de mariscos · $480', enviado: 'hace 2 h', grad: ['#5FA6B0', '#2E6E78'] },
-  { id: 2, biz: 'Lounge 22', mono: 'L', nivel: 'Premium', tipo: 'Negocio', que: 'Todo el negocio', enviado: 'hace 5 h', grad: ['#E9A24A', '#C25C3C'] },
-  { id: 3, biz: 'Taquería Don Beto', mono: 'T', nivel: 'Destacado', tipo: 'Promoción', que: '2x1 en tacos · martes', enviado: 'ayer', grad: ['#E27A52', '#B5472F'] },
-  { id: 4, biz: 'Spa Luna', mono: 'S', nivel: 'Destacado', tipo: 'Servicio', que: 'Facial premium · $1,900', enviado: 'ayer', grad: ['#C9A2B4', '#6E4A63'] },
+  { id: '1', biz: 'Mariscos El Faro', mono: 'M', nivel: 'Destacado', tipo: 'Servicio', que: 'Torre de mariscos · $480', enviado: 'hace 2 h', grad: ['#5FA6B0', '#2E6E78'] },
+  { id: '2', biz: 'Lounge 22', mono: 'L', nivel: 'Premium', tipo: 'Negocio', que: 'Todo el negocio', enviado: 'hace 5 h', grad: ['#E9A24A', '#C25C3C'] },
+  { id: '3', biz: 'Taquería Don Beto', mono: 'T', nivel: 'Destacado', tipo: 'Promoción', que: '2x1 en tacos · martes', enviado: 'ayer', grad: ['#E27A52', '#B5472F'] },
+  { id: '4', biz: 'Spa Luna', mono: 'S', nivel: 'Destacado', tipo: 'Servicio', que: 'Facial premium · $1,900', enviado: 'ayer', grad: ['#C9A2B4', '#6E4A63'] },
 ]
+// Fila cruda de /api/admin/moderation.
+type ModRow = { id: string; biz_name: string | null; mono: string | null; nivel: string | null; tipo: string; que: string | null; grad_from: string | null; grad_to: string | null; created_at: string }
+function mapModItem(r: ModRow): ModItem {
+  const min = Math.floor((Date.now() - new Date(r.created_at).getTime()) / 60000)
+  const enviado = min < 60 ? `hace ${Math.max(1, min)} min` : min < 1440 ? `hace ${Math.floor(min / 60)} h` : `hace ${Math.floor(min / 1440)} d`
+  return {
+    id: r.id,
+    biz: r.biz_name || 'Negocio',
+    mono: r.mono || (r.biz_name || 'R').charAt(0).toUpperCase(),
+    nivel: r.nivel === 'Premium' ? 'Premium' : 'Destacado',
+    tipo: (r.tipo === 'Negocio' || r.tipo === 'Promoción' || r.tipo === 'Servicio') ? r.tipo : 'Servicio',
+    que: r.que || '',
+    enviado,
+    grad: [r.grad_from || '#5FA6B0', r.grad_to || '#2E6E78'],
+  }
+}
 
 type Ticket = {
   id: string; user: string; city: string; mode: 'Explorer'|'Vecino'; issue: string; time: string; status: 'nuevo'|'en_progreso'|'resuelto'
@@ -257,10 +284,20 @@ function AdminLogin({ onAuth }: { onAuth: () => void }) {
   const [email, setEmail] = useState('')
   const [pass, setPass] = useState('')
   const [err, setErr] = useState('')
+  const [busy, setBusy] = useState(false)
 
-  function submit() {
-    if (email.trim().toLowerCase() === ADMIN_EMAIL && pass === ADMIN_PASS) { setErr(''); onAuth() }
-    else setErr('Credenciales incorrectas.')
+  // Inicia sesión con Supabase y valida que el correo sea admin (allowlist server).
+  async function submit() {
+    if (busy) return
+    setBusy(true); setErr('')
+    const supabase = createClient()
+    const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password: pass })
+    if (error) { setErr('Credenciales incorrectas.'); setBusy(false); return }
+    const res = await fetch('/api/admin/session')
+    const data = await res.json().catch(() => ({ admin: false }))
+    if (data.admin) { onAuth() }
+    else { await supabase.auth.signOut(); setErr('Esta cuenta no tiene acceso de administrador.') }
+    setBusy(false)
   }
   const field: CSSProperties = { width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 12, padding: '12px 14px', fontSize: 14.5, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.surface }
 
@@ -282,10 +319,7 @@ function AdminLogin({ onAuth }: { onAuth: () => void }) {
           <input value={email} onChange={e => setEmail(e.target.value)} placeholder="Correo" style={field} />
           <input value={pass} type="password" onChange={e => setPass(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') submit() }} placeholder="Contraseña" style={field} />
           {err && <div style={{ fontSize: 13, color: R.coralPress, fontWeight: 600 }}>{err}</div>}
-          <button onClick={submit} style={{ width: '100%', padding: '13px', background: R.coral, color: '#fff', border: 'none', borderRadius: 14, fontFamily: R.ui, fontWeight: 700, fontSize: 15, cursor: 'pointer', marginTop: 4 }}>Entrar</button>
-        </div>
-        <div style={{ marginTop: 16, padding: '10px 12px', background: R.bgAlt, borderRadius: 10, fontSize: 12, color: R.inkSoft }}>
-          <strong style={{ color: R.ink }}>Demo:</strong> {ADMIN_EMAIL} · {ADMIN_PASS}
+          <button onClick={submit} disabled={busy} style={{ width: '100%', padding: '13px', background: R.coral, color: '#fff', border: 'none', borderRadius: 14, fontFamily: R.ui, fontWeight: 700, fontSize: 15, cursor: busy ? 'default' : 'pointer', marginTop: 4, opacity: busy ? 0.7 : 1 }}>{busy ? 'Entrando…' : 'Entrar'}</button>
         </div>
       </div>
     </div>
@@ -509,8 +543,32 @@ export default function AdminPage() {
   const [roveRewards, setRoveRewards] = useState<RoveReward[]>([])
 
   useEffect(() => {
+    if (!authed) return
     fetch('/api/rove/admin').then(r => r.json()).then(d => setRoveRewards(d.rewards ?? [])).catch(() => {})
-  }, [])
+    // Negocios reales de la plataforma.
+    fetch('/api/admin/businesses').then(r => r.ok ? r.json() : null).then(d => {
+      if (!d?.businesses) return
+      setBizes(d.businesses.map((b: AdminBizRow): Biz => ({
+        name: b.name,
+        mono: b.mono || (b.name || 'R').charAt(0).toUpperCase(),
+        cat: b.kind || b.type || '—',
+        mun: b.municipio || '—',
+        plan: 'Reva',
+        estado: b.agent_active ? 'Activo' : 'Pausado',
+        dest: b.tier === 'premium' ? 'Premium' : b.tier === 'destacado' ? 'Destacado' : '—',
+        reservas: 0,
+        grad: [b.grad_from || '#5FA6B0', b.grad_to || '#2E6E78'],
+      })))
+    }).catch(() => {})
+    // Reservas reales de la plataforma.
+    fetch('/api/admin/reservations').then(r => r.ok ? r.json() : null).then(d => {
+      if (d?.reservations) setReservasList(d.reservations.map(mapAdminReservation))
+    }).catch(() => {})
+    // Cola de moderación real.
+    fetch('/api/admin/moderation').then(r => r.ok ? r.json() : null).then(d => {
+      if (d?.items) setModQueue(d.items.map(mapModItem))
+    }).catch(() => {})
+  }, [authed])
 
   function updateRoveReward(updated: RoveReward) {
     setRoveRewards(prev => prev.map(r => r.id === updated.id ? updated : r))
@@ -566,6 +624,7 @@ export default function AdminPage() {
   // Reservas
   const [rq, setRq] = useState('')
   const [rf, setRf] = useState('Todas')
+  const [reservasList, setReservasList] = useState<ResaItem[]>(RESERVAS)
 
   // Moderación
   const [modQueue, setModQueue] = useState<ModItem[]>(MOD_INIT)
@@ -679,9 +738,10 @@ export default function AdminPage() {
   function setModelCfg(v: string) { setOrModel(v); persistOR({ model: v }) }
   function setFallbacksCfg(v: string) { setOrFallbacks(v); persistOR({ fallbackModels: v.split(',').map(s => s.trim()).filter(Boolean) }) }
 
-  useEffect(() => { if (typeof window !== 'undefined' && sessionStorage.getItem('reva_admin') === '1') setAuthed(true) }, [])
-  function login() { sessionStorage.setItem('reva_admin', '1'); setAuthed(true) }
-  function logout() { sessionStorage.removeItem('reva_admin'); setAuthed(false) }
+  // Verifica la sesión admin real (Supabase + allowlist) al cargar.
+  useEffect(() => { fetch('/api/admin/session').then(r => r.json()).then(d => setAuthed(!!d.admin)).catch(() => {}) }, [])
+  function login() { setAuthed(true) }
+  async function logout() { try { await createClient().auth.signOut() } catch {} setAuthed(false) }
 
   if (!authed) return <AdminLogin onAuth={login} />
 
@@ -700,12 +760,17 @@ export default function AdminPage() {
   const bizRows = bizes.map((b, idx) => ({ b, idx })).filter(({ b }) =>
     (bf === 'Todos' || b.estado === bf) && b.name.toLowerCase().includes(bq.trim().toLowerCase()))
   // Reservas filtradas
-  const resRows = RESERVAS.filter(r =>
+  const resRows = reservasList.filter(r =>
     (rf === 'Todas' || r.estado === rf) && (r.guest + ' ' + r.biz).toLowerCase().includes(rq.trim().toLowerCase()))
 
-  function moderate(id: number, ok: boolean) {
+  function moderate(id: string, ok: boolean) {
     setModQueue(q => q.filter(m => m.id !== id))
     setResolved(s => ok ? { ...s, aprobadas: s.aprobadas + 1 } : { ...s, rechazadas: s.rechazadas + 1 })
+    fetch('/api/admin/moderation', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, decision: ok ? 'approved' : 'rejected' }),
+    }).catch(() => {})
   }
   function toggleBiz(idx: number) {
     setBizes(prev => prev.map((b, i) => i === idx ? { ...b, estado: b.estado === 'Activo' ? 'Pausado' : 'Activo' } : b))
@@ -908,7 +973,7 @@ export default function AdminPage() {
             const pendingMod = modQueue.length
             const pendingTickets = tickets.filter(t => t.status !== 'resuelto').length
             const topBizes = [...bizes].filter(b => b.estado === 'Activo').sort((a, b) => b.reservas - a.reservas).slice(0, 5)
-            const nextReservas = RESERVAS.filter(r => r.estado !== 'Cancelada').slice(0, 5)
+            const nextReservas = reservasList.filter(r => r.estado !== 'Cancelada').slice(0, 5)
             const pausedBizes = bizes.filter(b => b.estado === 'Pausado').length
             return (
               <>

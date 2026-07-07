@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { requireAdmin } from '@/lib/admin-auth'
 
 // Avoid running this route at build time — it needs runtime env vars.
 export const dynamic = 'force-dynamic'
@@ -15,6 +16,7 @@ function getSupabase() {
 
 export async function POST(req: NextRequest) {
   try {
+    if (!(await requireAdmin())) return NextResponse.json({ error: 'No autorizado' }, { status: 403 })
     const supabase = getSupabase()
     const { email } = await req.json()
 

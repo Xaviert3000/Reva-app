@@ -1,11 +1,14 @@
 import { openrouterChat, type ChatMessage } from '@/lib/openrouter'
 import { conciergeSystemPrompt } from '@/lib/ai-prompts'
 import { loadPlatformConfig, resolvedPrompt, modelChain } from '@/lib/platform-config'
+import { enforceRateLimit } from '@/lib/rate-limit'
 import type { Mode, Business, Service } from '@/lib/data'
 
 export const maxDuration = 30
 
 export async function POST(req: Request) {
+  const limited = enforceRateLimit(req, 'ai')
+  if (limited) return limited
   try {
     const { messages, mode, city, businesses, catalog } = await req.json() as {
       messages: ChatMessage[]

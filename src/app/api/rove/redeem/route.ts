@@ -1,22 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { redeemReward, getUserRedemptions } from '@/lib/rove-rewards'
+import { createClient } from '@/lib/supabase/server'
+import { redeemReward, getUserRedemptions } from '@/lib/rove-db'
 
-const DEMO_USER_ID = 'demo-user'
+export const dynamic = 'force-dynamic'
 
 export async function POST(req: NextRequest) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
+
   const { rewardId } = await req.json()
   if (!rewardId) return NextResponse.json({ error: 'rewardId requerido' }, { status: 400 })
 
-  const result = redeemReward(DEMO_USER_ID, rewardId)
-
+  const result = await redeemReward(user.id, rewardId)
   if (!result.ok) {
     const status = result.error === 'insufficient_tickets' ? 400 : 404
     return NextResponse.json({ error: result.error }, { status })
   }
-
   return NextResponse.json({ redemption: result.redemption })
 }
 
 export async function GET() {
-  return NextResponse.json({ redemptions: getUserRedemptions(DEMO_USER_ID) })
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ redemptions: [] })
+  return NextResponse.json({ redemptions: await getUserRedemptions(user.id) })
 }

@@ -26,19 +26,25 @@ const KEY = (bizId: string) => `reva_biz_agent_${bizId}`
 
 const isTone = (v: unknown): v is AgentTone => v === 'Cálido' || v === 'Neutral' || v === 'Formal'
 
+// Normaliza un objeto arbitrario (p. ej. el jsonb `businesses.agent_config`)
+// a una config válida, rellenando con los valores por defecto.
+export function parseAgentConfig(raw: unknown): BizAgentConfig {
+  const p = (raw ?? {}) as Partial<BizAgentConfig>
+  return {
+    on: typeof p.on === 'boolean' ? p.on : DEFAULT_AGENT_CONFIG.on,
+    tone: isTone(p.tone) ? p.tone : DEFAULT_AGENT_CONFIG.tone,
+    instructions: typeof p.instructions === 'string' ? p.instructions : DEFAULT_AGENT_CONFIG.instructions,
+    maxDiscount: Number.isFinite(p.maxDiscount) ? Number(p.maxDiscount) : DEFAULT_AGENT_CONFIG.maxDiscount,
+    autoReplyOffHours: typeof p.autoReplyOffHours === 'boolean' ? p.autoReplyOffHours : DEFAULT_AGENT_CONFIG.autoReplyOffHours,
+  }
+}
+
 export function loadAgentConfig(bizId: string): BizAgentConfig {
   if (typeof window === 'undefined') return { ...DEFAULT_AGENT_CONFIG }
   try {
     const raw = localStorage.getItem(KEY(bizId))
     if (!raw) return { ...DEFAULT_AGENT_CONFIG }
-    const p = JSON.parse(raw) as Partial<BizAgentConfig>
-    return {
-      on: typeof p.on === 'boolean' ? p.on : DEFAULT_AGENT_CONFIG.on,
-      tone: isTone(p.tone) ? p.tone : DEFAULT_AGENT_CONFIG.tone,
-      instructions: typeof p.instructions === 'string' ? p.instructions : DEFAULT_AGENT_CONFIG.instructions,
-      maxDiscount: Number.isFinite(p.maxDiscount) ? Number(p.maxDiscount) : DEFAULT_AGENT_CONFIG.maxDiscount,
-      autoReplyOffHours: typeof p.autoReplyOffHours === 'boolean' ? p.autoReplyOffHours : DEFAULT_AGENT_CONFIG.autoReplyOffHours,
-    }
+    return parseAgentConfig(JSON.parse(raw))
   } catch {
     return { ...DEFAULT_AGENT_CONFIG }
   }
