@@ -135,8 +135,8 @@ section{position:relative}
 .nav-links a.active{color:var(--ink);font-weight:600}
 .nav-right{margin-left:auto;display:flex;align-items:center;gap:12px}
 .lang{display:inline-flex;background:var(--bg-alt);border:1px solid var(--line);border-radius:999px;padding:3px;gap:2px}
-.lang button{font-family:'Hanken Grotesk',system-ui,sans-serif;font-size:13px;font-weight:700;letter-spacing:.02em;border:none;background:transparent;color:var(--ink-faint);cursor:pointer;padding:5px 12px;border-radius:999px;transition:.18s}
-.lang button.on{background:var(--surface);color:var(--ink);box-shadow:var(--shadow-sm)}
+.lang a,.lang button{font-family:'Hanken Grotesk',system-ui,sans-serif;font-size:13px;font-weight:700;letter-spacing:.02em;border:none;background:transparent;color:var(--ink-faint);cursor:pointer;padding:5px 12px;border-radius:999px;transition:.18s}
+.lang a.on,.lang button.on{background:var(--surface);color:var(--ink);box-shadow:var(--shadow-sm)}
 .btn{font-family:'Hanken Grotesk',system-ui,sans-serif;font-weight:600;font-size:15.5px;cursor:pointer;border:none;border-radius:999px;padding:13px 24px;display:inline-flex;align-items:center;gap:9px;transition:.18s;white-space:nowrap}
 .btn svg{width:18px;height:18px}
 .btn-primary{background:var(--coral);color:#fff;box-shadow:0 10px 26px rgba(232,80,91,.32)}

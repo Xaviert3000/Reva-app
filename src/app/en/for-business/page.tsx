@@ -2,8 +2,8 @@ import type { Metadata } from 'next'
 import ForBusinessPage from '@/components/marketing/ForBusinessPage'
 
 export const metadata: Metadata = {
-  title: 'Para negocios — Reva',
-  description: 'Tu agente de IA recibe reservas mientras duermes. Reva para restaurantes, spas, tours y más en Los Cabos.',
+  title: 'For business — Reva',
+  description: 'Your AI agent takes bookings while you sleep. Reva for restaurants, spas, tours and more in Los Cabos.',
   alternates: {
     languages: {
       es: '/para-negocios',
@@ -12,6 +12,6 @@ export const metadata: Metadata = {
   },
 }
 
-export default function ParaNegociosPage() {
-  return <ForBusinessPage lang="es" />
+export default function ForBusinessPageEn() {
+  return <ForBusinessPage lang="en" />
 }

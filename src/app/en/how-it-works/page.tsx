@@ -2,8 +2,8 @@ import type { Metadata } from 'next'
 import HowItWorksPage from '@/components/marketing/HowItWorksPage'
 
 export const metadata: Metadata = {
-  title: 'Cómo funciona — Reva',
-  description: 'Del deseo a la reserva en segundos. Así conecta Reva a los clientes con los negocios de Los Cabos.',
+  title: 'How it works — Reva',
+  description: 'From a wish to a booking in seconds. How Reva connects customers with Los Cabos businesses.',
   alternates: {
     languages: {
       es: '/como-funciona',
@@ -12,6 +12,6 @@ export const metadata: Metadata = {
   },
 }
 
-export default function ComoFuncionaPage() {
-  return <HowItWorksPage lang="es" />
+export default function HowItWorksPageEn() {
+  return <HowItWorksPage lang="en" />
 }

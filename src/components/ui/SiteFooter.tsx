@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { getLandingDict, type Lang } from '@/i18n/landing'
 
 const RevaLogo = ({ size = 34 }: { size?: number }) => (
   <svg width={size} height={size} viewBox="0 0 46 46" aria-hidden="true">
@@ -9,7 +10,8 @@ const RevaLogo = ({ size = 34 }: { size?: number }) => (
   </svg>
 )
 
-export function SiteFooter() {
+export function SiteFooter({ lang = 'es' }: { lang?: Lang }) {
+  const t = getLandingDict(lang).footer
   return (
     <footer className="foot">
       <div className="wrap">
@@ -19,37 +21,35 @@ export function SiteFooter() {
               <RevaLogo />
               <span className="word">Reva</span>
             </div>
-            <p style={{ maxWidth: '34ch', fontSize: 15 }}>Tu concierge local de IA. Hecho aquí, para los de aquí y para quien nos visita.</p>
+            <p style={{ maxWidth: '34ch', fontSize: 15 }}>{t.tagline}</p>
           </div>
           <div>
-            <h4>Producto</h4>
+            <h4>{t.productTitle}</h4>
             <ul>
-              <li><Link href="/">Inicio</Link></li>
-              <li><Link href="/como-funciona">Cómo funciona</Link></li>
-              <li><Link href="#descargar">Descargar app</Link></li>
-              <li><Link href="/como-funciona#rove">Reva+</Link></li>
+              {t.productLinks.map((l) => (
+                <li key={l.label}><Link href={l.href}>{l.label}</Link></li>
+              ))}
             </ul>
           </div>
           <div>
-            <h4>Negocios</h4>
+            <h4>{t.businessTitle}</h4>
             <ul>
-              <li><Link href="/para-negocios">Para negocios</Link></li>
-              <li><Link href="/para-negocios#precios">Planes</Link></li>
-              <li><Link href="/biz/register">Registrar negocio</Link></li>
+              {t.businessLinks.map((l) => (
+                <li key={l.label}><Link href={l.href}>{l.label}</Link></li>
+              ))}
             </ul>
           </div>
           <div>
-            <h4>Reva</h4>
+            <h4>{t.companyTitle}</h4>
             <ul>
-              <li><Link href="#">Sobre nosotros</Link></li>
-              <li><Link href="#">Privacidad</Link></li>
-              <li><Link href="#">Términos</Link></li>
-              <li><Link href="#">Contacto</Link></li>
+              {t.companyLinks.map((l) => (
+                <li key={l.label}><Link href={l.href}>{l.label}</Link></li>
+              ))}
             </ul>
           </div>
         </div>
         <div className="foot-bottom">
-          <span>© 2026 Reva</span>
+          <span>{t.copyright}</span>
           <span className="sp"></span>
           <a href="#" aria-label="Instagram">Instagram</a>
           <a href="#" aria-label="TikTok">TikTok</a>
