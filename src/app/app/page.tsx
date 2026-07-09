@@ -2308,9 +2308,9 @@ function HelpPage({ en, onChatSupport }: { en: boolean; onChatSupport?: () => vo
 }
 
 // ── Profile ────────────────────────────────────────────────
-function Profile({ mode, homeState, homeCity, currentCity, onCityChange, onModeSwitch, onLangChange, onChatSupport, onBell, onMsg, isRegistered, onRegister, onLogin }: { mode: Mode; homeState: string | null; homeCity: string | null; currentCity: string; onCityChange: (c: string) => void; onModeSwitch: () => void; onLangChange: (l: 'es'|'en') => void; onChatSupport: () => void; onBell: () => void; onMsg: () => void; isRegistered: boolean; onRegister: () => void; onLogin: () => void }) {
+function Profile({ mode, userName, homeState, homeCity, currentCity, onCityChange, onModeSwitch, onLangChange, onChatSupport, onBell, onMsg, isRegistered, onRegister, onLogin }: { mode: Mode; userName: string | null; homeState: string | null; homeCity: string | null; currentCity: string; onCityChange: (c: string) => void; onModeSwitch: () => void; onLangChange: (l: 'es'|'en') => void; onChatSupport: () => void; onBell: () => void; onMsg: () => void; isRegistered: boolean; onRegister: () => void; onLogin: () => void }) {
   const en = useContext(LangContext) === 'en'
-  const name = en ? 'Jordan Avery' : 'Daniela Ríos'
+  const name = userName || (en ? 'Your profile' : 'Tu perfil')
   const sub = mode === 'vecino'
     ? `Vecina · ${homeCity}${homeState ? `, ${homeState}` : ''}`
     : `Explorer · ${en ? 'visiting' : 'visitando'} ${currentCity}`
@@ -2826,14 +2826,22 @@ export default function AppPage() {
   // Auth gate: track registration state and pending booking intent.
   // isRegistered ahora refleja la sesión real de Supabase.
   const [isRegistered, setIsRegistered] = useState(false)
+  const [userName, setUserName] = useState<string | null>(null)
   const [pendingBook, setPendingBook] = useState<{ biz: Business; service: Service | null } | null>(null)
   const [showAuthModal, setShowAuthModal] = useState(false)
 
   useEffect(() => {
     const supabase = createClient()
-    supabase.auth.getUser().then(({ data }) => setIsRegistered(!!data.user))
+    // El nombre viene de los metadatos del usuario (full_name), guardado en el registro.
+    const nameOf = (u: { user_metadata?: { full_name?: string } } | null | undefined) =>
+      (u?.user_metadata?.full_name ?? '').trim() || null
+    supabase.auth.getUser().then(({ data }) => {
+      setIsRegistered(!!data.user)
+      setUserName(nameOf(data.user))
+    })
     const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
       setIsRegistered(!!session?.user)
+      setUserName(nameOf(session?.user))
     })
     return () => sub.subscription.unsubscribe()
   }, [])
@@ -2913,7 +2921,7 @@ export default function AppPage() {
         {tab === 'discover' && <Discovery mode={mode} onOpen={setOpenBiz} onBook={(b) => tryBook(b, null)} onModeToggle={() => setTab('profile')} onBell={() => setShowNotifs(true)} onMsg={() => setShowMessages(true)} />}
         {tab === 'bookings' && <Trips mode={mode} onModeToggle={() => setTab('profile')} onBell={() => setShowNotifs(true)} onMsg={() => setShowMessages(true)} />}
         {tab === 'rove' && <Rove mode={mode} onModeToggle={() => setTab('profile')} onBell={() => setShowNotifs(true)} onMsg={() => setShowMessages(true)} isRegistered={isRegistered} onRegister={() => { window.location.href = '/auth/register' }} onLogin={() => { window.location.href = '/auth/login' }} />}
-        {tab === 'profile' && <Profile mode={mode} homeState={homeState} homeCity={homeCity} currentCity={currentCity} onCityChange={handleCityChange} onModeSwitch={() => {}} onLangChange={setLang} onChatSupport={() => setShowSupport(true)} onBell={() => setShowNotifs(true)} onMsg={() => setShowMessages(true)} isRegistered={isRegistered} onRegister={() => { window.location.href = '/auth/register' }} onLogin={() => { window.location.href = '/auth/login' }} />}
+        {tab === 'profile' && <Profile mode={mode} userName={userName} homeState={homeState} homeCity={homeCity} currentCity={currentCity} onCityChange={handleCityChange} onModeSwitch={() => {}} onLangChange={setLang} onChatSupport={() => setShowSupport(true)} onBell={() => setShowNotifs(true)} onMsg={() => setShowMessages(true)} isRegistered={isRegistered} onRegister={() => { window.location.href = '/auth/register' }} onLogin={() => { window.location.href = '/auth/login' }} />}
       </div>
 
       {/* Bottom nav */}
