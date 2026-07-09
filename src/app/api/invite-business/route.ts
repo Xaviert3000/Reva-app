@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Could not create invitation' }, { status: 500 })
     }
 
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://reva.mx'
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://reva-app-ten.vercel.app'
     const inviteUrl = `${appUrl}/biz/register?token=${inv.token}`
 
     // Invoke the Supabase Edge Function

@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
       .update({ expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString() })
       .eq('token', inv.token)
 
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://reva.mx'
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://reva-app-ten.vercel.app'
     const inviteUrl = `${appUrl}/biz/register?token=${inv.token}`
 
     const { error: fnErr } = await supabase.functions.invoke('send-biz-invite', {

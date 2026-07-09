@@ -2779,6 +2779,26 @@ export default function AppPage() {
   const [currentCity, setCurrentCity] = useState(CITIES[0] as string)
   const mode: Mode = homeCity !== null && homeCity === currentCity ? 'vecino' : 'explorer'
 
+  // El onboarding se guarda en localStorage y se rehidrata al montar. Sin esto,
+  // registrarse (window.location.href a /auth/register) es una navegación dura
+  // que borra el estado de React: al volver a /app el usuario veía de nuevo el
+  // onboarding aunque ya lo hubiera completado.
+  const [hydrated, setHydrated] = useState(false)
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('reva.onboarding')
+      if (raw) {
+        const s = JSON.parse(raw) as { homeState: string | null; homeCity: string | null; currentCity: string | null; lang: 'es' | 'en' }
+        setHomeState(s.homeState ?? null)
+        setHomeCity(s.homeCity ?? null)
+        if (s.currentCity) setCurrentCity(s.currentCity)
+        if (s.lang) setLang(s.lang)
+        setOnboarded(true)
+      }
+    } catch {}
+    setHydrated(true)
+  }, [])
+
   // Live businesses + catalog for whatever city the guest is currently in.
   // Los Cabos uses the curated demo set instantly; other cities fetch from
   // Supabase and fall back to Los Cabos if that city has no data yet.
@@ -2862,14 +2882,24 @@ export default function AppPage() {
     ]),
   ]
 
+  // Evita el parpadeo del onboarding mientras leemos localStorage.
+  if (!hydrated) return null
+
   if (!onboarded) {
     return <Onboarding onDone={(state, city, located) => {
+      const here = located ?? city
+      const nextLang: 'es' | 'en' = city ? 'es' : 'en'
       setHomeState(state)
       setHomeCity(city)
-      const here = located ?? city
       if (here) setCurrentCity(here)
-      setLang(city ? 'es' : 'en')
+      setLang(nextLang)
       setOnboarded(true)
+      // Persistir para que registrarse/recargar no reinicie el onboarding.
+      try {
+        localStorage.setItem('reva.onboarding', JSON.stringify({
+          homeState: state, homeCity: city, currentCity: here, lang: nextLang,
+        }))
+      } catch {}
     }} />
   }
 

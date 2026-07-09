@@ -20,7 +20,12 @@ export default function RegisterPage() {
     const supabase = createClient()
     const { error } = await supabase.auth.signUp({
       email, password,
-      options: { data: { full_name: name } },
+      options: {
+        data: { full_name: name },
+        // El correo de confirmación vuelve a ESTE host (prod en prod, local en
+        // local) y canjea el code por sesión en /auth/callback.
+        emailRedirectTo: `${window.location.origin}/auth/callback`,
+      },
     })
     if (error) setError(error.message)
     else setDone(true)

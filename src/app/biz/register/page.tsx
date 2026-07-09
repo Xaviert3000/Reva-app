@@ -35,6 +35,8 @@ export default function BizRegisterPage() {
           business_type: bizType,
           role: 'business',
         },
+        // Confirmación vuelve a este host y aterriza en el panel de negocios.
+        emailRedirectTo: `${window.location.origin}/auth/callback?next=/biz`,
       },
     })
     if (error) setError(error.message)

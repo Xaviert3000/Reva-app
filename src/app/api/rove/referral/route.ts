@@ -11,7 +11,7 @@ export async function GET() {
   if (!user) return NextResponse.json({ code: '', link: '', totalReferred: 0, completed: 0, pending: 0 })
 
   const stats = await getReferralStats(user.id)
-  const BASE = process.env.NEXT_PUBLIC_APP_URL ?? 'https://reva.mx'
+  const BASE = process.env.NEXT_PUBLIC_APP_URL ?? 'https://reva-app-ten.vercel.app'
   return NextResponse.json({
     code: stats.code,
     link: `${BASE}/join?ref=${stats.code}`,
