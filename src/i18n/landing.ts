@@ -283,8 +283,8 @@ const es: LandingDict = {
     companyTitle: 'Reva',
     companyLinks: [
       { label: 'Sobre nosotros', href: '#' },
-      { label: 'Privacidad', href: '#' },
-      { label: 'Términos', href: '#' },
+      { label: 'Privacidad', href: '/privacidad' },
+      { label: 'Términos', href: '/terminos' },
       { label: 'Contacto', href: '#' },
     ],
     copyright: '© 2026 Reva',
@@ -429,8 +429,8 @@ const en: LandingDict = {
     companyTitle: 'Reva',
     companyLinks: [
       { label: 'About us', href: '#' },
-      { label: 'Privacy', href: '#' },
-      { label: 'Terms', href: '#' },
+      { label: 'Privacy', href: '/en/privacy' },
+      { label: 'Terms', href: '/en/terms' },
       { label: 'Contact', href: '#' },
     ],
     copyright: '© 2026 Reva',
