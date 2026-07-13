@@ -294,8 +294,8 @@ const SECTIONS: Section[] = [
       { type: 'p', text: 'Para cualquier duda, aclaración o notificación relacionada con estos Términos y Condiciones, puede contactarnos a través de:' },
       { type: 'ul', items: [
         'Aplicación Reva: sección de Ayuda y Soporte.',
-        'Sitio web: reva-app-ten.vercel.app',
-        'Correo electrónico: legal@reva.mx',
+        'Sitio web: revapp.com.mx',
+        'Correo electrónico: legal@revapp.com.mx',
         'WhatsApp oficial de Reva (disponible en el sitio web).',
       ] },
     ],

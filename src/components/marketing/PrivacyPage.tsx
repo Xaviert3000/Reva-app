@@ -19,9 +19,9 @@ const SECTIONS: Section[] = [
     blocks: [
       { type: 'p', text: 'El responsable del tratamiento de tus datos personales es Reva, con domicilio en Los Cabos, Baja California Sur, México. Para cualquier asunto relacionado con el tratamiento de tus datos personales, puedes contactarnos en:' },
       { type: 'ul', items: [
-        'Correo electrónico: privacidad@reva.mx',
+        'Correo electrónico: privacidad@revapp.com.mx',
         'A través de la sección "Ayuda" dentro de la Aplicación.',
-        'Sitio web: reva-app-ten.vercel.app',
+        'Sitio web: revapp.com.mx',
       ] },
     ],
   },
@@ -48,7 +48,7 @@ const SECTIONS: Section[] = [
         'Valoraciones y comentarios sobre negocios visitados.',
         'Registros de acceso, tiempo de uso y funcionalidades utilizadas.',
       ] },
-      { type: 'p', text: 'Con respecto a las conversaciones con el agente de IA, el Usuario acepta expresamente que Reva podrá utilizar dichas conversaciones, previa anonimización que elimine cualquier dato identificable, para los siguientes fines: (i) mejora continua del modelo de inteligencia artificial y sus capacidades de recomendación; (ii) análisis estadístico de patrones de uso; y (iii) entrenamiento y optimización de sistemas de IA. En ningún caso se utilizarán conversaciones con datos personales identificables sin consentimiento adicional del Usuario. El Usuario puede solicitar la exclusión de sus conversaciones de estos procesos enviando una solicitud a privacidad@reva.mx, lo cual no afectará su acceso a la Aplicación.' },
+      { type: 'p', text: 'Con respecto a las conversaciones con el agente de IA, el Usuario acepta expresamente que Reva podrá utilizar dichas conversaciones, previa anonimización que elimine cualquier dato identificable, para los siguientes fines: (i) mejora continua del modelo de inteligencia artificial y sus capacidades de recomendación; (ii) análisis estadístico de patrones de uso; y (iii) entrenamiento y optimización de sistemas de IA. En ningún caso se utilizarán conversaciones con datos personales identificables sin consentimiento adicional del Usuario. El Usuario puede solicitar la exclusión de sus conversaciones de estos procesos enviando una solicitud a privacidad@revapp.com.mx, lo cual no afectará su acceso a la Aplicación.' },
       { type: 'sub', text: '2.3 Datos técnicos y de dispositivo' },
       { type: 'ul', items: [
         'Dirección IP y tipo de dispositivo.',
@@ -88,7 +88,7 @@ const SECTIONS: Section[] = [
         'Realizar estudios de mercado y análisis estadísticos del comportamiento de uso.',
         'Compartir contenido relevante sobre Los Cabos, incluyendo eventos y experiencias locales.',
       ] },
-      { type: 'p', text: 'Si no deseas que tus datos sean tratados para estas finalidades secundarias, puedes manifestarlo enviando un correo a privacidad@reva.mx o a través de la sección de configuración de tu cuenta en la Aplicación, sin que ello afecte el acceso a las funcionalidades principales de Reva.' },
+      { type: 'p', text: 'Si no deseas que tus datos sean tratados para estas finalidades secundarias, puedes manifestarlo enviando un correo a privacidad@revapp.com.mx o a través de la sección de configuración de tu cuenta en la Aplicación, sin que ello afecte el acceso a las funcionalidades principales de Reva.' },
     ],
   },
   {
@@ -142,7 +142,7 @@ const SECTIONS: Section[] = [
         'Cancelación: solicitar la eliminación de tus datos cuando consideres que no son necesarios para las finalidades para las que fueron recopilados o cuando hayas retirado tu consentimiento.',
         'Oposición: oponerte al tratamiento de tus datos para finalidades específicas, en particular para las finalidades secundarias descritas en la Sección 3.2.',
       ] },
-      { type: 'p', text: 'Para ejercer cualquiera de estos derechos, puedes enviar una solicitud a privacidad@reva.mx indicando: (i) nombre completo y dirección de correo electrónico registrada; (ii) descripción clara del derecho que deseas ejercer; y (iii) cualquier documento que acredite tu identidad. Reva responderá a tu solicitud en un plazo máximo de 20 días hábiles conforme lo establece la LFPDPPP.' },
+      { type: 'p', text: 'Para ejercer cualquiera de estos derechos, puedes enviar una solicitud a privacidad@revapp.com.mx indicando: (i) nombre completo y dirección de correo electrónico registrada; (ii) descripción clara del derecho que deseas ejercer; y (iii) cualquier documento que acredite tu identidad. Reva responderá a tu solicitud en un plazo máximo de 20 días hábiles conforme lo establece la LFPDPPP.' },
       { type: 'p', text: 'El ejercicio de los derechos ARCO no afectará las obligaciones contractuales vigentes entre el Usuario y Reva, ni las obligaciones de conservación de datos establecidas por la legislación aplicable. Reva podrá negar el ejercicio de dichos derechos únicamente en los supuestos expresamente permitidos por la LFPDPPP.' },
       { type: 'p', text: 'Asimismo, tienes derecho a presentar una queja ante el Instituto Nacional de Transparencia, Acceso a la Información y Protección de Datos Personales (INAI) en caso de considerar que tu derecho a la protección de datos ha sido vulnerado.' },
     ],
@@ -180,7 +180,7 @@ const SECTIONS: Section[] = [
     title: 'Cookies y Tecnologías de Rastreo',
     blocks: [
       { type: 'p', text: 'La Aplicación Reva puede utilizar cookies, píxeles y otras tecnologías de seguimiento para mejorar tu experiencia de uso, analizar el comportamiento dentro de la Aplicación y personalizar el contenido. Estas tecnologías pueden recopilar información como páginas visitadas, tiempo de sesión y preferencias de navegación.' },
-      { type: 'p', text: 'Puedes configurar tu dispositivo para rechazar el uso de ciertas tecnologías de seguimiento, aunque ello puede limitar algunas funcionalidades de la Aplicación. Reva no se responsabiliza por cookies o tecnologías de rastreo implementadas por sitios web de terceros a los que el Usuario acceda desde enlaces dentro de la Aplicación. Para mayor información, consulta nuestra Política de Cookies disponible en reva-app-ten.vercel.app/cookies.' },
+      { type: 'p', text: 'Puedes configurar tu dispositivo para rechazar el uso de ciertas tecnologías de seguimiento, aunque ello puede limitar algunas funcionalidades de la Aplicación. Reva no se responsabiliza por cookies o tecnologías de rastreo implementadas por sitios web de terceros a los que el Usuario acceda desde enlaces dentro de la Aplicación. Para mayor información, consulta nuestra Política de Cookies disponible en revapp.com.mx/cookies.' },
     ],
   },
   {
@@ -229,7 +229,7 @@ const SECTIONS: Section[] = [
     title: 'Legislación Aplicable y Jurisdicción',
     blocks: [
       { type: 'p', text: 'Esta Política de Privacidad se rige por las leyes de los Estados Unidos Mexicanos, en particular por la Ley Federal de Protección de Datos Personales en Posesión de los Particulares (LFPDPPP) y su Reglamento. Para cualquier controversia relacionada con la interpretación o aplicación de esta Política, las partes se someten a la jurisdicción exclusiva de los tribunales competentes de Los Cabos, Baja California Sur, México, renunciando a cualquier otro fuero que pudiera corresponderles.' },
-      { type: 'p', text: 'Esta Política se interpreta de forma complementaria a los Términos y Condiciones de Uso de Reva (disponibles en reva-app-ten.vercel.app/terminos). En caso de conflicto entre ambos documentos en materia de privacidad y protección de datos, prevalecerá lo dispuesto en esta Política. Para cualquier otra materia, prevalecerán los Términos y Condiciones.' },
+      { type: 'p', text: 'Esta Política se interpreta de forma complementaria a los Términos y Condiciones de Uso de Reva (disponibles en revapp.com.mx/terminos). En caso de conflicto entre ambos documentos en materia de privacidad y protección de datos, prevalecerá lo dispuesto en esta Política. Para cualquier otra materia, prevalecerán los Términos y Condiciones.' },
     ],
   },
   {
@@ -238,9 +238,9 @@ const SECTIONS: Section[] = [
     blocks: [
       { type: 'p', text: 'Si tienes preguntas, dudas o comentarios sobre esta Política de Privacidad, o si deseas ejercer tus derechos ARCO, puedes contactarnos a través de:' },
       { type: 'ul', items: [
-        'Correo electrónico: privacidad@reva.mx',
+        'Correo electrónico: privacidad@revapp.com.mx',
         'Sección de Ayuda dentro de la Aplicación Reva.',
-        'Sitio web oficial: reva-app-ten.vercel.app',
+        'Sitio web oficial: revapp.com.mx',
         'WhatsApp oficial (disponible en el sitio web).',
       ] },
       { type: 'p', text: 'Nos comprometemos a responderte en un plazo no mayor a 20 días hábiles a partir de la recepción de tu solicitud, conforme lo establece la LFPDPPP.' },
