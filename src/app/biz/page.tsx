@@ -2593,6 +2593,82 @@ function SalesHistoryView({ vert, bizInfo, onGo }: { vert: Vert; bizInfo: BizInf
     })
   }
 
+  // Etiqueta legible del periodo activo, para el encabezado del reporte impreso.
+  function periodLabel(): string {
+    if (datePreset === 'hoy') return 'Hoy'
+    if (datePreset === '7d') return 'Últimos 7 días'
+    if (datePreset === '30d') return 'Últimos 30 días'
+    if (datePreset === 'custom') {
+      const f = customFrom ? new Date(`${customFrom}T00:00:00`).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' }) : '…'
+      const t = customTo ? new Date(`${customTo}T00:00:00`).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' }) : '…'
+      return `${f} — ${t}`
+    }
+    return 'Todo el historial'
+  }
+
+  // Imprime el historial que se ve en pantalla (mismos filtros de estatus, periodo
+  // y búsqueda) como un reporte tabular, con los KPIs del periodo en el encabezado.
+  function printReport() {
+    if (list.length === 0) return
+    const esc = (s: string) => (s || '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c] as string))
+    const statusLabel = statusFilter === 'todas' ? 'Todas' : (SALE_STATUS[statusFilter]?.label ?? statusFilter)
+    const rowsHTML = list.map(s => {
+      const prod = s.items.length === 0 ? 'Venta' : s.items.map(it => `${it.qty}× ${it.name}`).join(', ')
+      const st = SALE_STATUS[s.status] ?? { label: s.status }
+      const struck = s.status !== 'paid'
+      return `<tr>
+        <td class="mono">${esc(s.folio)}</td>
+        <td>${esc(prod)}</td>
+        <td class="nw">${esc(saleWhen(s.created_at))}</td>
+        <td>${esc(saleMethodLabel(s.method))}</td>
+        <td>${esc(st.label)}</td>
+        <td class="r${struck ? ' void' : ''}">${money(s.total)}</td>
+      </tr>`
+    }).join('')
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>Ventas — ${esc(vert.full || vert.name)}</title>
+      <style>
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{font-family:-apple-system,'Segoe UI',Arial,sans-serif;color:#1a1a1a;padding:28px}
+        h1{font-size:20px;margin-bottom:2px}
+        .sub{font-size:12px;color:#666;margin-bottom:16px}
+        .kpis{display:flex;gap:22px;border:1px solid #ddd;border-radius:10px;padding:12px 16px;margin-bottom:18px}
+        .kpi .n{font-size:18px;font-weight:800}
+        .kpi .l{font-size:11px;color:#666}
+        table{width:100%;border-collapse:collapse;font-size:12px}
+        th{text-align:left;font-size:11px;color:#666;border-bottom:2px solid #333;padding:7px 8px}
+        th.r,td.r{text-align:right}
+        td{padding:7px 8px;border-bottom:1px solid #eee;vertical-align:top}
+        td.mono{font-variant-numeric:tabular-nums;font-weight:700;white-space:nowrap}
+        td.nw{white-space:nowrap}
+        td.void{text-decoration:line-through;color:#999}
+        tfoot td{border-top:2px solid #333;border-bottom:none;font-weight:800;padding-top:9px}
+        .foot{margin-top:22px;font-size:11px;color:#999;text-align:center}
+        @media print{body{padding:0}}
+      </style></head><body>
+      <h1>${esc(vert.full || vert.name)}</h1>
+      <div class="sub">Historial de ventas · ${esc(periodLabel())} · Estatus: ${esc(statusLabel)}${q ? ` · Búsqueda: “${esc(query.trim())}”` : ''} · Impreso ${esc(new Date().toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' }))}</div>
+      <div class="kpis">
+        <div class="kpi"><div class="n">${paid.length}</div><div class="l">Tickets pagados</div></div>
+        <div class="kpi"><div class="n">${money(ingreso)}</div><div class="l">Ingreso (pagadas)</div></div>
+        <div class="kpi"><div class="n">${anuladas}</div><div class="l">Anuladas / reembolsadas</div></div>
+      </div>
+      <table>
+        <thead><tr><th>Folio</th><th>Productos</th><th>Fecha</th><th>Método</th><th>Estatus</th><th class="r">Total</th></tr></thead>
+        <tbody>${rowsHTML}</tbody>
+        <tfoot><tr><td colspan="5">Ingreso de tickets pagados (${paid.length})</td><td class="r">${money(ingreso)}</td></tr></tfoot>
+      </table>
+      <div class="foot">${list.length} ${list.length === 1 ? 'venta' : 'ventas'} en la vista · Vía Reva</div>
+      </body></html>`
+    const frame = document.createElement('iframe')
+    frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0'
+    document.body.appendChild(frame)
+    const doc = frame.contentWindow?.document
+    if (!doc) return
+    doc.open(); doc.write(html); doc.close()
+    const w = frame.contentWindow
+    setTimeout(() => { try { w?.focus(); w?.print() } catch {} setTimeout(() => frame.remove(), 800) }, 150)
+  }
+
   async function applyStatus(s: SaleRow, status: 'paid' | 'void' | 'refunded', why: string, doRestock: boolean) {
     setBusy(true)
     setError('')
@@ -2657,6 +2733,10 @@ function SalesHistoryView({ vert, bizInfo, onGo }: { vert: Vert; bizInfo: BizInf
         <div style={{ display: 'flex', gap: 8 }}>
           {chip('todas', 'Todas')}{chip('paid', 'Pagadas')}{chip('void', 'Anuladas')}{chip('refunded', 'Reembolsadas')}
         </div>
+        <button onClick={printReport} disabled={list.length === 0} title="Imprimir el historial que ves en pantalla"
+          style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 16px', borderRadius: 999, border: `1px solid ${R.line}`, background: R.surface, color: list.length === 0 ? R.inkFaint : R.ink, cursor: list.length === 0 ? 'default' : 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13, opacity: list.length === 0 ? .6 : 1 }}>
+          <Icon n="printer" size={16} color={list.length === 0 ? R.inkFaint : R.ink} /> Imprimir
+        </button>
       </div>
 
       {/* Filtro por periodo */}
