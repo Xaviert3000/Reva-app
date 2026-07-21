@@ -3,7 +3,7 @@ import { useState, useRef, useEffect, useCallback, type CSSProperties } from 're
 import { BM_OPTIONS_DEFAULT, loadBMConfig, type BMOption, type BMConfig } from '@/lib/boomerangme-config'
 import { parseRoveToken, ROVE_SERIALS, type RoveProgram } from '@/lib/rove'
 import { type RoveReward, type RewardCategory } from '@/lib/rove-rewards'
-import { type Mode, type ProactiveAlert, type AlertType, CATALOG, AGENDA, BIZ, slotsFromHours, slotAvailability, endTime, tracksStock, inStock } from '@/lib/data'
+import { type Mode, type ProactiveAlert, type AlertType, CATALOG, AGENDA, BIZ, CITIES, slotsFromHours, slotAvailability, endTime, tracksStock, inStock } from '@/lib/data'
 import { saveStock, decrementStock as decrementStockDB, fetchStock } from '@/lib/inventory'
 import { clearFeatured } from '@/lib/featured'
 import { fetchPromotions, createPromotion, updatePromotion, setPromotionActive, deletePromotion, type Promo, fetchAlerts, createAlert, updateAlert, setAlertActive, deleteAlert, type BizAlert, type AlertInput } from '@/lib/promotions'
@@ -66,6 +66,7 @@ function Icon({ n, size = 20, color = 'currentColor', stroke = 2, fill = 'none' 
     qr: <><rect x="3.5" y="3.5" width="6.5" height="6.5" rx="1" /><rect x="14" y="3.5" width="6.5" height="6.5" rx="1" /><rect x="3.5" y="14" width="6.5" height="6.5" rx="1" /><path d="M14 14h3M20.5 14v6.5M14 17.5v3M17.5 20.5h3" /></>,
     users: <><circle cx="8" cy="8" r="3.5" /><path d="M2 20a7 7 0 0112 0" /><circle cx="17" cy="8" r="3.5" /><path d="M23 20a7 7 0 00-10-5.8" /></>,
     mail: <><rect x="2" y="5" width="20" height="15" rx="2.5" /><path d="M2 8l10 7 10-7" /></>,
+    pin: <><path d="M12 21s7-5.4 7-11a7 7 0 10-14 0c0 5.6 7 11 7 11z" /><circle cx="12" cy="10" r="2.6" /></>,
   }
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill={fill} stroke={color}
@@ -80,7 +81,7 @@ const VERTICALS = [
   {
     id: 'resto', name: 'La Lupita', full: 'La Lupita Taco & Mezcal', mono: 'L',
     grad: ['#E27A52', '#B5472F'] as [string, string],
-    hood: 'San José del Cabo', kind: 'Restaurante', unit: 'personas', hours: '13:00 – 23:00',
+    hood: 'San José del Cabo', municipio: 'Los Cabos', kind: 'Restaurante', unit: 'personas', hours: '13:00 – 23:00',
     rfc: 'LUP190423K10', address: 'Blvd. Mijares 12, Centro, San José del Cabo, BCS', phone: '+52 624 142 0011',
     capacity: { used: 32, total: 60, label: 'lugares' },
     metrics: { reservasHoy: 18, ingreso: '$14.2k', viaReva: 64, rove: 241,
@@ -104,7 +105,7 @@ const VERTICALS = [
   {
     id: 'spa', name: 'Sereno', full: 'Sereno Spa & Temazcal', mono: 'S',
     grad: ['#C9A2B4', '#6E4A63'] as [string, string],
-    hood: 'Corredor Turístico', kind: 'Spa & Bienestar', unit: 'servicio', hours: '09:00 – 20:00',
+    hood: 'Corredor Turístico', municipio: 'Los Cabos', kind: 'Spa & Bienestar', unit: 'servicio', hours: '09:00 – 20:00',
     rfc: 'SER210308M45', address: 'Carr. Transpeninsular Km 7.5, Corredor Turístico, Los Cabos, BCS', phone: '+52 624 145 0088',
     capacity: { used: 9, total: 14, label: 'citas' },
     metrics: { reservasHoy: 11, ingreso: '$22.8k', viaReva: 58, rove: 96,
@@ -151,6 +152,7 @@ function vertFromBusiness(b: OwnerBusiness): Vert {
     mono: (b.mono || b.name.charAt(0) || 'R').toUpperCase(),
     grad,
     hood: b.hood || 'Los Cabos',
+    municipio: b.municipio || 'Los Cabos',
     kind: b.kind || b.type || 'Negocio',
     unit: 'personas',
     hours: b.hours || '09:00 – 21:00',
@@ -355,6 +357,7 @@ function BizOnboarding({ biz, onDone }: { biz: OwnerBusiness | null; onDone: () 
   const [name, setName] = useState(biz?.name || initialBt.name)
   // Si ya viene un negocio real, su nombre es el válido — no lo sobrescribas al cambiar de tipo.
   const [nameEdited, setNameEdited] = useState(!!biz?.name)
+  const [municipio, setMunicipio] = useState(biz?.municipio || '')
   const [hoursOpen, setHoursOpen] = useState('13:00')
   const [hoursClose, setHoursClose] = useState('23:00')
   const [services, setServices] = useState(() => initialBt.services.map(s => ({ name: s, desc: '', price: '', tax: 'IVA 16% incluido', on: true })))
@@ -425,6 +428,7 @@ function BizOnboarding({ biz, onDone }: { biz: OwnerBusiness | null; onDone: () 
           name: name.trim(),
           type: bt.label,
           kind: bt.label,
+          municipio: municipio.trim(),
           hours: `${hoursOpen} – ${hoursClose}`,
           agentActive: true,
           services: services.map(s => ({ name: s.name, desc: s.desc, price: s.price, on: s.on })),
@@ -478,6 +482,15 @@ function BizOnboarding({ biz, onDone }: { biz: OwnerBusiness | null; onDone: () 
                     </button>
                   ))}
                 </div>
+              </div>
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', display: 'block', marginBottom: 8 }}>Municipio de operación</label>
+                <input value={municipio} onChange={e => setMunicipio(e.target.value)} placeholder="Ej. Loreto" list="municipios-bcs-onb"
+                  style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 12, padding: '12px 14px', fontSize: 14.5, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.surface }} />
+                <datalist id="municipios-bcs-onb">
+                  {CITIES.map(c => <option key={c} value={c} />)}
+                </datalist>
+                <p style={{ fontSize: 12, color: R.inkFaint, marginTop: 6 }}>Es la ciudad donde los clientes te encontrarán en Discover.</p>
               </div>
               <button onClick={() => setStep(1)} style={primaryBtn}>Continuar →</button>
             </>
@@ -1949,7 +1962,7 @@ function InventoryView({ vert, items, setItems, onGo }: { vert: Vert; items: Cat
 
 // ── Punto de venta ─────────────────────────────────────────
 type TaxMode = 'included' | 'added'  // IVA incluido en el precio | IVA agregado al total
-type BizInfo = { rfc: string; address: string; phone: string }
+type BizInfo = { rfc: string; address: string; phone: string; municipio: string }
 const TAX_RATE = 0.16
 const money = (n: number) => '$' + n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const priceToNumber = (price: string) => {
@@ -2758,6 +2771,24 @@ function SettingsView({ agentCfg, setAgentCfg, taxMode, setTaxMode, bizInfo, set
         </button>
       </div>
 
+      {/* Municipio de operación: dónde te encuentran los clientes en Discover */}
+      <div style={{ background: R.surface, border: `1px solid ${R.line}`, borderRadius: 16, padding: '16px 18px', marginBottom: 20 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+          <Icon n="pin" size={17} color={R.coral} />
+          <span style={{ fontFamily: R.display, fontWeight: 700, fontSize: 15, color: R.ink }}>Municipio de operación</span>
+        </div>
+        <div style={{ fontSize: 13, color: R.inkSoft, marginBottom: 12 }}>Define en qué municipio te encuentran los clientes en Discover. Es distinto de la dirección del ticket.</div>
+        <label style={{ display: 'block' }}>
+          <span style={{ display: 'block', fontSize: 11.5, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase', color: R.inkSoft, marginBottom: 5 }}>Municipio</span>
+          <input value={bizInfo.municipio} onChange={e => setBizInfo({ ...bizInfo, municipio: e.target.value })} placeholder="Ej. Loreto" list="municipios-bcs"
+            style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 10, padding: '11px 13px', fontSize: 14, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.bg }} />
+          <datalist id="municipios-bcs">
+            {CITIES.map(c => <option key={c} value={c} />)}
+          </datalist>
+        </label>
+        <div style={{ fontSize: 12, color: R.inkFaint, marginTop: 8 }}>Escribe el municipio tal cual (respeta acentos y mayúsculas) para que los clientes de esa zona te encuentren.</div>
+      </div>
+
       {/* Datos del negocio para el ticket */}
       <div style={{ background: R.surface, border: `1px solid ${R.line}`, borderRadius: 16, padding: '16px 18px', marginBottom: 20 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
@@ -3310,7 +3341,7 @@ function DestacadoView({ vert }: { vert: Vert }) {
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 11.5, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', background: 'rgba(255,255,255,.14)', padding: '4px 10px', borderRadius: 999 }}>
             <Icon n="spark" size={12} color="#fff" fill="#fff" /> Destacado
           </div>
-          <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 23, marginTop: 12 }}>Aparece primero en Los Cabos</div>
+          <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 23, marginTop: 12 }}>Aparece primero en {vert.municipio}</div>
           <div style={{ fontSize: 14, opacity: .82, marginTop: 6, maxWidth: 560 }}>Reva pone a {vert.name} arriba en Discover cuando alguien busca lo que ofreces. Siempre marcado como “Destacado” — honesto y claro para el huésped.</div>
         </div>
       )}
@@ -4490,7 +4521,7 @@ export default function BizPage() {
   // Catálogo compartido: lo edita CatalogView y lo consume el Punto de venta
   const [catalog, setCatalog] = useState<CatItem[]>([])
   // Datos fiscales/de contacto del negocio para el ticket
-  const [bizInfo, setBizInfo] = useState<BizInfo>({ rfc: '', address: '', phone: '' })
+  const [bizInfo, setBizInfo] = useState<BizInfo>({ rfc: '', address: '', phone: '', municipio: '' })
   // Manejo de IVA en el Punto de venta: agregado al total o incluido en el precio
   const [taxMode, setTaxMode] = useState<TaxMode>('added')
 
@@ -4522,7 +4553,7 @@ export default function BizPage() {
     if (!verts || verts.length === 0) return
     const v = verts[vertIdx] ?? verts[0]
     setCatalog(v.catalog.map(c => ({ ...c, active: true })))
-    setBizInfo({ rfc: v.rfc, address: v.address, phone: v.phone })
+    setBizInfo({ rfc: v.rfc, address: v.address, phone: v.phone, municipio: v.municipio })
     const raw = ownerBiz[vertIdx] ?? ownerBiz.find(b => b.id === v.id)
     setAgentCfgState(raw?.agent_config ? parseAgentConfig(raw.agent_config) : loadAgentConfig(v.id))
     if (raw?.tax_mode === 'added' || raw?.tax_mode === 'included') setTaxMode(raw.tax_mode)
@@ -4553,7 +4584,7 @@ export default function BizPage() {
     })
   }
   // Ajustes fiscales e IVA con persistencia.
-  const persistBizInfo = (v: BizInfo) => { setBizInfo(v); saveSettings({ rfc: v.rfc, address: v.address, phone: v.phone }) }
+  const persistBizInfo = (v: BizInfo) => { setBizInfo(v); saveSettings({ rfc: v.rfc, address: v.address, phone: v.phone, municipio: v.municipio }) }
   const persistTaxMode = (v: TaxMode) => { setTaxMode(v); saveSettings({ tax_mode: v }) }
   const agentOn = agentCfg.on
   const setAgentOn = (v: boolean) => setAgentCfg(c => ({ ...c, on: v }))
@@ -4726,7 +4757,7 @@ export default function BizPage() {
             <div style={{ width: 38, height: 38, borderRadius: 10, background: `linear-gradient(140deg, ${vert.grad[0]}, ${vert.grad[1]})`, display: 'grid', placeItems: 'center', fontFamily: R.display, fontWeight: 800, color: '#fff', flexShrink: 0 }}>{vert.mono}</div>
             <div style={{ flex: 1, minWidth: 0, textAlign: 'left' }}>
               <div style={{ fontWeight: 700, fontSize: 13.5, color: R.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{vert.name}</div>
-              <div style={{ fontSize: 11.5, color: R.inkSoft }}>{vert.hood}</div>
+              <div style={{ fontSize: 11.5, color: R.inkSoft }}>{vert.municipio}</div>
             </div>
             <Icon n="chevD" size={16} color={R.inkFaint} />
           </button>

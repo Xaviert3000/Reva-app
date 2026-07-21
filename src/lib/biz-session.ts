@@ -19,6 +19,7 @@ export interface OwnerBusiness {
   type: string | null
   kind: string | null
   hood: string | null
+  municipio: string | null
   hours: string | null
   capacity: number | null
   rfc: string | null
@@ -62,7 +63,7 @@ export async function loadOwnerSession(): Promise<OwnerSession> {
 
   const { data: bizRows } = await supabase
     .from('businesses')
-    .select('id,name,full_name,type,kind,hood,hours,capacity,rfc,address,phone,grad_from,grad_to,mono,agent_active,onboarded,agent_config,tax_mode')
+    .select('id,name,full_name,type,kind,hood,municipio,hours,capacity,rfc,address,phone,grad_from,grad_to,mono,agent_active,onboarded,agent_config,tax_mode')
     .in('id', bizIds)
 
   const { data: svcRows } = await supabase

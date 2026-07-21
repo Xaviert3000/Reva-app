@@ -34,6 +34,9 @@ export async function POST(req: NextRequest) {
     const name: string = (body.name ?? '').trim()
     const type: string | null = body.type ?? null
     const kind: string | null = body.kind ?? null
+    // Municipio de operación: define dónde aparece el negocio en Discover
+    // (business-data.ts filtra por .eq('municipio', ...)). Se limpia (trim).
+    const municipio: string | null = typeof body.municipio === 'string' && body.municipio.trim() ? body.municipio.trim() : null
     const hours: string | null = body.hours ?? null
     const agentActive: boolean = body.agentActive !== false
     const services: ServiceInput[] = Array.isArray(body.services) ? body.services : []
@@ -91,6 +94,7 @@ export async function POST(req: NextRequest) {
     if (name) { bizPatch.name = name; bizPatch.full_name = name; bizPatch.mono = name.charAt(0).toUpperCase() }
     if (type) bizPatch.type = type
     if (kind) bizPatch.kind = kind
+    if (municipio) bizPatch.municipio = municipio
     if (hours) bizPatch.hours = hours
 
     const { error: updErr } = await admin.from('businesses').update(bizPatch).eq('id', targetBizId)

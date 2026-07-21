@@ -27,6 +27,10 @@ export async function POST(req: NextRequest) {
   if (typeof body.rfc === 'string') patch.rfc = body.rfc
   if (typeof body.address === 'string') patch.address = body.address
   if (typeof body.phone === 'string') patch.phone = body.phone
+  // Municipio de operación: define en qué ciudad encuentran los clientes al
+  // negocio en Discover (business-data.ts filtra por .eq('municipio', ...)).
+  // Se limpia (trim) para que coincida exacto con el catálogo del cliente.
+  if (typeof body.municipio === 'string') patch.municipio = body.municipio.trim() || null
   if (Object.keys(patch).length === 0) return NextResponse.json({ ok: true })
 
   const { error } = await admin.from('businesses').update(patch).eq('id', bizId)
