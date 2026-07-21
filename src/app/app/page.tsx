@@ -21,6 +21,26 @@ import { clsx } from 'clsx'
 // any municipio besides Los Cabos, which keeps the curated demo set).
 const BizDataContext = createContext<CityData & { city: string }>({ businesses: BIZ, catalog: CATALOG, city: 'Los Cabos' })
 
+// ── Tracking del espacio "Destacado" (alimenta Informes → Destacado) ──
+// impression: el negocio destacado se mostró; click: se abrió su ficha.
+// Las impresiones se cuentan una vez por sesión (dedupe) para no inflar; los
+// clics siempre. La escritura es best-effort (no bloquea la UI).
+const _seenFeatured = new Set<string>()
+function trackFeatured(bizId: string | undefined, kind: 'impression' | 'click', surface: string) {
+  if (!bizId) return
+  if (kind === 'impression') {
+    const key = `${bizId}:${surface}`
+    if (_seenFeatured.has(key)) return
+    _seenFeatured.add(key)
+  }
+  fetch('/api/featured/track', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ biz_id: bizId, kind, surface }),
+    keepalive: true,
+  }).catch(() => {})
+}
+
 // ── Icons ──────────────────────────────────────────────────
 const I = {
   send: <path d="M5 12l14-7-5 16-3-6-6-3z" />,
@@ -875,6 +895,14 @@ function Discovery({ mode, onOpen, onBook, onModeToggle, onBell, onMsg }: { mode
   // no son el Premium mostrado arriba), con su etiqueta ✦.
   const destacados = filteredBiz.filter(b => b.featured && b.id !== (showFeatured ? featured?.id : undefined))
 
+  // Impresiones reales del espacio Destacado (una vez por negocio/sesión).
+  const featuredImpId = showFeatured ? featured?.id : undefined
+  const destacadoIds = destacados.map(b => b.id).join(',')
+  useEffect(() => {
+    if (featuredImpId) trackFeatured(featuredImpId, 'impression', 'hero')
+    if (destacadoIds) destacadoIds.split(',').forEach(id => trackFeatured(id, 'impression', 'strip'))
+  }, [featuredImpId, destacadoIds])
+
   return (
     <div style={{ overflow: 'auto', height: '100%', paddingBottom: 18, background: '#FAF5EE' }}>
       {/* header */}
@@ -923,7 +951,7 @@ function Discovery({ mode, onOpen, onBook, onModeToggle, onBell, onMsg }: { mode
                 {alert.body}
               </div>
               <div style={{ marginTop: 14 }}>
-                <button onClick={() => onOpen(alertBiz)} style={{ background: '#E8505B', color: '#fff', border: 'none', borderRadius: 12, padding: '10px 18px', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>
+                <button onClick={() => { if (alertBiz.featured) trackFeatured(alertBiz.id, 'click', 'alert'); onOpen(alertBiz) }} style={{ background: '#E8505B', color: '#fff', border: 'none', borderRadius: 12, padding: '10px 18px', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>
                   {alert.cta}
                 </button>
               </div>
@@ -939,7 +967,7 @@ function Discovery({ mode, onOpen, onBook, onModeToggle, onBell, onMsg }: { mode
       </div>
       {showFeatured && featured && (
         <>
-          <HeroFeatured biz={featured} mode={mode} onOpen={() => onOpen(featured)} />
+          <HeroFeatured biz={featured} mode={mode} onOpen={() => { trackFeatured(featured.id, 'click', 'hero'); onOpen(featured) }} />
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 16px 20px', fontSize: 12, color: '#A89E94' }}>
             <Icon n="info" size={13} color="#A89E94" /> {en ? 'Destacado = a business paid to be featured here.' : 'Destacado = un negocio pagó por aparecer aquí.'}
           </div>
@@ -954,7 +982,7 @@ function Discovery({ mode, onOpen, onBook, onModeToggle, onBell, onMsg }: { mode
             <div style={{ fontSize: 13, color: '#6B615A', marginTop: 2 }}>{en ? 'Businesses that paid to stand out' : 'Negocios que pagaron por resaltar'}</div>
           </div>
           <div style={{ display: 'flex', gap: 12, padding: '0 16px 24px', overflowX: 'auto' }}>
-            {destacados.map(b => <DestacadoCard key={b.id} biz={b} onOpen={() => onOpen(b)} />)}
+            {destacados.map(b => <DestacadoCard key={b.id} biz={b} onOpen={() => { trackFeatured(b.id, 'click', 'strip'); onOpen(b) }} />)}
           </div>
         </>
       )}

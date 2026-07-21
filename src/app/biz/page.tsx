@@ -185,6 +185,18 @@ interface PanelReservation {
 type PanelRequest = { id: string; who: string; via: string; party: number; time: string; when: string; note: string; state: 'action' }
 
 // Métricas reales del negocio (Fase 5), de /api/biz/metrics.
+// KPIs reales por módulo para un periodo dado (los consume Informes).
+interface PeriodMetrics {
+  series: { reservas: number; recibidas: number; ingreso: number; ventas: number; mensajes: number }[]
+  requests: { recibidas: number; autoConf: number; negociacion: number; conversion: number }
+  agenda: { reservas: number; ocupacion: number; confirmadas: number; noShows: number }
+  messages: { conversaciones: number; sinLeer: number; respPromMin: number; satisfaccion: number }
+  pos: { ventas: number; ingreso: number; ticketProm: number; pagoTarjeta: number }
+  promos: { sellos: number; canjes: number; recurrentes: number; lealtad: number }
+  featured: { impresiones: number; clics: number; ctr: number; clicksGrowth: number }
+  metrics: { ingresoAtribuido: number; viaReva: number; rove: number; crecimiento: number }
+  trends: { requests: number; agenda: number; messages: number; pos: number; promos: number; featured: number; metrics: number }
+}
 interface BizMetrics {
   reservasHoy: number
   viaReva: number
@@ -194,6 +206,9 @@ interface BizMetrics {
   rewardsRedeemed: number // Recompensas Reva+ canjeadas (histórico)
   resSeries: { d7: number[]; d30: number[]; d90: number[] }
   revSeries: { d7: number[]; d30: number[]; d90: number[] }
+  modules?: { d1: PeriodMetrics; d7: PeriodMetrics; d30: PeriodMetrics; d90: PeriodMetrics }
+  txPos?: { folio: string; hora: string; producto: string; total: number }[]
+  promoCount?: number
 }
 
 function rsvTime(slot: string | null): string {
@@ -2295,8 +2310,6 @@ const REPORT_PERIODS = [
   { id: '30d', label: '30 días', days: 30 },
   { id: '90d', label: '90 días', days: 90 },
 ]
-// Pseudo-aleatorio determinista (para series diarias estables entre renders)
-const seeded = (n: number) => { const x = Math.sin(n * 12.9898) * 43758.5453; return x - Math.floor(x) }
 const dayLabel = (d: Date) => d.toLocaleDateString('es-MX', { day: '2-digit', month: 'short' })
 
 type DetailTable = { cols: string[]; rows: (string | number)[][] }
@@ -2322,100 +2335,88 @@ function MiniTable({ title, cols, rows, cap }: { title: string; cols: string[]; 
   )
 }
 
-function ReportsView({ vert, items, onGo, bizInfo }: { vert: Vert; items: CatItem[]; onGo: (v: string) => void; bizInfo: BizInfo }) {
+function ReportsView({ vert, items, onGo, bizInfo, metrics, agenda, requests }: { vert: Vert; items: CatItem[]; onGo: (v: string) => void; bizInfo: BizInfo; metrics?: BizMetrics | null; agenda: AgItem[]; requests: PanelRequest[] }) {
   const [period, setPeriod] = useState('30d')
   const [mods, setMods] = useState<string[]>(['requests', 'agenda', 'messages', 'pos', 'catalog', 'promos', 'destacado', 'metrics'])
   const [compare, setCompare] = useState(false)
   const [detail, setDetail] = useState<'summary' | 'detailed'>('summary')
   const days = REPORT_PERIODS.find(p => p.id === period)!.days
 
-  const parseK = (s: string) => { const t = s.replace(/[$,\s]/g, ''); const n = parseFloat(t) || 0; return /k/i.test(t) ? n * 1000 : n }
   const num = (n: number) => Math.round(n).toLocaleString('es-MX')
   const fmt = (n: number) => n >= 1000 ? '$' + (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k' : '$' + Math.round(n)
   const pct = (n: number) => `${Math.round(n)}%`
+  const signed = (n: number) => `${n >= 0 ? '+' : ''}${n}%`
 
-  const m = vert.metrics
-  const ingresoDia = parseK(m.ingreso)
-  const reservasDia = m.reservasHoy
-  const ventasDia = Math.max(1, Math.round(reservasDia * 1.4))
-  const ingresoPosDia = ingresoDia * 0.42
+  // KPIs 100% reales del periodo seleccionado (de /api/biz/metrics). Sin datos → ceros.
+  const EMPTY: PeriodMetrics = {
+    series: [],
+    requests: { recibidas: 0, autoConf: 0, negociacion: 0, conversion: 0 },
+    agenda: { reservas: 0, ocupacion: 0, confirmadas: 0, noShows: 0 },
+    messages: { conversaciones: 0, sinLeer: 0, respPromMin: 0, satisfaccion: 0 },
+    pos: { ventas: 0, ingreso: 0, ticketProm: 0, pagoTarjeta: 0 },
+    promos: { sellos: 0, canjes: 0, recurrentes: 0, lealtad: 0 },
+    featured: { impresiones: 0, clics: 0, ctr: 0, clicksGrowth: 0 },
+    metrics: { ingresoAtribuido: 0, viaReva: 0, rove: 0, crecimiento: 0 },
+    trends: { requests: 0, agenda: 0, messages: 0, pos: 0, promos: 0, featured: 0, metrics: 0 },
+  }
+  const periodKey = (`d${days}`) as 'd1' | 'd7' | 'd30' | 'd90'
+  const P = metrics?.modules?.[periodKey] ?? EMPTY
 
-  const negCount = vert.requests.filter(r => r.state === 'negotiating').length
-  const unread = vert.messages.filter(x => x.unread).length
+  // Catálogo: ya es real (usa el catálogo cargado en `items`).
   const activos = items.filter(c => c.active).length
   const inactivos = items.filter(c => !c.active).length
   const cats = new Set(items.map(c => c.category?.trim()).filter(Boolean)).size
   const topItem = (items.find(c => c.active) ?? items[0])?.name ?? '—'
-  const ocup = Math.round((vert.capacity.used / vert.capacity.total) * 100)
+
+  const satLabel = P.messages.satisfaccion > 0 ? `${P.messages.satisfaccion.toFixed(1)} / 5` : '—'
+  const respLabel = P.messages.respPromMin > 0 ? `${P.messages.respPromMin} min` : '—'
+  const ctrLabel = P.featured.impresiones > 0 ? `${P.featured.ctr}%` : '—'
 
   const summary: { label: string; value: string; tint: string; color: string; icon: string; trend: number }[] = [
-    { label: 'Ingreso total', value: fmt(ingresoDia * days), tint: R.coralTint, color: R.coralPress, icon: 'chart', trend: 22 },
-    { label: 'Reservas', value: num(reservasDia * days), tint: R.jadeTint, color: '#16614c', icon: 'cal', trend: 14 },
-    { label: 'Ventas (POS)', value: num(ventasDia * days), tint: R.amberTint, color: R.amberDeep, icon: 'card', trend: 9 },
-    { label: 'Vía Reva', value: pct(m.viaReva), tint: R.bgAlt, color: R.ink, icon: 'spark', trend: 6 },
+    { label: 'Ingreso total', value: fmt(P.metrics.ingresoAtribuido), tint: R.coralTint, color: R.coralPress, icon: 'chart', trend: P.trends.metrics },
+    { label: 'Reservas', value: num(P.agenda.reservas), tint: R.jadeTint, color: '#16614c', icon: 'cal', trend: P.trends.agenda },
+    { label: 'Ventas (POS)', value: num(P.pos.ventas), tint: R.amberTint, color: R.amberDeep, icon: 'card', trend: P.trends.pos },
+    { label: 'Vía Reva', value: pct(P.metrics.viaReva), tint: R.bgAlt, color: R.ink, icon: 'spark', trend: P.trends.metrics },
   ]
 
   const allCards: { id: string; icon: string; title: string; trend: number; kpis: [string, string][] }[] = [
-    { id: 'requests', icon: 'inbox', title: 'Solicitudes', trend: 12, kpis: [['Recibidas', num(Math.round(reservasDia * 1.6) * days)], ['Auto-confirmadas', '58%'], ['En negociación', String(negCount)], ['Conversión', '72%']] },
-    { id: 'agenda', icon: 'cal', title: 'Agenda', trend: 8, kpis: [['Reservas', num(reservasDia * days)], ['Ocupación', pct(ocup)], ['Confirmadas', '86%'], ['No-shows', '4%']] },
-    { id: 'messages', icon: 'chat', title: 'Mensajes', trend: 5, kpis: [['Conversaciones', num(Math.round(reservasDia * 0.9) * days)], ['Sin leer', String(unread)], ['Resp. promedio', '2 min'], ['Satisfacción', '4.8 / 5']] },
-    { id: 'pos', icon: 'card', title: 'Punto de venta', trend: 9, kpis: [['Ventas', num(ventasDia * days)], ['Ingreso', fmt(ingresoPosDia * days)], ['Ticket prom.', fmt(ingresoPosDia / ventasDia)], ['Pago tarjeta', '61%']] },
+    { id: 'requests', icon: 'inbox', title: 'Solicitudes', trend: P.trends.requests, kpis: [['Recibidas', num(P.requests.recibidas)], ['Auto-confirmadas', pct(P.requests.autoConf)], ['En negociación', String(P.requests.negociacion)], ['Conversión', pct(P.requests.conversion)]] },
+    { id: 'agenda', icon: 'cal', title: 'Agenda', trend: P.trends.agenda, kpis: [['Reservas', num(P.agenda.reservas)], ['Ocupación', pct(P.agenda.ocupacion)], ['Confirmadas', pct(P.agenda.confirmadas)], ['No-shows', pct(P.agenda.noShows)]] },
+    { id: 'messages', icon: 'chat', title: 'Mensajes', trend: P.trends.messages, kpis: [['Conversaciones', num(P.messages.conversaciones)], ['Sin leer', String(P.messages.sinLeer)], ['Resp. promedio', respLabel], ['Satisfacción', satLabel]] },
+    { id: 'pos', icon: 'card', title: 'Punto de venta', trend: P.trends.pos, kpis: [['Ventas', num(P.pos.ventas)], ['Ingreso', fmt(P.pos.ingreso)], ['Ticket prom.', P.pos.ventas > 0 ? fmt(P.pos.ticketProm) : '—'], ['Pago tarjeta', pct(P.pos.pagoTarjeta)]] },
     { id: 'catalog', icon: 'grid', title: 'Catálogo', trend: 0, kpis: [['Activos', String(activos)], ['Inactivos', String(inactivos)], ['Categorías', String(cats)], ['Top producto', topItem]] },
-    { id: 'promos', icon: 'gift', title: 'Promociones', trend: 18, kpis: [['Sellos', num(Math.round(reservasDia * 2.2) * days)], ['Canjes', num(Math.round(reservasDia * 0.3) * days)], ['Recurrentes', '38%'], ['Lealtad activa', '212']] },
-    { id: 'destacado', icon: 'spark', title: 'Destacado', trend: 31, kpis: [['Impresiones', num(Math.round(reservasDia * 120) * days)], ['Clics', num(Math.round(reservasDia * 9) * days)], ['CTR', '7.5%'], ['Solicitudes', '+38%']] },
-    { id: 'metrics', icon: 'chart', title: 'Métricas', trend: 22, kpis: [['Ingreso atribuido', fmt(ingresoDia * days)], ['Vía Reva', pct(m.viaReva)], ['ROVE', num(m.rove)], ['Crecimiento', '+22%']] },
+    { id: 'promos', icon: 'gift', title: 'Promociones', trend: P.trends.promos, kpis: [['Sellos', num(P.promos.sellos)], ['Canjes', num(P.promos.canjes)], ['Recurrentes', pct(P.promos.recurrentes)], ['Lealtad activa', num(P.promos.lealtad)]] },
+    { id: 'destacado', icon: 'spark', title: 'Destacado', trend: P.trends.featured, kpis: [['Impresiones', num(P.featured.impresiones)], ['Clics', num(P.featured.clics)], ['CTR', ctrLabel], ['Crec. clics', signed(P.featured.clicksGrowth)]] },
+    { id: 'metrics', icon: 'chart', title: 'Métricas', trend: P.trends.metrics, kpis: [['Ingreso atribuido', fmt(P.metrics.ingresoAtribuido)], ['Vía Reva', pct(P.metrics.viaReva)], ['ROVE', num(P.metrics.rove)], ['Crecimiento', signed(P.metrics.crecimiento)]] },
   ]
   const cards = allCards.filter(c => mods.includes(c.id))
   const toggleMod = (id: string) => setMods(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
 
-  // Desglose diario determinista cuyo total coincide con el resumen
-  function genDaily(base: number, seed: number) {
-    const today = new Date()
-    const raw: { date: Date; v: number }[] = []
-    for (let i = days - 1; i >= 0; i--) {
-      const date = new Date(today); date.setDate(today.getDate() - i)
-      raw.push({ date, v: base * (0.7 + seeded(seed + i + 1) * 0.6) })
-    }
-    const sum = raw.reduce((s, r) => s + r.v, 0) || 1
-    const factor = (base * days) / sum
-    return raw.map(r => ({ date: r.date, v: Math.max(0, Math.round(r.v * factor)) }))
-  }
+  // Serie diaria real alineada a los últimos `days` días (índice 0 = hace days-1 días).
+  const daily = P.series.map((s, i) => {
+    const d = new Date(); d.setDate(d.getDate() - (P.series.length - 1 - i))
+    return { date: d, ...s }
+  })
 
-  // Detalle por módulo: desglose por día y/o transacciones
+  // Detalle por módulo: desglose por día real y/o transacciones reales.
   function buildDetail(id: string): { daily: (DetailTable & { title: string }) | null; tx: (DetailTable & { title: string }) | null } {
     if (id === 'requests') {
-      const d = genDaily(Math.round(reservasDia * 1.6), 11)
-      return { daily: { title: 'Desglose por día', cols: ['Fecha', 'Recibidas'], rows: d.map(r => [dayLabel(r.date), num(r.v)]) }, tx: null }
+      return { daily: { title: 'Recibidas por día', cols: ['Fecha', 'Recibidas'], rows: daily.map(r => [dayLabel(r.date), num(r.recibidas)]) }, tx: null }
     }
     if (id === 'agenda') {
-      const d = genDaily(reservasDia, 22)
       return {
-        daily: { title: 'Reservas por día', cols: ['Fecha', 'Reservas'], rows: d.map(r => [dayLabel(r.date), num(r.v)]) },
-        tx: { title: 'Reservas del día', cols: ['Hora', 'Cliente', 'Personas', 'Estado'], rows: vert.agenda.map(a => [a.time, a.who, `${a.party} p.`, a.tag]) },
+        daily: { title: 'Reservas por día', cols: ['Fecha', 'Reservas'], rows: daily.map(r => [dayLabel(r.date), num(r.reservas)]) },
+        tx: { title: 'Reservas', cols: ['Hora', 'Cliente', 'Personas', 'Estado'], rows: agenda.map(a => [a.time, a.who, `${a.party} p.`, a.tag]) },
       }
     }
     if (id === 'messages') {
-      const d = genDaily(Math.round(reservasDia * 0.9), 33)
-      return {
-        daily: { title: 'Conversaciones por día', cols: ['Fecha', 'Conversaciones'], rows: d.map(r => [dayLabel(r.date), num(r.v)]) },
-        tx: { title: 'Conversaciones recientes', cols: ['Hace', 'Cliente', 'Canal', 'Estado'], rows: vert.messages.map(mm => [mm.time, mm.who, mm.via, mm.unread ? 'Sin leer' : 'Leído']) },
-      }
+      return { daily: { title: 'Mensajes por día', cols: ['Fecha', 'Mensajes'], rows: daily.map(r => [dayLabel(r.date), num(r.mensajes)]) }, tx: null }
     }
     if (id === 'pos') {
-      const ticket = ingresoPosDia / ventasDia
-      const dv = genDaily(ventasDia, 44)
-      const sellable = items.filter(c => c.active && priceToNumber(c.price) > 0)
-      const totalSales = ventasDia * days
-      const sampleN = Math.min(14, Math.max(1, totalSales))
-      const tx: (string | number)[][] = []
-      for (let i = 0; i < sampleN && sellable.length; i++) {
-        const p = sellable[Math.floor(seeded(91 + i) * sellable.length)] ?? sellable[0]
-        const h = 12 + Math.floor(seeded(7 + i) * 11), mn = Math.floor(seeded(13 + i) * 60)
-        tx.push([String(884100 + i), `${String(h).padStart(2, '0')}:${String(mn).padStart(2, '0')}`, p.name, fmt(priceToNumber(p.price))])
-      }
+      const tx = (metrics?.txPos ?? []).map(t => [t.folio, t.hora, t.producto, fmt(t.total)] as (string | number)[])
       return {
-        daily: { title: 'Ventas por día', cols: ['Fecha', 'Ventas', 'Ingreso'], rows: dv.map(r => [dayLabel(r.date), num(r.v), fmt(r.v * ticket)]) },
-        tx: { title: `Ventas — muestra de ${tx.length} de ${num(totalSales)}`, cols: ['Folio', 'Hora', 'Producto', 'Total'], rows: tx },
+        daily: { title: 'Ventas por día', cols: ['Fecha', 'Ventas', 'Ingreso'], rows: daily.map(r => [dayLabel(r.date), num(r.ventas), fmt(r.ingreso)]) },
+        tx: tx.length ? { title: `Ventas — últimas ${tx.length}`, cols: ['Folio', 'Hora', 'Producto', 'Total'], rows: tx } : null,
       }
     }
     if (id === 'catalog') {
@@ -4664,7 +4665,7 @@ export default function BizPage() {
     if (view === 'agenda') return <AgendaView vert={vert} dayAgenda={panelAgenda} />
     if (view === 'messages') return <MessagesView key={vert.id} vert={vert} agentCfg={agentCfg} />
     if (view === 'metrics') return <MetricsView vert={vertM} metrics={bizMetrics} />
-    if (view === 'reports') return <ReportsView vert={vertM} items={catalog} onGo={setView} bizInfo={bizInfo} />
+    if (view === 'reports') return <ReportsView vert={vertM} items={catalog} onGo={setView} bizInfo={bizInfo} metrics={bizMetrics} agenda={panelAgenda} requests={panelRequests} />
     if (view === 'catalog') return <CatalogView vert={vert} items={catalog} setItems={setCatalog} />
     if (view === 'inventory') return <InventoryView vert={vert} items={catalog} setItems={setCatalog} onGo={setView} />
     if (view === 'pos') return <PosView vert={vert} items={catalog} setItems={setCatalog} onGo={setView} taxMode={taxMode} bizInfo={bizInfo} />
