@@ -274,6 +274,7 @@ const NAV = [
   { id: 'catalog', icon: 'grid', label: 'Catálogo' },
   { id: 'inventory', icon: 'box', label: 'Inventario' },
   { id: 'pos', icon: 'card', label: 'Punto de venta' },
+  { id: 'sales', icon: 'ticket', label: 'Ventas' },
   { id: 'promos', icon: 'gift', label: 'Promociones' },
   { id: 'scanner', icon: 'scan', label: 'Escáner' },
   { id: 'settings', icon: 'settings', label: 'Ajustes' },
@@ -289,6 +290,7 @@ const VIEW_TITLES: Record<string, [string, string]> = {
   catalog: ['Catálogo', 'Lo que Reva puede ofrecer y reservar'],
   inventory: ['Inventario', 'Disponibilidad de tus productos y servicios'],
   pos: ['Punto de venta', 'Cobra al instante desde tu catálogo'],
+  sales: ['Ventas', 'Historial de tickets — consulta, anula o reembolsa'],
   promos: ['Promociones', 'Lealtad y ofertas'],
   scanner: ['Escáner', 'Sella, suma puntos y canjea al momento'],
   settings: ['Ajustes', 'Tu negocio, tu agente y cómo cobra'],
@@ -2021,7 +2023,72 @@ const priceToNumber = (price: string) => {
   return m ? Number(m[0]) : 0
 }
 type PosLine = { key: string; id?: string; name: string; sub: string; unit: number; variable: boolean; qty: number }
-type Sale = { method: string; items: { name: string; qty: number; unit: number }[]; base: number; iva: number; total: number; added: boolean; at: number; authCode?: string; cardLast4?: string; reference?: string }
+type Sale = { method: string; items: { name: string; qty: number; unit: number }[]; base: number; iva: number; total: number; added: boolean; at: number; folio: string; authCode?: string; cardLast4?: string; reference?: string }
+
+// Genera el HTML del ticket e imprime vía un iframe oculto. Compartido por el
+// Punto de venta (al cobrar) y el módulo Ventas (reimpresión), para que el
+// comprobante sea idéntico. `voidLabel` marca reimpresiones de tickets anulados
+// o reembolsados para que no se confundan con una venta vigente.
+function printTicketHTML(o: {
+  bizName: string; address: string; phone: string; rfc: string
+  folio: string; when: string
+  rows: { name: string; qty: number; lineTotal: number }[]
+  added: boolean; base: number; iva: number; total: number
+  method: string; cardLast4?: string; authCode?: string; reference?: string
+  voidLabel?: string
+}) {
+  const esc = (s: string) => (s || '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c] as string))
+  const rows = o.rows.map(it =>
+    `<tr><td class="q">${it.qty}×</td><td>${esc(it.name)}</td><td class="r">${money(it.lineTotal)}</td></tr>`).join('')
+  const totals = o.added
+    ? `<div class="row"><span>Subtotal</span><span>${money(o.base)}</span></div>
+       <div class="row"><span>IVA (16%)</span><span>+${money(o.iva)}</span></div>`
+    : `<div class="row"><span>IVA incluido (16%)</span><span>${money(o.iva)}</span></div>`
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>Ticket ${esc(o.folio)}</title>
+    <style>
+      *{margin:0;padding:0;box-sizing:border-box}
+      body{font-family:'Courier New',monospace;color:#1a1a1a;padding:14px;width:280px}
+      h1{font-size:15px;text-align:center}
+      .sub{font-size:11px;text-align:center;color:#555;margin-bottom:8px}
+      .void{text-align:center;font-size:13px;font-weight:bold;color:#B5472F;border:2px solid #B5472F;border-radius:6px;padding:4px;margin:6px 0}
+      .hr{border-top:1px dashed #999;margin:8px 0}
+      .meta{font-size:11px;color:#555;display:flex;justify-content:space-between}
+      table{width:100%;border-collapse:collapse;font-size:12px;margin:6px 0}
+      td{padding:2px 0;vertical-align:top}
+      td.q{width:28px}
+      td.r{text-align:right;white-space:nowrap;padding-left:8px}
+      .row{display:flex;justify-content:space-between;font-size:12px;color:#555;margin:2px 0}
+      .total{display:flex;justify-content:space-between;font-size:15px;font-weight:bold;margin-top:4px}
+      .pay{font-size:12px;margin-top:8px}
+      .thanks{text-align:center;font-size:12px;margin-top:12px}
+      @media print{body{width:auto}}
+    </style></head><body>
+    <h1>${esc(o.bizName)}</h1>
+    <div class="sub">${esc(o.address)}</div>
+    <div class="sub">Tel. ${esc(o.phone)}</div>
+    <div class="sub">RFC: ${esc(o.rfc)}</div>
+    ${o.voidLabel ? `<div class="void">${esc(o.voidLabel)}</div>` : ''}
+    <div class="hr"></div>
+    <div class="meta"><span>${esc(o.when)}</span><span>Folio ${esc(o.folio)}</span></div>
+    <table>${rows}</table>
+    <div class="hr"></div>
+    ${totals}
+    <div class="total"><span>TOTAL</span><span>${money(o.total)}</span></div>
+    <div class="hr"></div>
+    <div class="pay">Pago: ${esc(o.method)}${o.cardLast4 ? ` ····${esc(o.cardLast4)}` : ''}</div>
+    ${o.authCode ? `<div class="pay">Autorización: ${esc(o.authCode)}</div>` : ''}
+    ${o.reference ? `<div class="pay">Referencia: ${esc(o.reference)}</div>` : ''}
+    <div class="thanks">¡Gracias por tu compra! 🌮<br>Vía Reva</div>
+    </body></html>`
+  const frame = document.createElement('iframe')
+  frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0'
+  document.body.appendChild(frame)
+  const doc = frame.contentWindow?.document
+  if (!doc) return
+  doc.open(); doc.write(html); doc.close()
+  const w = frame.contentWindow
+  setTimeout(() => { try { w?.focus(); w?.print() } catch {} setTimeout(() => frame.remove(), 800) }, 150)
+}
 const PAY_METHODS = [
   { id: 'efectivo', label: 'Efectivo', icon: 'cash' },
   { id: 'tarjeta', label: 'Tarjeta', icon: 'card' },
@@ -2090,6 +2157,11 @@ function PosView({ vert, items, setItems, onGo, taxMode, bizInfo }: { vert: Vert
   // transacción (autorización / tarjeta / referencia).
   function registerSale(methodId: string, methodLabel: string, extra: Partial<Sale>) {
     decrementStock(lines)
+    // Folio imprimible generado UNA sola vez: se guarda en la BD y se usa tal cual
+    // en el ticket impreso y en la confirmación, para que el número que ve el
+    // cliente sea el mismo por el que el dueño puede buscar la venta.
+    const at = Date.now()
+    const folio = String(at).slice(-6)
     void recordSale(bizId, {
       method: methodId,
       subtotal: total - iva,
@@ -2100,65 +2172,24 @@ function PosView({ vert, items, setItems, onGo, taxMode, bizInfo }: { vert: Vert
       auth_code: extra.authCode,
       card_last4: extra.cardLast4,
       reference: extra.reference,
+      folio,
       items: lines.map(l => ({ service_id: l.id, name: l.name, unit_price: l.unit, qty: l.qty })),
     })
-    setPay({ method: methodLabel, items: lines.map(l => ({ name: l.name, qty: l.qty, unit: l.unit })), base, iva, total, added, at: Date.now(), ...extra })
+    setPay({ method: methodLabel, items: lines.map(l => ({ name: l.name, qty: l.qty, unit: l.unit })), base, iva, total, added, at, folio, ...extra })
     setPending(null)
     setPayFields({ authCode: '', cardLast4: '', reference: '' })
   }
 
   function printTicket(sale: Sale) {
-    const esc = (s: string) => s.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c] as string))
-    const when = new Date(sale.at).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' })
-    const folio = String(sale.at).slice(-6)
-    const rows = sale.items.map(it =>
-      `<tr><td class="q">${it.qty}×</td><td>${esc(it.name)}</td><td class="r">${money(it.unit * it.qty)}</td></tr>`).join('')
-    const totals = sale.added
-      ? `<div class="row"><span>Subtotal</span><span>${money(sale.base)}</span></div>
-         <div class="row"><span>IVA (16%)</span><span>+${money(sale.iva)}</span></div>`
-      : `<div class="row"><span>IVA incluido (16%)</span><span>${money(sale.iva)}</span></div>`
-    const html = `<!doctype html><html><head><meta charset="utf-8"><title>Ticket ${folio}</title>
-      <style>
-        *{margin:0;padding:0;box-sizing:border-box}
-        body{font-family:'Courier New',monospace;color:#1a1a1a;padding:14px;width:280px}
-        h1{font-size:15px;text-align:center}
-        .sub{font-size:11px;text-align:center;color:#555;margin-bottom:8px}
-        .hr{border-top:1px dashed #999;margin:8px 0}
-        .meta{font-size:11px;color:#555;display:flex;justify-content:space-between}
-        table{width:100%;border-collapse:collapse;font-size:12px;margin:6px 0}
-        td{padding:2px 0;vertical-align:top}
-        td.q{width:28px}
-        td.r{text-align:right;white-space:nowrap;padding-left:8px}
-        .row{display:flex;justify-content:space-between;font-size:12px;color:#555;margin:2px 0}
-        .total{display:flex;justify-content:space-between;font-size:15px;font-weight:bold;margin-top:4px}
-        .pay{font-size:12px;margin-top:8px}
-        .thanks{text-align:center;font-size:12px;margin-top:12px}
-        @media print{body{width:auto}}
-      </style></head><body>
-      <h1>${esc(vert.full || vert.name)}</h1>
-      <div class="sub">${esc(bizInfo.address)}</div>
-      <div class="sub">Tel. ${esc(bizInfo.phone)}</div>
-      <div class="sub">RFC: ${esc(bizInfo.rfc)}</div>
-      <div class="hr"></div>
-      <div class="meta"><span>${when}</span><span>Folio ${folio}</span></div>
-      <table>${rows}</table>
-      <div class="hr"></div>
-      ${totals}
-      <div class="total"><span>TOTAL</span><span>${money(sale.total)}</span></div>
-      <div class="hr"></div>
-      <div class="pay">Pago: ${esc(sale.method)}${sale.cardLast4 ? ` ····${esc(sale.cardLast4)}` : ''}</div>
-      ${sale.authCode ? `<div class="pay">Autorización: ${esc(sale.authCode)}</div>` : ''}
-      ${sale.reference ? `<div class="pay">Referencia: ${esc(sale.reference)}</div>` : ''}
-      <div class="thanks">¡Gracias por tu compra! 🌮<br>Vía Reva</div>
-      </body></html>`
-    const frame = document.createElement('iframe')
-    frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0'
-    document.body.appendChild(frame)
-    const doc = frame.contentWindow?.document
-    if (!doc) return
-    doc.open(); doc.write(html); doc.close()
-    const w = frame.contentWindow
-    setTimeout(() => { try { w?.focus(); w?.print() } catch {} setTimeout(() => frame.remove(), 800) }, 150)
+    printTicketHTML({
+      bizName: vert.full || vert.name,
+      address: bizInfo.address, phone: bizInfo.phone, rfc: bizInfo.rfc,
+      folio: sale.folio || String(sale.at).slice(-6),
+      when: new Date(sale.at).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' }),
+      rows: sale.items.map(it => ({ name: it.name, qty: it.qty, lineTotal: it.unit * it.qty })),
+      added: sale.added, base: sale.base, iva: sale.iva, total: sale.total,
+      method: sale.method, cardLast4: sale.cardLast4, authCode: sale.authCode, reference: sale.reference,
+    })
   }
 
   const base = lines.reduce((s, l) => s + l.unit * l.qty, 0)
@@ -2177,6 +2208,9 @@ function PosView({ vert, items, setItems, onGo, taxMode, bizInfo }: { vert: Vert
             <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Buscar producto o servicio…"
               style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 999, padding: '11px 14px 11px 38px', fontSize: 14, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.surface }} />
           </div>
+          <button onClick={() => onGo('sales')} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 14px', background: R.bgAlt, border: 'none', borderRadius: 999, cursor: 'pointer', fontFamily: R.ui, fontWeight: 600, fontSize: 13, color: R.inkSoft, whiteSpace: 'nowrap' }}>
+            <Icon n="ticket" size={15} color={R.inkSoft} /> Ventas
+          </button>
           <button onClick={() => onGo('catalog')} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 14px', background: R.bgAlt, border: 'none', borderRadius: 999, cursor: 'pointer', fontFamily: R.ui, fontWeight: 600, fontSize: 13, color: R.inkSoft, whiteSpace: 'nowrap' }}>
             <Icon n="grid" size={15} color={R.inkSoft} /> Catálogo
           </button>
@@ -2400,7 +2434,7 @@ function PosView({ vert, items, setItems, onGo, taxMode, bizInfo }: { vert: Vert
               <div style={{ borderTop: '1px dashed #bbb', margin: '12px 0' }} />
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#666' }}>
                 <span>{new Date(receipt.at).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' })}</span>
-                <span>Folio {String(receipt.at).slice(-6)}</span>
+                <span>Folio {receipt.folio || String(receipt.at).slice(-6)}</span>
               </div>
               <div style={{ borderTop: '1px dashed #bbb', margin: '12px 0' }} />
               {receipt.items.map((it, i) => (
@@ -2435,6 +2469,313 @@ function PosView({ vert, items, setItems, onGo, taxMode, bizInfo }: { vert: Vert
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// ── Ventas (historial del Punto de venta) ──────────────────
+type SaleRow = {
+  id: string; folio: string; total: number; subtotal: number; tax_amount: number
+  item_count: number; method: string | null; auth_code: string | null
+  card_last4: string | null; reference: string | null; status: string
+  note: string | null; created_at: string
+  items: { name: string; qty: number; unit_price: number }[]
+}
+
+const SALE_STATUS: Record<string, { label: string; color: string; tint: string }> = {
+  paid: { label: 'Pagada', color: '#16614c', tint: R.jadeTint },
+  void: { label: 'Anulada', color: R.coralPress, tint: R.coralTint },
+  refunded: { label: 'Reembolsada', color: R.amberDeep, tint: R.amberTint },
+}
+const saleMethodLabel = (m: string | null) => {
+  const s = (m ?? '').toLowerCase()
+  if (s === 'efectivo') return 'Efectivo'
+  if (s === 'tarjeta') return 'Tarjeta'
+  if (s === 'transferencia') return 'Transferencia'
+  return m || '—'
+}
+const saleRefText = (s: SaleRow) => {
+  const parts: string[] = []
+  if (s.card_last4) parts.push(`····${s.card_last4}`)
+  if (s.auth_code) parts.push(`Aut ${s.auth_code}`)
+  if (s.reference) parts.push(`Ref ${s.reference}`)
+  return parts.join(' · ')
+}
+const saleWhen = (iso: string) => new Date(iso).toLocaleString('es-MX', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
+
+function SalesHistoryView({ vert, bizInfo, onGo }: { vert: Vert; bizInfo: BizInfo; onGo: (v: string) => void }) {
+  const bizId = SHARED_BIZ_ID[vert.id] ?? vert.id
+  const [sales, setSales] = useState<SaleRow[] | null>(null)
+  const [error, setError] = useState('')
+  const [query, setQuery] = useState('')
+  const [statusFilter, setStatusFilter] = useState<'todas' | 'paid' | 'void' | 'refunded'>('todas')
+  const [datePreset, setDatePreset] = useState<'todo' | 'hoy' | '7d' | '30d' | 'custom'>('todo')
+  const [customFrom, setCustomFrom] = useState('')
+  const [customTo, setCustomTo] = useState('')
+  const [detail, setDetail] = useState<SaleRow | null>(null)
+  // Paso de confirmación dentro del detalle: anular o reembolsar con motivo.
+  const [confirm, setConfirm] = useState<null | { type: 'void' | 'refunded' }>(null)
+  const [reason, setReason] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const load = useCallback(async () => {
+    setError('')
+    try {
+      const r = await fetch(`/api/biz/sales?biz_id=${encodeURIComponent(bizId)}`)
+      if (!r.ok) { setSales([]); setError(r.status === 403 ? 'No autorizado' : 'No se pudieron cargar las ventas'); return }
+      const d = await r.json()
+      setSales((d.sales ?? []) as SaleRow[])
+    } catch {
+      setSales([]); setError('Sin conexión con el servidor')
+    }
+  }, [bizId])
+  useEffect(() => { setSales(null); load() }, [load])
+
+  // ¿La venta cae en el rango de fechas seleccionado? Presets con ventana móvil
+  // (7d/30d) u "Hoy" desde la medianoche local; personalizado por día inclusivo.
+  const inRange = (iso: string): boolean => {
+    if (datePreset === 'todo') return true
+    const t = new Date(iso).getTime()
+    if (datePreset === 'hoy') { const d = new Date(); d.setHours(0, 0, 0, 0); return t >= d.getTime() }
+    if (datePreset === '7d') return t >= Date.now() - 7 * 86400000
+    if (datePreset === '30d') return t >= Date.now() - 30 * 86400000
+    // custom
+    if (customFrom && t < new Date(`${customFrom}T00:00:00`).getTime()) return false
+    if (customTo && t > new Date(`${customTo}T23:59:59.999`).getTime()) return false
+    return true
+  }
+
+  // Ventas del periodo (rango de fechas) — base de los KPIs y de la lista.
+  const dated = (sales ?? []).filter(s => inRange(s.created_at))
+  const q = query.trim().toLowerCase()
+  const list = dated.filter(s => {
+    if (statusFilter !== 'todas' && s.status !== statusFilter) return false
+    if (!q) return true
+    const hay = [s.folio, saleMethodLabel(s.method), s.card_last4 ?? '', s.auth_code ?? '', s.reference ?? '',
+      String(s.total), ...s.items.map(i => i.name)].join(' ').toLowerCase()
+    return hay.includes(q)
+  })
+
+  const paid = dated.filter(s => s.status === 'paid')
+  const ingreso = paid.reduce((a, s) => a + s.total, 0)
+  const anuladas = dated.filter(s => s.status !== 'paid').length
+
+  function reprint(s: SaleRow) {
+    printTicketHTML({
+      bizName: vert.full || vert.name,
+      address: bizInfo.address, phone: bizInfo.phone, rfc: bizInfo.rfc,
+      folio: s.folio, when: saleWhen(s.created_at),
+      rows: s.items.map(it => ({ name: it.name, qty: it.qty, lineTotal: it.unit_price * it.qty })),
+      added: true, base: s.subtotal, iva: s.tax_amount, total: s.total,
+      method: saleMethodLabel(s.method), cardLast4: s.card_last4 ?? undefined,
+      authCode: s.auth_code ?? undefined, reference: s.reference ?? undefined,
+      voidLabel: s.status === 'void' ? 'ANULADA' : s.status === 'refunded' ? 'REEMBOLSADA' : undefined,
+    })
+  }
+
+  async function applyStatus(s: SaleRow, status: 'paid' | 'void' | 'refunded', why: string) {
+    setBusy(true)
+    try {
+      const r = await fetch('/api/biz/sales', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: s.id, status, reason: why }),
+      })
+      if (!r.ok) { setError('No se pudo actualizar la venta'); return }
+      const note = status === 'paid' ? null : (why.trim() || s.note)
+      setSales(prev => (prev ?? []).map(x => x.id === s.id ? { ...x, status, note } : x))
+      setDetail(prev => prev && prev.id === s.id ? { ...prev, status, note } : prev)
+      setConfirm(null); setReason('')
+    } catch {
+      setError('Sin conexión con el servidor')
+    } finally { setBusy(false) }
+  }
+
+  const chip = (id: typeof statusFilter, label: string) => {
+    const on = statusFilter === id
+    return (
+      <button key={id} onClick={() => setStatusFilter(id)}
+        style={{ padding: '7px 14px', borderRadius: 999, border: `1px solid ${on ? R.coral : R.line}`, background: on ? R.coral : R.surface, color: on ? '#fff' : R.inkSoft, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13 }}>
+        {label}
+      </button>
+    )
+  }
+
+  return (
+    <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column', padding: '24px 28px', boxSizing: 'border-box', overflowY: 'auto' }}>
+      {/* KPIs */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, marginBottom: 18 }}>
+        {[
+          { label: 'Tickets pagados', value: String(paid.length), tint: R.jadeTint, color: '#16614c', icon: 'ticket' },
+          { label: 'Ingreso (pagadas)', value: money(ingreso), tint: R.coralTint, color: R.coralPress, icon: 'card' },
+          { label: 'Anuladas / reembolsadas', value: String(anuladas), tint: R.amberTint, color: R.amberDeep, icon: 'info' },
+        ].map(k => (
+          <BCard key={k.label} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ width: 40, height: 40, borderRadius: 12, background: k.tint, display: 'grid', placeItems: 'center', flexShrink: 0 }}><Icon n={k.icon} size={20} color={k.color} /></div>
+            <div>
+              <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 22, color: R.ink, lineHeight: 1 }}>{k.value}</div>
+              <div style={{ fontSize: 12, color: R.inkSoft, marginTop: 3 }}>{k.label}</div>
+            </div>
+          </BCard>
+        ))}
+      </div>
+
+      {/* Buscador + filtros */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14, flexWrap: 'wrap' }}>
+        <div style={{ position: 'relative', flex: 1, minWidth: 220 }}>
+          <span style={{ position: 'absolute', left: 13, top: '50%', transform: 'translateY(-50%)' }}><Icon n="search" size={16} color={R.inkFaint} /></span>
+          <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Buscar por folio, producto, monto, tarjeta…"
+            style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 999, padding: '11px 14px 11px 38px', fontSize: 14, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.surface }} />
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {chip('todas', 'Todas')}{chip('paid', 'Pagadas')}{chip('void', 'Anuladas')}{chip('refunded', 'Reembolsadas')}
+        </div>
+      </div>
+
+      {/* Filtro por periodo */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 12.5, fontWeight: 700, color: R.inkFaint, marginRight: 2 }}>Periodo</span>
+        {([['todo', 'Todo'], ['hoy', 'Hoy'], ['7d', '7 días'], ['30d', '30 días'], ['custom', 'Personalizado']] as const).map(([id, label]) => {
+          const on = datePreset === id
+          return (
+            <button key={id} onClick={() => setDatePreset(id)}
+              style={{ padding: '7px 14px', borderRadius: 999, border: `1px solid ${on ? R.ink : R.line}`, background: on ? R.ink : R.surface, color: on ? '#fff' : R.inkSoft, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13 }}>
+              {label}
+            </button>
+          )
+        })}
+        {datePreset === 'custom' && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 2 }}>
+            <input type="date" value={customFrom} max={customTo || undefined} onChange={e => setCustomFrom(e.target.value)}
+              style={{ border: `1px solid ${R.line}`, borderRadius: 10, padding: '8px 11px', fontSize: 13, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.surface }} />
+            <span style={{ color: R.inkFaint, fontSize: 13 }}>—</span>
+            <input type="date" value={customTo} min={customFrom || undefined} onChange={e => setCustomTo(e.target.value)}
+              style={{ border: `1px solid ${R.line}`, borderRadius: 10, padding: '8px 11px', fontSize: 13, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.surface }} />
+          </div>
+        )}
+      </div>
+
+      {error && <div style={{ background: R.coralTint, color: R.coralPress, borderRadius: 12, padding: '10px 14px', fontSize: 13, fontWeight: 600, marginBottom: 12 }}>{error}</div>}
+
+      {/* Lista */}
+      {sales === null ? (
+        <div style={{ flex: 1, display: 'grid', placeItems: 'center', color: R.inkSoft, fontSize: 14 }}>Cargando ventas…</div>
+      ) : list.length === 0 ? (
+        <BCard style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', gap: 12, color: R.inkSoft, minHeight: 220 }}>
+          <Icon n="ticket" size={30} color={R.inkFaint} />
+          <div style={{ maxWidth: 300 }}>{(sales.length === 0) ? 'Aún no hay ventas registradas. Cobra desde el Punto de venta y aparecerán aquí.' : 'Ninguna venta coincide con los filtros seleccionados.'}</div>
+          {sales.length === 0 && <button onClick={() => onGo('pos')} style={{ padding: '10px 18px', background: R.ink, color: '#fff', border: 'none', borderRadius: 999, fontFamily: R.ui, fontWeight: 700, fontSize: 13.5, cursor: 'pointer' }}>Ir al Punto de venta</button>}
+        </BCard>
+      ) : (
+        <div style={{ border: `1px solid ${R.line}`, borderRadius: 14, overflow: 'hidden', background: R.surface }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '96px 1.4fr 130px 110px 110px 120px', background: R.bgAlt, fontSize: 11.5, fontWeight: 700, color: R.inkSoft }}>
+            {['Folio', 'Productos', 'Fecha', 'Método', 'Estatus', 'Total'].map((c, i) => (
+              <div key={c} style={{ padding: '10px 12px', textAlign: i >= 4 ? 'right' : 'left' }}>{c}</div>
+            ))}
+          </div>
+          {list.map(s => {
+            const st = SALE_STATUS[s.status] ?? { label: s.status, color: R.inkSoft, tint: R.bgAlt }
+            const prod = s.items.length === 0 ? 'Venta' : s.items.length === 1 ? s.items[0].name : `${s.items[0].name} +${s.items.length - 1}`
+            return (
+              <button key={s.id} onClick={() => { setConfirm(null); setReason(''); setDetail(s) }}
+                style={{ width: '100%', textAlign: 'left', display: 'grid', gridTemplateColumns: '96px 1.4fr 130px 110px 110px 120px', alignItems: 'center', fontSize: 12.5, background: 'none', border: 'none', borderTop: `1px solid ${R.lineSoft}`, cursor: 'pointer', fontFamily: R.ui, color: R.ink }}>
+                <div style={{ padding: '11px 12px', fontWeight: 700 }}>{s.folio}</div>
+                <div style={{ padding: '11px 12px', color: R.inkSoft, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{prod}</div>
+                <div style={{ padding: '11px 12px', color: R.inkSoft }}>{saleWhen(s.created_at)}</div>
+                <div style={{ padding: '11px 12px', color: R.inkSoft }}>{saleMethodLabel(s.method)}</div>
+                <div style={{ padding: '11px 12px', textAlign: 'right' }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: st.color, background: st.tint, borderRadius: 999, padding: '3px 9px' }}>{st.label}</span>
+                </div>
+                <div style={{ padding: '11px 12px', textAlign: 'right', fontWeight: 700, textDecoration: s.status === 'paid' ? 'none' : 'line-through', color: s.status === 'paid' ? R.ink : R.inkFaint }}>{money(s.total)}</div>
+              </button>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Detalle del ticket */}
+      {detail && (() => {
+        const st = SALE_STATUS[detail.status] ?? { label: detail.status, color: R.inkSoft, tint: R.bgAlt }
+        return (
+          <div onClick={() => setDetail(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(20,15,12,.45)', display: 'grid', placeItems: 'center', zIndex: 60, padding: 20 }}>
+            <div onClick={e => e.stopPropagation()} style={{ background: R.surface, borderRadius: 20, width: 'min(460px, 94vw)', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 24px 60px rgba(0,0,0,.28)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 20px', borderBottom: `1px solid ${R.lineSoft}` }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <Icon n="ticket" size={20} color={R.coral} />
+                  <div>
+                    <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 18, color: R.ink }}>Folio {detail.folio}</div>
+                    <div style={{ fontSize: 12, color: R.inkSoft }}>{saleWhen(detail.created_at)}</div>
+                  </div>
+                </div>
+                <span style={{ fontSize: 11.5, fontWeight: 700, color: st.color, background: st.tint, borderRadius: 999, padding: '4px 11px' }}>{st.label}</span>
+              </div>
+
+              <div style={{ padding: '18px 20px' }}>
+                {detail.items.map((it, i) => (
+                  <div key={i} style={{ display: 'flex', fontSize: 13, marginBottom: 7 }}>
+                    <span style={{ width: 34, color: R.inkSoft }}>{it.qty}×</span>
+                    <span style={{ flex: 1, color: R.ink }}>{it.name}</span>
+                    <span style={{ whiteSpace: 'nowrap', color: R.ink }}>{money(it.unit_price * it.qty)}</span>
+                  </div>
+                ))}
+                <div style={{ borderTop: `1px dashed ${R.line}`, margin: '12px 0' }} />
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, color: R.inkSoft, marginBottom: 3 }}><span>Subtotal (sin IVA)</span><span>{money(detail.subtotal)}</span></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, color: R.inkSoft, marginBottom: 3 }}><span>IVA (16%)</span><span>{money(detail.tax_amount)}</span></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 15.5, fontWeight: 800, color: R.ink, marginTop: 5 }}><span>TOTAL</span><span>{money(detail.total)}</span></div>
+                <div style={{ borderTop: `1px dashed ${R.line}`, margin: '12px 0' }} />
+                <div style={{ fontSize: 12.5, color: R.inkSoft }}>Pago: {saleMethodLabel(detail.method)}{saleRefText(detail) ? ` · ${saleRefText(detail)}` : ''}</div>
+                {detail.status !== 'paid' && detail.note && (
+                  <div style={{ marginTop: 12, background: st.tint, color: st.color, borderRadius: 10, padding: '9px 12px', fontSize: 12.5 }}>
+                    <b>Motivo:</b> {detail.note}
+                  </div>
+                )}
+              </div>
+
+              {/* Acciones */}
+              <div style={{ padding: '0 20px 20px' }}>
+                {confirm ? (
+                  <div style={{ background: R.bg, border: `1px solid ${R.line}`, borderRadius: 14, padding: 14 }}>
+                    <div style={{ fontWeight: 700, fontSize: 14, color: R.ink, marginBottom: 8 }}>
+                      {confirm.type === 'void' ? 'Anular esta venta' : 'Registrar reembolso'}
+                    </div>
+                    <div style={{ fontSize: 12.5, color: R.inkSoft, marginBottom: 10, lineHeight: 1.5 }}>
+                      {confirm.type === 'void'
+                        ? 'La venta dejará de contar en Informes y Métricas. El inventario NO se repone automáticamente.'
+                        : 'Se marcará como reembolsada y saldrá de tus ingresos en Informes.'}
+                    </div>
+                    <textarea value={reason} onChange={e => setReason(e.target.value)} rows={2} placeholder="Motivo (opcional): error de captura, cliente canceló, etc."
+                      style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 10, padding: '9px 11px', fontSize: 13, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.surface, resize: 'vertical', marginBottom: 12 }} />
+                    <div style={{ display: 'flex', gap: 10 }}>
+                      <button disabled={busy} onClick={() => { setConfirm(null); setReason('') }} style={{ flex: 1, padding: '12px', border: 'none', borderRadius: 12, background: R.bgAlt, color: R.inkSoft, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5 }}>Cancelar</button>
+                      <button disabled={busy} onClick={() => applyStatus(detail, confirm.type, reason)} style={{ flex: 1.6, padding: '12px', border: 'none', borderRadius: 12, background: confirm.type === 'void' ? R.coral : R.amber, color: '#fff', cursor: busy ? 'default' : 'pointer', fontFamily: R.ui, fontWeight: 800, fontSize: 13.5, opacity: busy ? .7 : 1 }}>
+                        {busy ? 'Guardando…' : confirm.type === 'void' ? 'Sí, anular' : 'Sí, reembolsar'}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div style={{ display: 'flex', gap: 10, marginBottom: detail.status === 'paid' ? 10 : 0 }}>
+                      <button onClick={() => setDetail(null)} style={{ flex: 1, padding: '12px', border: 'none', borderRadius: 12, background: R.bgAlt, color: R.inkSoft, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5 }}>Cerrar</button>
+                      <button onClick={() => reprint(detail)} style={{ flex: 1.4, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '12px', border: `1px solid ${R.line}`, borderRadius: 12, background: R.surface, color: R.ink, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5 }}>
+                        <Icon n="printer" size={16} color={R.ink} /> Reimprimir
+                      </button>
+                    </div>
+                    {detail.status === 'paid' ? (
+                      <div style={{ display: 'flex', gap: 10 }}>
+                        <button onClick={() => { setReason(''); setConfirm({ type: 'refunded' }) }} style={{ flex: 1, padding: '12px', border: `1px solid ${R.amber}`, borderRadius: 12, background: R.amberTint, color: R.amberDeep, cursor: 'pointer', fontFamily: R.ui, fontWeight: 800, fontSize: 13.5 }}>Reembolsar</button>
+                        <button onClick={() => { setReason(''); setConfirm({ type: 'void' }) }} style={{ flex: 1, padding: '12px', border: 'none', borderRadius: 12, background: R.coral, color: '#fff', cursor: 'pointer', fontFamily: R.ui, fontWeight: 800, fontSize: 13.5 }}>Anular venta</button>
+                      </div>
+                    ) : (
+                      <button disabled={busy} onClick={() => applyStatus(detail, 'paid', '')} style={{ width: '100%', marginTop: 10, padding: '12px', border: `1px solid ${R.line}`, borderRadius: 12, background: R.surface, color: R.inkSoft, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5 }}>
+                        Reactivar como pagada
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }
@@ -4757,16 +5098,23 @@ export default function BizPage() {
 
   // Métricas reales del negocio activo (Fase 5).
   const [bizMetrics, setBizMetrics] = useState<BizMetrics | null>(null)
+  const reloadMetrics = useCallback(async () => {
+    const v = verts?.[vertIdx] ?? verts?.[0]
+    if (!v) return
+    try {
+      const r = await fetch(`/api/biz/metrics?biz_id=${encodeURIComponent(v.id)}`)
+      if (r.ok) { const d = await r.json(); if (d) setBizMetrics(d) }
+    } catch { /* deja las métricas como están */ }
+  }, [verts, vertIdx])
+  // Carga inicial y al cambiar de negocio.
+  useEffect(() => { void reloadMetrics() }, [reloadMetrics])
+  // Refresca al entrar a una vista que muestra métricas (Informes, Métricas,
+  // Promociones), para que una venta recién cobrada en el Punto de venta aparezca
+  // sin recargar la página. Las métricas se calculan del lado del servidor desde
+  // los datos reales, así que basta con volver a pedirlas.
   useEffect(() => {
-    if (!verts || verts.length === 0) return
-    const v = verts[vertIdx] ?? verts[0]
-    let cancelled = false
-    fetch(`/api/biz/metrics?biz_id=${encodeURIComponent(v.id)}`)
-      .then(r => r.ok ? r.json() : null)
-      .then(d => { if (!cancelled && d) setBizMetrics(d) })
-      .catch(() => {})
-    return () => { cancelled = true }
-  }, [vertIdx, verts])
+    if (view === 'reports' || view === 'metrics' || view === 'promos') void reloadMetrics()
+  }, [view, reloadMetrics])
 
   // Gating — todos los hooks quedaron arriba.
   if (!ownerReady) {
@@ -4823,6 +5171,7 @@ export default function BizPage() {
     if (view === 'catalog') return <CatalogView vert={vert} items={catalog} setItems={setCatalog} />
     if (view === 'inventory') return <InventoryView vert={vert} items={catalog} setItems={setCatalog} onGo={setView} />
     if (view === 'pos') return <PosView vert={vert} items={catalog} setItems={setCatalog} onGo={setView} taxMode={taxMode} bizInfo={bizInfo} />
+    if (view === 'sales') return <SalesHistoryView vert={vert} bizInfo={bizInfo} onGo={setView} />
     if (view === 'destacado') return <DestacadoView vert={vert} />
     if (view === 'promos') return <PromosView vert={vert} metrics={bizMetrics} />
     if (view === 'scanner') return <ScannerView key={vert.id} vert={vert} />

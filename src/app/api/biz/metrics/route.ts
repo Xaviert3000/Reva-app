@@ -237,13 +237,20 @@ export async function GET(req: NextRequest) {
     if (s.reference) parts.push(`Ref ${s.reference}`)
     return parts.join(' · ') || '—'
   }
+  // Folio imprimible por venta (best-effort): si la columna `folio` aún no existe
+  // (migración 020 sin aplicar) la consulta devuelve error y seguimos con el
+  // folio derivado del id — así Informes nunca se rompe por esto.
+  const folioById = new Map<string, string>()
+  const { data: folRows } = await admin.from('pos_sales').select('id,folio').eq('biz_id', bizId).gte('created_at', since)
+  for (const f of (folRows ?? []) as { id: string; folio: string | null }[]) if (f.folio) folioById.set(f.id, f.folio)
+
   const txPos = S.filter(s => s.status === 'paid')
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
     .slice(0, 14)
     .map(s => {
       const items = s.pos_sale_items ?? []
       const producto = items.length === 0 ? 'Venta' : items.length === 1 ? items[0].name : `${items[0].name} +${items.length - 1}`
-      return { folio: s.id.slice(0, 6).toUpperCase(), hora: new Date(s.created_at).toISOString().slice(11, 16), producto, metodo: methodLabel(s.payment_method), ref: refText(s), total: Number(s.total ?? 0) }
+      return { folio: folioById.get(s.id) || s.id.slice(0, 6).toUpperCase(), hora: new Date(s.created_at).toISOString().slice(11, 16), producto, metodo: methodLabel(s.payment_method), ref: refText(s), total: Number(s.total ?? 0) }
     })
 
   const modules = { d1: buildPeriod(1), d7: buildPeriod(7), d30: buildPeriod(30), d90: buildPeriod(90) }

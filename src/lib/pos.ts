@@ -27,6 +27,7 @@ export interface SaleInput {
   auth_code?: string      // Tarjeta: código de autorización
   card_last4?: string     // Tarjeta: últimos 4 dígitos
   reference?: string      // Transferencia: folio / comprobante
+  folio?: string          // Folio imprimible del ticket (el que ve el cliente)
   items: SaleItemInput[]
 }
 
@@ -69,6 +70,15 @@ export async function recordSale(bizId: string, sale: SaleInput): Promise<string
     if (rows.length > 0) {
       const { error: itemsErr } = await supabase.from('pos_sale_items').insert(rows)
       if (itemsErr) throw itemsErr
+    }
+
+    // Guarda el folio imprimible como paso aditivo y best-effort: si la columna
+    // `folio` aún no existe (migración 020 sin aplicar) esto falla en silencio
+    // pero la venta YA quedó registrada. Así el folio nunca puede romper el
+    // guardado de ventas.
+    if (sale.folio) {
+      const { error: folioErr } = await supabase.from('pos_sales').update({ folio: sale.folio }).eq('id', saleId)
+      if (folioErr) console.warn('[pos] no se pudo guardar el folio (¿migración 020?):', folioErr.message)
     }
     return saleId
   } catch (e) {
