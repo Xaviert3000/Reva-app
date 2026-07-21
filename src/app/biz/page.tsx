@@ -231,6 +231,7 @@ function reservationsToAgenda(rsvs: PanelReservation[]): AgItem[] {
   return rsvs
     .filter(r => r.slot && r.status !== 'cancelled' && r.status !== 'pending')
     .map(r => ({
+      iso: r.slot as string,
       time: rsvTime(r.slot),
       durationMin: 60,
       who: r.guest_name || 'Cliente',
@@ -729,7 +730,13 @@ function RequestsView({ vert, onGo, requests, agenda, onResolve }: { vert: Vert;
             <span style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink }}>Agenda de hoy</span>
             <button onClick={() => onGo('agenda')} style={{ background: 'none', border: 'none', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5, color: R.coral, cursor: 'pointer', padding: 0 }}>Ver todo</button>
           </div>
-          {agenda.slice(0, 5).map((a, i, arr) => {
+          {(() => {
+            const hoy = agenda
+              .filter(a => isSameDay(new Date(a.iso), new Date()))
+              .sort((x, y) => x.iso.localeCompare(y.iso))
+              .slice(0, 5)
+            if (hoy.length === 0) return <div style={{ fontSize: 13, color: R.inkSoft, paddingBottom: 8 }}>Sin reservas para hoy.</div>
+            return hoy.map((a, i, arr) => {
             const [tc] = TAG_COLORS[a.tag] ?? [R.inkSoft]
             return (
               <div key={i} style={{ display: 'flex', gap: 12, paddingBottom: 16 }}>
@@ -745,29 +752,31 @@ function RequestsView({ vert, onGo, requests, agenda, onResolve }: { vert: Vert;
                 </div>
               </div>
             )
-          })}
+            })
+          })()}
         </BCard>
       </div>
     </div>
   )
 }
 
-const WEEK_SAMPLE: Record<number, { time: string; who: string; tag: string }[]> = {
-  8: [{ time: '14:00', who: 'Pedro G.', tag: 'Confirmada' }, { time: '20:30', who: 'Lucía R.', tag: 'Confirmada' }],
-  9: [{ time: '13:30', who: 'Marina T.', tag: 'Confirmada' }],
-  10: [{ time: '19:00', who: 'Carlos V.', tag: 'Confirmada' }, { time: '21:00', who: 'Ana P.', tag: 'Por confirmar' }],
-  11: [{ time: '14:30', who: 'Diego F.', tag: 'Confirmada' }],
-  12: [{ time: '20:00', who: 'Sara M.', tag: 'Confirmada' }, { time: '21:30', who: 'Eva L.', tag: 'Por confirmar' }],
-  14: [{ time: '13:00', who: 'Nora B.', tag: 'Confirmada' }],
-}
-
-const MONTH_COUNTS: Record<number, number> = {
-  2: 2, 4: 1, 5: 3, 6: 1, 9: 1, 10: 2, 11: 1, 12: 2, 14: 1,
-  16: 2, 17: 3, 19: 1, 20: 4, 21: 1, 23: 2, 24: 1, 26: 5, 27: 2, 28: 1, 30: 2,
-}
-
-type AgItem = { time: string; who: string; party: number; tag: string; resource: string; service?: string; durationMin?: number; note?: string }
+type AgItem = { iso: string; time: string; who: string; party: number; tag: string; resource: string; service?: string; durationMin?: number; note?: string }
 type SelRes = { time: string; who: string; party?: number; tag: string; resource?: string; service?: string; durationMin?: number; note?: string; idx: number | null }
+
+// Etiquetas de fecha en español (evita depender del locale del navegador).
+const MES_CORTO = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
+const MES_LARGO = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
+const DIA_CORTO = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb']
+const DIA_LARGO = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado']
+function isSameDay(a: Date, b: Date): boolean {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
+}
+// Lunes de la semana que contiene a d.
+function startOfWeekMon(d: Date): Date {
+  const x = new Date(d.getFullYear(), d.getMonth(), d.getDate())
+  x.setDate(x.getDate() - ((x.getDay() + 6) % 7))
+  return x
+}
 
 function AgendaView({ vert, dayAgenda }: { vert: Vert; dayAgenda: AgItem[] }) {
   const [mode, setMode] = useState<'dia' | 'semana' | 'mes'>('dia')
@@ -776,14 +785,23 @@ function AgendaView({ vert, dayAgenda }: { vert: Vert; dayAgenda: AgItem[] }) {
   const [query, setQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState('Todas')
   const modes: [typeof mode, string][] = [['dia', 'Día'], ['semana', 'Semana'], ['mes', 'Mes']]
-  const title = mode === 'dia' ? 'Hoy · Sábado 13 jun' : mode === 'semana' ? '8 – 14 jun · Esta semana' : 'Junio 2026'
+  const now = new Date()
+  const wkStart = startOfWeekMon(now)
+  const wkEnd = new Date(wkStart.getFullYear(), wkStart.getMonth(), wkStart.getDate() + 6)
+  const weekTitle = wkStart.getMonth() === wkEnd.getMonth()
+    ? `${wkStart.getDate()} – ${wkEnd.getDate()} ${MES_CORTO[wkStart.getMonth()]} · Esta semana`
+    : `${wkStart.getDate()} ${MES_CORTO[wkStart.getMonth()]} – ${wkEnd.getDate()} ${MES_CORTO[wkEnd.getMonth()]} · Esta semana`
+  const title = mode === 'dia'
+    ? `Hoy · ${DIA_LARGO[now.getDay()]} ${now.getDate()} ${MES_CORTO[now.getMonth()]}`
+    : mode === 'semana' ? weekTitle : `${MES_LARGO[now.getMonth()]} ${now.getFullYear()}`
 
   useEffect(() => { setAgenda(dayAgenda); setSel(null) }, [vert.id, dayAgenda])
 
   const statuses = ['Todas', ...Array.from(new Set(agenda.map(a => a.tag)))]
   const rows = agenda
     .map((a, idx) => ({ a, idx }))
-    .filter(({ a }) => (statusFilter === 'Todas' || a.tag === statusFilter) && a.who.toLowerCase().includes(query.trim().toLowerCase()))
+    .filter(({ a }) => isSameDay(new Date(a.iso), now) && (statusFilter === 'Todas' || a.tag === statusFilter) && a.who.toLowerCase().includes(query.trim().toLowerCase()))
+    .sort((x, y) => x.a.iso.localeCompare(y.a.iso))
 
   function setStatus(tag: string) {
     if (sel?.idx == null) return
@@ -826,9 +844,9 @@ function AgendaView({ vert, dayAgenda }: { vert: Vert; dayAgenda: AgItem[] }) {
         </div>
       )}
       <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
-        {mode === 'dia' && <DayAgenda rows={rows} unit={vert.unit} onSelect={(a, i) => setSel({ ...a, idx: i })} />}
-        {mode === 'semana' && <WeekAgenda agenda={agenda} onSelect={setSel} />}
-        {mode === 'mes' && <MonthAgenda todayCount={agenda.length} />}
+        {mode === 'dia' && <DayAgenda rows={rows} unit={vert.unit} empty={query.trim() || statusFilter !== 'Todas' ? 'No hay reservas que coincidan con tu búsqueda.' : 'No tienes reservas para hoy.'} onSelect={(a, i) => setSel({ ...a, idx: i })} />}
+        {mode === 'semana' && <WeekAgenda agenda={agenda} now={now} onSelect={setSel} />}
+        {mode === 'mes' && <MonthAgenda agenda={agenda} now={now} />}
       </div>
 
       {sel && (
@@ -868,11 +886,11 @@ function AgendaView({ vert, dayAgenda }: { vert: Vert; dayAgenda: AgItem[] }) {
   )
 }
 
-function DayAgenda({ rows, unit, onSelect }: { rows: { a: AgItem; idx: number }[]; unit: string; onSelect: (a: AgItem, i: number) => void }) {
+function DayAgenda({ rows, unit, empty, onSelect }: { rows: { a: AgItem; idx: number }[]; unit: string; empty: string; onSelect: (a: AgItem, i: number) => void }) {
   return (
     <BCard>
       {rows.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: '40px 0', color: R.inkSoft, fontSize: 14 }}>No hay reservas que coincidan con tu búsqueda.</div>
+        <div style={{ textAlign: 'center', padding: '40px 0', color: R.inkSoft, fontSize: 14 }}>{empty}</div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column' }}>
           {rows.map(({ a, idx }, i) => {
@@ -899,16 +917,17 @@ function DayAgenda({ rows, unit, onSelect }: { rows: { a: AgItem; idx: number }[
   )
 }
 
-function WeekAgenda({ agenda, onSelect }: { agenda: AgItem[]; onSelect: (s: SelRes) => void }) {
-  const days = ([
-    { lbl: 'Lun', date: 8 }, { lbl: 'Mar', date: 9 }, { lbl: 'Mié', date: 10 }, { lbl: 'Jue', date: 11 },
-    { lbl: 'Vie', date: 12 }, { lbl: 'Sáb', date: 13, today: true }, { lbl: 'Dom', date: 14 },
-  ] as { lbl: string; date: number; today?: boolean }[]).map(d => ({
-    ...d,
-    items: d.today
-      ? agenda.map((a, idx): SelRes => ({ time: a.time, who: a.who, party: a.party, tag: a.tag, resource: a.resource, service: a.service, durationMin: a.durationMin, note: a.note, idx }))
-      : (WEEK_SAMPLE[d.date] ?? []).map((s): SelRes => ({ time: s.time, who: s.who, tag: s.tag, idx: null })),
-  }))
+function WeekAgenda({ agenda, now, onSelect }: { agenda: AgItem[]; now: Date; onSelect: (s: SelRes) => void }) {
+  const start = startOfWeekMon(now)
+  const days = Array.from({ length: 7 }, (_, i) => {
+    const date = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i)
+    const items = agenda
+      .map((a, idx) => ({ a, idx }))
+      .filter(({ a }) => isSameDay(new Date(a.iso), date))
+      .sort((x, y) => x.a.iso.localeCompare(y.a.iso))
+      .map(({ a, idx }): SelRes => ({ time: a.time, who: a.who, party: a.party, tag: a.tag, resource: a.resource, service: a.service, durationMin: a.durationMin, note: a.note, idx }))
+    return { lbl: DIA_CORTO[date.getDay()], date: date.getDate(), today: isSameDay(date, now), items }
+  })
 
   return (
     <BCard style={{ padding: 14 }}>
@@ -938,13 +957,21 @@ function WeekAgenda({ agenda, onSelect }: { agenda: AgItem[]; onSelect: (s: SelR
   )
 }
 
-function MonthAgenda({ todayCount }: { todayCount: number }) {
+function MonthAgenda({ agenda, now }: { agenda: AgItem[]; now: Date }) {
   const labels = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
-  const today = 13
-  const daysInMonth = 30 // junio 2026, empieza en lunes
-  const cells: (number | null)[] = []
+  const y = now.getFullYear()
+  const m = now.getMonth()
+  const today = now.getDate()
+  const daysInMonth = new Date(y, m + 1, 0).getDate()
+  const firstDow = (new Date(y, m, 1).getDay() + 6) % 7 // celdas vacías antes del día 1 (semana inicia lunes)
+  const cells: (number | null)[] = Array(firstDow).fill(null)
   for (let d = 1; d <= daysInMonth; d++) cells.push(d)
   while (cells.length % 7 !== 0) cells.push(null)
+  const countByDay: Record<number, number> = {}
+  agenda.forEach(a => {
+    const dt = new Date(a.iso)
+    if (dt.getFullYear() === y && dt.getMonth() === m) countByDay[dt.getDate()] = (countByDay[dt.getDate()] ?? 0) + 1
+  })
 
   return (
     <BCard style={{ padding: 14 }}>
@@ -957,7 +984,7 @@ function MonthAgenda({ todayCount }: { todayCount: number }) {
         {cells.map((day, i) => {
           if (day === null) return <div key={i} />
           const isToday = day === today
-          const count = isToday ? todayCount : (MONTH_COUNTS[day] ?? 0)
+          const count = countByDay[day] ?? 0
           return (
             <div key={i} style={{ minHeight: 86, border: `1px solid ${isToday ? R.coral : R.lineSoft}`, borderRadius: 10, padding: 8, background: isToday ? R.coralTint : R.surface, position: 'relative' }}>
               <div style={{ fontFamily: R.display, fontWeight: isToday ? 800 : 600, fontSize: 13.5, color: isToday ? R.coralPress : R.ink }}>{day}</div>
