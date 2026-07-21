@@ -189,7 +189,9 @@ interface BizMetrics {
   reservasHoy: number
   viaReva: number
   ingreso7: number
-  rove: number
+  rove: number            // Tarjetas Reva+ activas (clientes con ≥1 visita)
+  stampsWeek: number      // Sellos Reva+ de los últimos 7 días
+  rewardsRedeemed: number // Recompensas Reva+ canjeadas (histórico)
   resSeries: { d7: number[]; d30: number[]; d90: number[] }
   revSeries: { d7: number[]; d30: number[]; d90: number[] }
 }
@@ -3471,7 +3473,7 @@ const ALERT_TYPES: { id: AlertType; label: string }[] = [
 ]
 const ALERT_DEFAULT: AlertInput = { alertType: 'happy_hour', title: '', body: '', cta: 'Échale un ojo', startTime: '18:00', endTime: '20:00', days: [], active: true }
 
-function PromosView({ vert }: { vert: Vert }) {
+function PromosView({ vert, metrics }: { vert: Vert; metrics?: BizMetrics | null }) {
   const [tab, setTab] = useState<'ofertas' | 'alertas' | 'lealtad' | 'revamas'>('ofertas')
   const [promos, setPromos] = useState<Promo[]>([])
   // Alertas en vivo de cara al cliente.
@@ -3739,9 +3741,9 @@ function PromosView({ vert }: { vert: Vert }) {
                   </div>
                 </BCard>
                 <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
-                  <BMetric label="Tarjetas activas" value={vert.metrics.rove} tint={R.coralTint} icon={<Icon n="user" size={20} color={R.coral} />} />
-                  <BMetric label="Sellos esta semana" value={64} tint={R.jadeTint} icon={<Icon n="check" size={20} color={R.jade} />} />
-                  <BMetric label="Recompensas canjeadas" value={12} tint={R.amberTint} icon={<Icon n="gift" size={20} color={R.amber} />} />
+                  <BMetric label="Tarjetas activas" value={metrics?.rove ?? 0} tint={R.coralTint} icon={<Icon n="user" size={20} color={R.coral} />} />
+                  <BMetric label="Sellos esta semana" value={metrics?.stampsWeek ?? 0} tint={R.jadeTint} icon={<Icon n="check" size={20} color={R.jade} />} />
+                  <BMetric label="Recompensas canjeadas" value={metrics?.rewardsRedeemed ?? 0} tint={R.amberTint} icon={<Icon n="gift" size={20} color={R.amber} />} />
                 </div>
               </>
             ) : (
@@ -4640,7 +4642,7 @@ export default function BizPage() {
     if (view === 'inventory') return <InventoryView vert={vert} items={catalog} setItems={setCatalog} onGo={setView} />
     if (view === 'pos') return <PosView vert={vert} items={catalog} setItems={setCatalog} onGo={setView} taxMode={taxMode} bizInfo={bizInfo} />
     if (view === 'destacado') return <DestacadoView vert={vert} />
-    if (view === 'promos') return <PromosView vert={vert} />
+    if (view === 'promos') return <PromosView vert={vert} metrics={bizMetrics} />
     if (view === 'scanner') return <ScannerView key={vert.id} vert={vert} />
     if (view === 'settings') return <SettingsView agentCfg={agentCfg} setAgentCfg={setAgentCfg} taxMode={taxMode} setTaxMode={persistTaxMode} bizInfo={bizInfo} setBizInfo={persistBizInfo} vert={vert} onGo={setView} />
     return <PlaceholderView title={VIEW_TITLES[view]?.[0] ?? view} />

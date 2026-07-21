@@ -40,13 +40,18 @@ export async function GET(req: NextRequest) {
   const since = new Date(); since.setUTCDate(since.getUTCDate() - 90)
   const sinceIso = since.toISOString()
 
-  const [{ data: rsvs }, { data: sales }] = await Promise.all([
-    admin.from('reservations').select('slot,created_at,status,source').eq('biz_id', bizId).gte('created_at', sinceIso),
+  const [{ data: rsvs }, { data: sales }, { count: redeemedCount }] = await Promise.all([
+    admin.from('reservations').select('slot,created_at,status,source,user_id').eq('biz_id', bizId).gte('created_at', sinceIso),
     admin.from('pos_sales_daily').select('day,revenue').eq('biz_id', bizId).gte('day', sinceIso),
+    // Recompensas Reva+ canjeadas en este negocio (histórico completo).
+    admin.from('rove_redemptions').select('id', { count: 'exact', head: true }).eq('biz_id', bizId),
   ])
 
   // Reservas por día (usa slot si existe, si no created_at). Excluye canceladas.
+  // Cada visita no cancelada cuenta como un "sello" de la Tarjeta Reva+; los
+  // clientes con al menos una visita son las "tarjetas activas".
   const resByDay = new Map<string, number>()
+  const stampHolders = new Set<string>()
   let reservasHoy = 0
   let revaCount = 0
   let totalCount = 0
@@ -57,6 +62,7 @@ export async function GET(req: NextRequest) {
     const key = dayKey(new Date(eff))
     resByDay.set(key, (resByDay.get(key) ?? 0) + 1)
     if (key === todayKey) reservasHoy++
+    if (r.user_id) stampHolders.add(r.user_id as string)
     totalCount++
     if ((r.source ?? 'reva') === 'reva') revaCount++
   }
@@ -75,11 +81,21 @@ export async function GET(req: NextRequest) {
   const viaReva = totalCount > 0 ? Math.round((revaCount / totalCount) * 100) : 0
   const ingreso7 = revSeries.d7.reduce((a, b) => a + b, 0)
 
+  // ── Métricas Reva+ reales ──
+  // Tarjetas activas: clientes con al menos una visita registrada.
+  // Sellos esta semana: visitas no canceladas de los últimos 7 días.
+  // Recompensas canjeadas: canjes Reva+ de este negocio (rove_redemptions).
+  const revaCards = stampHolders.size
+  const stampsWeek = resSeries.d7.reduce((a, b) => a + b, 0)
+  const rewardsRedeemed = redeemedCount ?? 0
+
   return NextResponse.json({
     reservasHoy,
     viaReva,
     ingreso7,
-    rove: 0, // se conecta en la Fase 7 (Rove real)
+    rove: revaCards,
+    stampsWeek,
+    rewardsRedeemed,
     resSeries,
     revSeries,
   })
