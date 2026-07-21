@@ -9,6 +9,7 @@ export interface OwnerService {
   description: string | null
   price: number | null
   price_label: string | null
+  category: string | null
   duration_min: number | null
   active: boolean | null
   scheduled: boolean | null
@@ -71,7 +72,7 @@ export async function loadOwnerSession(): Promise<OwnerSession> {
 
   const { data: svcRows } = await supabase
     .from('services')
-    .select('id,biz_id,name,description,price,price_label,duration_min,active,scheduled,image_url')
+    .select('id,biz_id,name,description,price,price_label,category,duration_min,active,scheduled,image_url')
     .in('biz_id', bizIds)
 
   const businesses: OwnerBusiness[] = (bizRows ?? []).map(b => ({

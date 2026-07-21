@@ -142,7 +142,7 @@ function vertFromBusiness(b: OwnerBusiness): Vert {
       sub: s.description || '',
       // Texto libre del dueño si existe; si no, el numérico o "Cotización".
       price: s.price_label ?? (s.price != null ? `$${s.price}` : 'Cotización'),
-      category: 'General',
+      category: s.category || 'General',
       grad,
       // Usa el flag persistido; para filas antiguas cae a inferirlo por la duración.
       scheduled: s.scheduled != null ? s.scheduled : s.duration_min != null,
@@ -1573,6 +1573,7 @@ function CatalogView({ vert, items, setItems }: { vert: Vert; items: CatItem[]; 
       description: form.sub.trim() || null,
       price: parsePrice(form.price),
       price_label: form.price.trim() || null,
+      category: form.category.trim() || null,
       duration_min: duration ?? null,
       scheduled: form.scheduled,
       active: form.active,

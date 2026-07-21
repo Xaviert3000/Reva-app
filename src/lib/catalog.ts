@@ -61,6 +61,7 @@ export interface ServiceInput {
   description: string | null
   price: number | null
   price_label: string | null // texto exacto que escribió el dueño (ej. "Desde $200")
+  category: string | null // agrupación libre del catálogo (ej. "Bebidas"); null = "General"
   duration_min: number | null
   scheduled: boolean
   active: boolean
