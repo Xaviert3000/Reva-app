@@ -140,6 +140,7 @@ export interface Service {
   grad: [string, string]
   duration?: number // minutes — when set, booking slots are generated from the business hours spaced by this
   scheduled?: boolean // false = product/quote without a calendar (no date/time, just a request). Absent/true = bookable with date + time.
+  img?: string // URL pública de la imagen del servicio (Supabase Storage). Absent = usa el gradiente.
   days?: number[] // weekdays this service is offered (0=Sun..6=Sat). Absent = every day.
   hours?: string // per-service "HH:MM – HH:MM" override. Absent = use the business hours.
   includes?: string[] // what the service includes (shown in its detail view).

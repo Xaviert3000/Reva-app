@@ -31,9 +31,11 @@ interface DbService {
   name: string
   description: string | null
   price: number | null
+  price_label: string | null
   duration_min: number | null
   stock: number | null
   scheduled: boolean | null
+  image_url: string | null
 }
 
 interface DbReview {
@@ -61,7 +63,7 @@ function mapService(s: DbService, grad: [string, string]): Service {
     id: s.id,
     name: s.name,
     sub: s.description || '',
-    price: s.price ? `$${s.price}` : 'Cotización',
+    price: s.price_label ?? (s.price ? `$${s.price}` : 'Cotización'),
     category: 'General',
     grad,
     duration: s.duration_min ?? undefined,
@@ -69,6 +71,7 @@ function mapService(s: DbService, grad: [string, string]): Service {
     scheduled: s.scheduled ?? undefined,
     // null en la BD = disponibilidad ilimitada (sin seguimiento de inventario).
     stock: s.stock ?? undefined,
+    img: s.image_url ?? undefined,
   }
 }
 
@@ -156,7 +159,7 @@ export async function fetchCityData(municipio: string): Promise<CityData> {
   const [{ data: svcRows }, { data: revRows }, { data: alertRows }] = await Promise.all([
     supabase
       .from('services')
-      .select('id,biz_id,name,description,price,duration_min,stock,scheduled')
+      .select('id,biz_id,name,description,price,price_label,duration_min,stock,scheduled,image_url')
       .in('biz_id', ids)
       .eq('active', true),
     supabase

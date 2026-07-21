@@ -111,6 +111,8 @@ export async function POST(req: NextRequest) {
         name: (s.name ?? '').trim(),
         description: (s.desc ?? '').trim() || null,
         price: parsePrice(s.price),
+        // Texto libre del precio para mostrarlo tal cual (ej. "Desde $200").
+        price_label: (s.price ?? '').trim() || null,
         active: true,
       }))
 

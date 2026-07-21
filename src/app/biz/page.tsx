@@ -5,6 +5,7 @@ import { parseRoveToken, ROVE_SERIALS, type RoveProgram } from '@/lib/rove'
 import { type RoveReward, type RewardCategory } from '@/lib/rove-rewards'
 import { type Mode, type ProactiveAlert, type AlertType, CATALOG, AGENDA, BIZ, CITIES, slotsFromHours, slotAvailability, endTime, tracksStock, inStock } from '@/lib/data'
 import { saveStock, decrementStock as decrementStockDB, fetchStock } from '@/lib/inventory'
+import { saveService, deleteService, uploadServiceImage, removeServiceImage, parsePrice } from '@/lib/catalog'
 import { clearFeatured } from '@/lib/featured'
 import { fetchPromotions, createPromotion, updatePromotion, setPromotionActive, deletePromotion, type Promo, fetchAlerts, createAlert, updateAlert, setAlertActive, deleteAlert, type BizAlert, type AlertInput } from '@/lib/promotions'
 import { loadAgentConfig, saveAgentConfig, parseAgentConfig, DEFAULT_AGENT_CONFIG, type BizAgentConfig } from '@/lib/biz-agent-config'
@@ -139,11 +140,14 @@ function vertFromBusiness(b: OwnerBusiness): Vert {
       id: s.id,
       name: s.name,
       sub: s.description || '',
-      price: s.price != null ? `$${s.price}` : 'Cotización',
+      // Texto libre del dueño si existe; si no, el numérico o "Cotización".
+      price: s.price_label ?? (s.price != null ? `$${s.price}` : 'Cotización'),
       category: 'General',
       grad,
-      scheduled: s.duration_min != null,
+      // Usa el flag persistido; para filas antiguas cae a inferirlo por la duración.
+      scheduled: s.scheduled != null ? s.scheduled : s.duration_min != null,
       duration: s.duration_min ?? undefined,
+      img: s.image_url ?? undefined,
     }))
   return {
     id: b.id,
@@ -1497,6 +1501,11 @@ function CatalogView({ vert, items, setItems }: { vert: Vert; items: CatItem[]; 
   const [editing, setEditing] = useState<number | 'new' | null>(null)
   const [vOpen, vClose] = splitHours(vert.hours)
   const [form, setForm] = useState({ name: '', sub: '', price: '', category: '', active: true, img: '', duration: '', scheduled: true, days: ALL_DAYS, open: vOpen, close: vClose, trackStock: false, stock: '' })
+  // Archivo de imagen recién elegido (aún sin subir). `form.img` guarda una vista
+  // previa (data URL) para mostrarla al instante; el archivo real se sube a
+  // Storage al guardar. null = no se cambió la imagen en esta edición.
+  const [imgFile, setImgFile] = useState<File | null>(null)
+  const [saving, setSaving] = useState(false)
   const [query, setQuery] = useState('')
   const [cat, setCat] = useState('Todos')
   const [status, setStatus] = useState<'Todos' | 'Activos' | 'Inactivos'>('Todos')
@@ -1514,23 +1523,26 @@ function CatalogView({ vert, items, setItems }: { vert: Vert; items: CatItem[]; 
 
   function openNew() {
     setForm({ name: '', sub: '', price: '', category: '', active: true, img: '', duration: '', scheduled: true, days: ALL_DAYS, open: vOpen, close: vClose, trackStock: false, stock: '' })
+    setImgFile(null)
     setEditing('new')
   }
   function openEdit(i: number) {
     const c = items[i]
     const [o, cl] = splitHours(c.hours || vert.hours)
     setForm({ name: c.name, sub: c.sub, price: c.price, category: c.category ?? '', active: c.active, img: c.img ?? '', duration: c.duration ? String(c.duration) : '', scheduled: c.scheduled !== false, days: c.days ?? ALL_DAYS, open: o, close: cl, trackStock: typeof c.stock === 'number', stock: typeof c.stock === 'number' ? String(c.stock) : '' })
+    setImgFile(null)
     setEditing(i)
   }
   function onPickImage(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
+    setImgFile(file) // se sube a Storage al guardar
     const reader = new FileReader()
     reader.onload = () => setForm(f => ({ ...f, img: reader.result as string }))
     reader.readAsDataURL(file)
   }
-  function save() {
-    if (!form.name.trim()) return
+  async function save() {
+    if (!form.name.trim() || saving) return
     const dur = parseInt(form.duration, 10)
     // Duration only matters for scheduled services; clear it otherwise.
     const duration = form.scheduled && Number.isFinite(dur) && dur > 0 ? dur : undefined
@@ -1542,19 +1554,56 @@ function CatalogView({ vert, items, setItems }: { vert: Vert; items: CatItem[]; 
     // Inventario: número de unidades cuando se controla; undefined = ilimitado.
     const stk = parseInt(form.stock, 10)
     const stock = form.trackStock && Number.isFinite(stk) && stk >= 0 ? stk : undefined
+
+    setSaving(true)
+    // Imagen: si se eligió un archivo nuevo, súbelo a Storage y usa su URL pública.
+    // El data URL de `form.img` es sólo la vista previa y nunca se persiste; si la
+    // subida falla (o estamos en demo) se conserva localmente para no perderla.
+    let storedImg: string | null = null
+    if (imgFile) {
+      storedImg = await uploadServiceImage(vert.id, imgFile)
+    } else if (form.img && !form.img.startsWith('data:')) {
+      storedImg = form.img // imagen existente (URL de Storage) sin cambios
+    }
+    // form.img vacío = el usuario la quitó → storedImg queda null.
+    const localImg = storedImg || form.img || undefined
+
+    const svcInput = {
+      name: form.name.trim(),
+      description: form.sub.trim() || null,
+      price: parsePrice(form.price),
+      price_label: form.price.trim() || null,
+      duration_min: duration ?? null,
+      scheduled: form.scheduled,
+      active: form.active,
+      image_url: storedImg,
+      stock: stock ?? null,
+    }
+
     if (editing === 'new') {
       const grad = CATALOG_GRADS[items.length % CATALOG_GRADS.length]
-      setItems(prev => [...prev, { name: form.name.trim(), sub: form.sub.trim(), price: form.price.trim() || 'Sin precio', category: form.category.trim() || undefined, grad, active: form.active, img: form.img || undefined, duration, scheduled, days, hours, stock }])
+      const newId = await saveService(vert.id, undefined, svcInput)
+      setItems(prev => [...prev, { id: newId ?? undefined, name: form.name.trim(), sub: form.sub.trim(), price: form.price.trim() || 'Sin precio', category: form.category.trim() || undefined, grad, active: form.active, img: localImg, duration, scheduled, days, hours, stock }])
     } else if (typeof editing === 'number') {
       const existing = items[editing]
-      // Persiste el inventario en Supabase si cambió (no-op en modo demo).
-      if (existing?.id && (existing.stock ?? undefined) !== stock) void saveStock(existing.id, stock ?? null)
-      setItems(prev => prev.map((c, idx) => idx === editing ? { ...c, name: form.name.trim(), sub: form.sub.trim(), price: form.price.trim() || 'Sin precio', category: form.category.trim() || undefined, active: form.active, img: form.img || undefined, duration, scheduled, days, hours, stock } : c))
+      // Si esta imagen reemplaza a otra de Storage, borra la anterior (best-effort).
+      if (existing?.img && existing.img !== storedImg && existing.img.includes('/service-images/')) void removeServiceImage(existing.img)
+      await saveService(vert.id, existing?.id, svcInput)
+      setItems(prev => prev.map((c, idx) => idx === editing ? { ...c, name: form.name.trim(), sub: form.sub.trim(), price: form.price.trim() || 'Sin precio', category: form.category.trim() || undefined, active: form.active, img: localImg, duration, scheduled, days, hours, stock } : c))
     }
+    setSaving(false)
+    setImgFile(null)
     setEditing(null)
   }
-  function remove() {
-    if (typeof editing === 'number') setItems(prev => prev.filter((_, idx) => idx !== editing))
+  async function remove() {
+    if (typeof editing !== 'number') return
+    const existing = items[editing]
+    if (existing?.id) {
+      await deleteService(existing.id)
+      if (existing.img) void removeServiceImage(existing.img) // limpia la imagen del bucket
+    }
+    setItems(prev => prev.filter((_, idx) => idx !== editing))
+    setImgFile(null)
     setEditing(null)
   }
 
@@ -1662,7 +1711,7 @@ function CatalogView({ vert, items, setItems }: { vert: Vert; items: CatItem[]; 
                 {form.img && (
                   <span style={{ position: 'absolute', right: 8, bottom: 8, display: 'flex', gap: 6 }}>
                     <span style={{ background: 'rgba(34,28,25,.7)', color: '#fff', fontSize: 11.5, fontWeight: 700, padding: '5px 10px', borderRadius: 999 }}>Cambiar</span>
-                    <button type="button" onClick={e => { e.preventDefault(); e.stopPropagation(); setForm({ ...form, img: '' }) }} style={{ background: 'rgba(34,28,25,.7)', color: '#fff', fontSize: 11.5, fontWeight: 700, padding: '5px 10px', borderRadius: 999, border: 'none', cursor: 'pointer' }}>Quitar</button>
+                    <button type="button" onClick={e => { e.preventDefault(); e.stopPropagation(); setImgFile(null); setForm({ ...form, img: '' }) }} style={{ background: 'rgba(34,28,25,.7)', color: '#fff', fontSize: 11.5, fontWeight: 700, padding: '5px 10px', borderRadius: 999, border: 'none', cursor: 'pointer' }}>Quitar</button>
                   </span>
                 )}
                 <input type="file" accept="image/*" onChange={onPickImage} style={{ display: 'none' }} />
@@ -1797,7 +1846,7 @@ function CatalogView({ vert, items, setItems }: { vert: Vert; items: CatItem[]; 
               {typeof editing === 'number' && (
                 <button onClick={remove} style={{ padding: '12px 16px', border: `1px solid ${R.line}`, borderRadius: 12, background: 'transparent', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14, color: R.coralPress }}>Eliminar</button>
               )}
-              <button onClick={save} disabled={!form.name.trim()} style={{ flex: 1, padding: '12px', border: 'none', borderRadius: 12, background: form.name.trim() ? R.coral : R.coralTint, cursor: form.name.trim() ? 'pointer' : 'not-allowed', fontFamily: R.ui, fontWeight: 700, fontSize: 14.5, color: form.name.trim() ? '#fff' : R.coralPress }}>{editing === 'new' ? 'Agregar al catálogo' : 'Guardar cambios'}</button>
+              <button onClick={save} disabled={!form.name.trim() || saving} style={{ flex: 1, padding: '12px', border: 'none', borderRadius: 12, background: form.name.trim() && !saving ? R.coral : R.coralTint, cursor: form.name.trim() && !saving ? 'pointer' : 'not-allowed', fontFamily: R.ui, fontWeight: 700, fontSize: 14.5, color: form.name.trim() && !saving ? '#fff' : R.coralPress }}>{saving ? 'Guardando…' : editing === 'new' ? 'Agregar al catálogo' : 'Guardar cambios'}</button>
             </div>
           </div>
         </div>
