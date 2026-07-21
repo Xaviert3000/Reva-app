@@ -2479,7 +2479,7 @@ type SaleRow = {
   item_count: number; method: string | null; auth_code: string | null
   card_last4: string | null; reference: string | null; status: string
   note: string | null; created_at: string
-  items: { name: string; qty: number; unit_price: number }[]
+  items: { name: string; qty: number; unit_price: number; service_id?: string | null; tracked?: boolean }[]
 }
 
 const SALE_STATUS: Record<string, { label: string; color: string; tint: string }> = {
@@ -2503,6 +2503,25 @@ const saleRefText = (s: SaleRow) => {
 }
 const saleWhen = (iso: string) => new Date(iso).toLocaleString('es-MX', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
 
+// Guía contextual para el paso de confirmación: qué hacer con el dinero según el
+// método de pago. Reva sólo actualiza el registro; el movimiento real lo hace el
+// dueño en su terminal o caja.
+const saleActionHint = (type: 'void' | 'refunded', method: string | null): string => {
+  const m = (method ?? '').toLowerCase()
+  if (type === 'void') {
+    const how = m === 'tarjeta' ? 'Si el cobro aún no cierra lote, haz la reversa/cancelación en tu terminal.'
+      : m === 'transferencia' ? 'Si la transferencia no llegó o fue un error, no hay nada que devolver.'
+      : m === 'efectivo' ? 'Devuelve el efectivo de la caja al cliente.'
+      : 'Revierte el cobro por el mismo medio.'
+    return `Úsalo para corregir un error. ${how} Reva sólo actualiza el registro: la venta dejará de contar en Informes y el inventario NO se repone.`
+  }
+  const how = m === 'tarjeta' ? 'Haz la devolución en tu terminal; el dinero vuelve a la tarjeta del cliente (puede tardar días).'
+    : m === 'transferencia' ? 'Envía una transferencia de vuelta al cliente.'
+    : m === 'efectivo' ? 'Entrega el efectivo de la caja al cliente.'
+    : 'Regresa el dinero por el mismo medio.'
+  return `Úsalo cuando la venta fue correcta pero devuelves el dinero. ${how} Reva sólo actualiza el registro: saldrá de tus ingresos en Informes.`
+}
+
 function SalesHistoryView({ vert, bizInfo, onGo }: { vert: Vert; bizInfo: BizInfo; onGo: (v: string) => void }) {
   const bizId = SHARED_BIZ_ID[vert.id] ?? vert.id
   const [sales, setSales] = useState<SaleRow[] | null>(null)
@@ -2516,6 +2535,7 @@ function SalesHistoryView({ vert, bizInfo, onGo }: { vert: Vert; bizInfo: BizInf
   // Paso de confirmación dentro del detalle: anular o reembolsar con motivo.
   const [confirm, setConfirm] = useState<null | { type: 'void' | 'refunded' }>(null)
   const [reason, setReason] = useState('')
+  const [restock, setRestock] = useState(true)   // ¿devolver las unidades al inventario?
   const [busy, setBusy] = useState(false)
 
   const load = useCallback(async () => {
@@ -2573,18 +2593,26 @@ function SalesHistoryView({ vert, bizInfo, onGo }: { vert: Vert; bizInfo: BizInf
     })
   }
 
-  async function applyStatus(s: SaleRow, status: 'paid' | 'void' | 'refunded', why: string) {
+  async function applyStatus(s: SaleRow, status: 'paid' | 'void' | 'refunded', why: string, doRestock: boolean) {
     setBusy(true)
+    setError('')
     try {
       const r = await fetch('/api/biz/sales', {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: s.id, status, reason: why }),
+        body: JSON.stringify({ id: s.id, status, reason: why, restock: doRestock }),
       })
       if (!r.ok) { setError('No se pudo actualizar la venta'); return }
+      const data = await r.json().catch(() => ({} as { restocked?: boolean }))
       const note = status === 'paid' ? null : (why.trim() || s.note)
       setSales(prev => (prev ?? []).map(x => x.id === s.id ? { ...x, status, note } : x))
       setDetail(prev => prev && prev.id === s.id ? { ...prev, status, note } : prev)
       setConfirm(null); setReason('')
+      // El estatus se guardó; si pidió reponer inventario y no ocurrió (RPC 021 sin
+      // aplicar), avísalo para que ajuste el stock a mano en Inventario.
+      const wantedRestock = doRestock && s.items.some(it => it.tracked)
+      if (wantedRestock && !data.restocked) {
+        setError('La venta se actualizó, pero no se pudo reponer el inventario automáticamente. Ajústalo en Inventario o aplica la migración 021.')
+      }
     } catch {
       setError('Sin conexión con el servidor')
     } finally { setBusy(false) }
@@ -2738,15 +2766,26 @@ function SalesHistoryView({ vert, bizInfo, onGo }: { vert: Vert; bizInfo: BizInf
                       {confirm.type === 'void' ? 'Anular esta venta' : 'Registrar reembolso'}
                     </div>
                     <div style={{ fontSize: 12.5, color: R.inkSoft, marginBottom: 10, lineHeight: 1.5 }}>
-                      {confirm.type === 'void'
-                        ? 'La venta dejará de contar en Informes y Métricas. El inventario NO se repone automáticamente.'
-                        : 'Se marcará como reembolsada y saldrá de tus ingresos en Informes.'}
+                      {saleActionHint(confirm.type, detail.method)}
                     </div>
                     <textarea value={reason} onChange={e => setReason(e.target.value)} rows={2} placeholder="Motivo (opcional): error de captura, cliente canceló, etc."
                       style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 10, padding: '9px 11px', fontSize: 13, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.surface, resize: 'vertical', marginBottom: 12 }} />
+                    {(() => {
+                      const trackedUnits = detail.items.reduce((n, it) => n + (it.tracked ? it.qty : 0), 0)
+                      if (trackedUnits === 0) return null
+                      return (
+                        <label style={{ display: 'flex', alignItems: 'flex-start', gap: 9, marginBottom: 12, cursor: 'pointer' }}>
+                          <input type="checkbox" checked={restock} onChange={e => setRestock(e.target.checked)} style={{ width: 17, height: 17, marginTop: 1, accentColor: R.jade, cursor: 'pointer', flexShrink: 0 }} />
+                          <span style={{ fontSize: 12.5, color: R.ink, lineHeight: 1.45 }}>
+                            Devolver <b>{trackedUnits} {trackedUnits === 1 ? 'unidad' : 'unidades'}</b> al inventario
+                            <span style={{ display: 'block', color: R.inkSoft, fontSize: 11.5 }}>Sólo afecta productos con inventario controlado.</span>
+                          </span>
+                        </label>
+                      )
+                    })()}
                     <div style={{ display: 'flex', gap: 10 }}>
                       <button disabled={busy} onClick={() => { setConfirm(null); setReason('') }} style={{ flex: 1, padding: '12px', border: 'none', borderRadius: 12, background: R.bgAlt, color: R.inkSoft, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5 }}>Cancelar</button>
-                      <button disabled={busy} onClick={() => applyStatus(detail, confirm.type, reason)} style={{ flex: 1.6, padding: '12px', border: 'none', borderRadius: 12, background: confirm.type === 'void' ? R.coral : R.amber, color: '#fff', cursor: busy ? 'default' : 'pointer', fontFamily: R.ui, fontWeight: 800, fontSize: 13.5, opacity: busy ? .7 : 1 }}>
+                      <button disabled={busy} onClick={() => applyStatus(detail, confirm.type, reason, restock)} style={{ flex: 1.6, padding: '12px', border: 'none', borderRadius: 12, background: confirm.type === 'void' ? R.coral : R.amber, color: '#fff', cursor: busy ? 'default' : 'pointer', fontFamily: R.ui, fontWeight: 800, fontSize: 13.5, opacity: busy ? .7 : 1 }}>
                         {busy ? 'Guardando…' : confirm.type === 'void' ? 'Sí, anular' : 'Sí, reembolsar'}
                       </button>
                     </div>
@@ -2760,12 +2799,17 @@ function SalesHistoryView({ vert, bizInfo, onGo }: { vert: Vert; bizInfo: BizInf
                       </button>
                     </div>
                     {detail.status === 'paid' ? (
-                      <div style={{ display: 'flex', gap: 10 }}>
-                        <button onClick={() => { setReason(''); setConfirm({ type: 'refunded' }) }} style={{ flex: 1, padding: '12px', border: `1px solid ${R.amber}`, borderRadius: 12, background: R.amberTint, color: R.amberDeep, cursor: 'pointer', fontFamily: R.ui, fontWeight: 800, fontSize: 13.5 }}>Reembolsar</button>
-                        <button onClick={() => { setReason(''); setConfirm({ type: 'void' }) }} style={{ flex: 1, padding: '12px', border: 'none', borderRadius: 12, background: R.coral, color: '#fff', cursor: 'pointer', fontFamily: R.ui, fontWeight: 800, fontSize: 13.5 }}>Anular venta</button>
-                      </div>
+                      <>
+                        <div style={{ fontSize: 12, color: R.inkSoft, lineHeight: 1.5, marginBottom: 10, background: R.bgAlt, borderRadius: 10, padding: '9px 12px' }}>
+                          <b style={{ color: R.ink }}>Anular</b>: corrige un error del momento. <b style={{ color: R.ink }}>Reembolsar</b>: devuelve el dinero de una venta correcta. Reva no mueve el dinero — hazlo en tu terminal o caja.
+                        </div>
+                        <div style={{ display: 'flex', gap: 10 }}>
+                          <button onClick={() => { setReason(''); setRestock(false); setConfirm({ type: 'refunded' }) }} style={{ flex: 1, padding: '12px', border: `1px solid ${R.amber}`, borderRadius: 12, background: R.amberTint, color: R.amberDeep, cursor: 'pointer', fontFamily: R.ui, fontWeight: 800, fontSize: 13.5 }}>Reembolsar</button>
+                          <button onClick={() => { setReason(''); setRestock(true); setConfirm({ type: 'void' }) }} style={{ flex: 1, padding: '12px', border: 'none', borderRadius: 12, background: R.coral, color: '#fff', cursor: 'pointer', fontFamily: R.ui, fontWeight: 800, fontSize: 13.5 }}>Anular venta</button>
+                        </div>
+                      </>
                     ) : (
-                      <button disabled={busy} onClick={() => applyStatus(detail, 'paid', '')} style={{ width: '100%', marginTop: 10, padding: '12px', border: `1px solid ${R.line}`, borderRadius: 12, background: R.surface, color: R.inkSoft, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5 }}>
+                      <button disabled={busy} onClick={() => applyStatus(detail, 'paid', '', false)} style={{ width: '100%', marginTop: 10, padding: '12px', border: `1px solid ${R.line}`, borderRadius: 12, background: R.surface, color: R.inkSoft, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5 }}>
                         Reactivar como pagada
                       </button>
                     )}
