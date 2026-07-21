@@ -80,7 +80,7 @@ export async function GET(req: NextRequest) {
     admin.from('pos_sales_daily').select('day,revenue').eq('biz_id', bizId).gte('day', since),
     admin.from('rove_redemptions').select('id', { count: 'exact', head: true }).eq('biz_id', bizId),
     // Ventas con sus renglones (para conteo, ticket, % tarjeta y la tabla de detalle).
-    admin.from('pos_sales').select('id,total,payment_method,status,created_at,pos_sale_items(name,qty)').eq('biz_id', bizId).gte('created_at', since),
+    admin.from('pos_sales').select('id,total,payment_method,auth_code,card_last4,reference,status,created_at,pos_sale_items(name,qty)').eq('biz_id', bizId).gte('created_at', since),
     admin.from('messages').select('from_role,read_at,user_id,created_at').eq('biz_id', bizId).gte('created_at', since),
     admin.from('reviews').select('rating').eq('biz_id', bizId),
     admin.from('rove_redemptions').select('created_at').eq('biz_id', bizId).gte('created_at', since),
@@ -90,7 +90,7 @@ export async function GET(req: NextRequest) {
   ])
 
   type Rsv = { slot: string | null; created_at: string; status: string; source: string | null; user_id: string | null }
-  type Sale = { id: string; total: number | null; payment_method: string | null; status: string; created_at: string; pos_sale_items: { name: string; qty: number }[] | null }
+  type Sale = { id: string; total: number | null; payment_method: string | null; auth_code: string | null; card_last4: string | null; reference: string | null; status: string; created_at: string; pos_sale_items: { name: string; qty: number }[] | null }
   type Msg = { from_role: string; read_at: string | null; user_id: string | null; created_at: string }
   const R = (rsvs ?? []) as Rsv[]
   const S = (salesRows ?? []) as Sale[]
@@ -221,14 +221,29 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // Tabla de detalle POS: ventas reales recientes con su producto.
+  // Tabla de detalle POS: ventas reales recientes con su producto, método de pago
+  // y el comprobante de la transacción (tarjeta ····1234 / autorización / referencia).
+  const methodLabel = (m: string | null) => {
+    const s = (m ?? '').toLowerCase()
+    if (s === 'efectivo') return 'Efectivo'
+    if (s === 'tarjeta') return 'Tarjeta'
+    if (s === 'transferencia') return 'Transferencia'
+    return m || '—'
+  }
+  const refText = (s: Sale) => {
+    const parts: string[] = []
+    if (s.card_last4) parts.push(`····${s.card_last4}`)
+    if (s.auth_code) parts.push(`Aut ${s.auth_code}`)
+    if (s.reference) parts.push(`Ref ${s.reference}`)
+    return parts.join(' · ') || '—'
+  }
   const txPos = S.filter(s => s.status === 'paid')
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
     .slice(0, 14)
     .map(s => {
       const items = s.pos_sale_items ?? []
       const producto = items.length === 0 ? 'Venta' : items.length === 1 ? items[0].name : `${items[0].name} +${items.length - 1}`
-      return { folio: s.id.slice(0, 6).toUpperCase(), hora: new Date(s.created_at).toISOString().slice(11, 16), producto, total: Number(s.total ?? 0) }
+      return { folio: s.id.slice(0, 6).toUpperCase(), hora: new Date(s.created_at).toISOString().slice(11, 16), producto, metodo: methodLabel(s.payment_method), ref: refText(s), total: Number(s.total ?? 0) }
     })
 
   const modules = { d1: buildPeriod(1), d7: buildPeriod(7), d30: buildPeriod(30), d90: buildPeriod(90) }

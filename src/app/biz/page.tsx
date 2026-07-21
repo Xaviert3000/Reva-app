@@ -5,6 +5,7 @@ import { parseRoveToken, ROVE_SERIALS, type RoveProgram } from '@/lib/rove'
 import { type RoveReward, type RewardCategory } from '@/lib/rove-rewards'
 import { type Mode, type ProactiveAlert, type AlertType, CATALOG, AGENDA, BIZ, CITIES, slotsFromHours, slotAvailability, endTime, tracksStock, inStock } from '@/lib/data'
 import { saveStock, decrementStock as decrementStockDB, fetchStock } from '@/lib/inventory'
+import { recordSale } from '@/lib/pos'
 import { saveService, deleteService, uploadServiceImage, removeServiceImage, parsePrice } from '@/lib/catalog'
 import { clearFeatured } from '@/lib/featured'
 import { fetchPromotions, createPromotion, updatePromotion, setPromotionActive, deletePromotion, type Promo, fetchAlerts, createAlert, updateAlert, setAlertActive, deleteAlert, type BizAlert, type AlertInput } from '@/lib/promotions'
@@ -213,7 +214,7 @@ interface BizMetrics {
   resSeries: { d7: number[]; d30: number[]; d90: number[] }
   revSeries: { d7: number[]; d30: number[]; d90: number[] }
   modules?: { d1: PeriodMetrics; d7: PeriodMetrics; d30: PeriodMetrics; d90: PeriodMetrics }
-  txPos?: { folio: string; hora: string; producto: string; total: number }[]
+  txPos?: { folio: string; hora: string; producto: string; metodo: string; ref: string; total: number }[]
   promoCount?: number
 }
 
@@ -2020,7 +2021,7 @@ const priceToNumber = (price: string) => {
   return m ? Number(m[0]) : 0
 }
 type PosLine = { key: string; id?: string; name: string; sub: string; unit: number; variable: boolean; qty: number }
-type Sale = { method: string; items: { name: string; qty: number; unit: number }[]; base: number; iva: number; total: number; added: boolean; at: number }
+type Sale = { method: string; items: { name: string; qty: number; unit: number }[]; base: number; iva: number; total: number; added: boolean; at: number; authCode?: string; cardLast4?: string; reference?: string }
 const PAY_METHODS = [
   { id: 'efectivo', label: 'Efectivo', icon: 'cash' },
   { id: 'tarjeta', label: 'Tarjeta', icon: 'card' },
@@ -2032,9 +2033,11 @@ function PosView({ vert, items, setItems, onGo, taxMode, bizInfo }: { vert: Vert
   const [query, setQuery] = useState('')
   const [cat, setCat] = useState('Todos')
   const [pay, setPay] = useState<null | 'choose' | Sale>(null)
+  const [pending, setPending] = useState<null | { id: string; label: string }>(null)
+  const [payFields, setPayFields] = useState({ authCode: '', cardLast4: '', reference: '' })
   const [receipt, setReceipt] = useState<Sale | null>(null)
 
-  useEffect(() => { setLines([]); setQuery(''); setCat('Todos'); setPay(null); setReceipt(null) }, [vert.id])
+  useEffect(() => { setLines([]); setQuery(''); setCat('Todos'); setPay(null); setPending(null); setPayFields({ authCode: '', cardLast4: '', reference: '' }); setReceipt(null) }, [vert.id])
 
   const active = items.filter(c => c.active)
   const cats = ['Todos', ...new Set(active.map(c => c.category?.trim()).filter(Boolean) as string[])]
@@ -2078,6 +2081,32 @@ function PosView({ vert, items, setItems, onGo, taxMode, bizInfo }: { vert: Vert
     setLines(prev => prev.map(l => l.key === key ? { ...l, unit: n } : l))
   }
 
+  // Cierra el modal de cobro y limpia el paso intermedio de datos de la transacción.
+  function closePay() {
+    setPay(null); setPending(null); setPayFields({ authCode: '', cardLast4: '', reference: '' })
+  }
+  // Registra la venta: descuenta inventario, la persiste en Supabase (no-op en
+  // demo) y muestra la confirmación, incluyendo los datos capturados de la
+  // transacción (autorización / tarjeta / referencia).
+  function registerSale(methodId: string, methodLabel: string, extra: Partial<Sale>) {
+    decrementStock(lines)
+    void recordSale(bizId, {
+      method: methodId,
+      subtotal: total - iva,
+      tax_amount: iva,
+      tax_rate: TAX_RATE,
+      total,
+      item_count: count,
+      auth_code: extra.authCode,
+      card_last4: extra.cardLast4,
+      reference: extra.reference,
+      items: lines.map(l => ({ service_id: l.id, name: l.name, unit_price: l.unit, qty: l.qty })),
+    })
+    setPay({ method: methodLabel, items: lines.map(l => ({ name: l.name, qty: l.qty, unit: l.unit })), base, iva, total, added, at: Date.now(), ...extra })
+    setPending(null)
+    setPayFields({ authCode: '', cardLast4: '', reference: '' })
+  }
+
   function printTicket(sale: Sale) {
     const esc = (s: string) => s.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c] as string))
     const when = new Date(sale.at).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' })
@@ -2117,7 +2146,9 @@ function PosView({ vert, items, setItems, onGo, taxMode, bizInfo }: { vert: Vert
       ${totals}
       <div class="total"><span>TOTAL</span><span>${money(sale.total)}</span></div>
       <div class="hr"></div>
-      <div class="pay">Pago: ${esc(sale.method)}</div>
+      <div class="pay">Pago: ${esc(sale.method)}${sale.cardLast4 ? ` ····${esc(sale.cardLast4)}` : ''}</div>
+      ${sale.authCode ? `<div class="pay">Autorización: ${esc(sale.authCode)}</div>` : ''}
+      ${sale.reference ? `<div class="pay">Referencia: ${esc(sale.reference)}</div>` : ''}
       <div class="thanks">¡Gracias por tu compra! 🌮<br>Vía Reva</div>
       </body></html>`
     const frame = document.createElement('iframe')
@@ -2276,9 +2307,46 @@ function PosView({ vert, items, setItems, onGo, taxMode, bizInfo }: { vert: Vert
 
       {/* Modal de cobro */}
       {pay !== null && (
-        <div onClick={() => setPay(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(34,28,25,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 20 }}>
+        <div onClick={closePay} style={{ position: 'fixed', inset: 0, background: 'rgba(34,28,25,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 20 }}>
           <div onClick={e => e.stopPropagation()} style={{ width: '100%', maxWidth: 380, background: R.bg, borderRadius: 20, padding: 24, boxShadow: '0 30px 80px rgba(0,0,0,.4)' }}>
-            {pay === 'choose' ? (
+            {pending ? (
+              <>
+                <div style={{ textAlign: 'center', marginBottom: 18 }}>
+                  <div style={{ fontSize: 13, color: R.inkSoft }}>{pending.label} · Total a cobrar</div>
+                  <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 32, color: R.ink, letterSpacing: '-.02em' }}>{money(total)}</div>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  {pending.id === 'tarjeta' ? (
+                    <>
+                      <label style={{ display: 'block' }}>
+                        <span style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: R.inkSoft, marginBottom: 6 }}>Código de autorización</span>
+                        <input value={payFields.authCode} onChange={e => setPayFields(f => ({ ...f, authCode: e.target.value }))} placeholder="Ej. 123456" autoFocus
+                          style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 10, padding: '11px 12px', fontSize: 14, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.surface }} />
+                      </label>
+                      <label style={{ display: 'block' }}>
+                        <span style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: R.inkSoft, marginBottom: 6 }}>Últimos 4 dígitos de la tarjeta</span>
+                        <input value={payFields.cardLast4} onChange={e => setPayFields(f => ({ ...f, cardLast4: e.target.value.replace(/\D/g, '').slice(0, 4) }))} inputMode="numeric" placeholder="0000" maxLength={4}
+                          style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 10, padding: '11px 12px', fontSize: 14, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.surface, letterSpacing: '.1em' }} />
+                      </label>
+                    </>
+                  ) : (
+                    <label style={{ display: 'block' }}>
+                      <span style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: R.inkSoft, marginBottom: 6 }}>Referencia o comprobante</span>
+                      <input value={payFields.reference} onChange={e => setPayFields(f => ({ ...f, reference: e.target.value }))} placeholder="Ej. folio de la transferencia" autoFocus
+                        style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 10, padding: '11px 12px', fontSize: 14, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.surface }} />
+                    </label>
+                  )}
+                </div>
+                <button
+                  onClick={() => registerSale(pending.id, pending.label, pending.id === 'tarjeta'
+                    ? { authCode: payFields.authCode.trim() || undefined, cardLast4: payFields.cardLast4.trim() || undefined }
+                    : { reference: payFields.reference.trim() || undefined })}
+                  style={{ width: '100%', marginTop: 18, padding: '14px', border: 'none', borderRadius: 14, background: R.coral, color: '#fff', cursor: 'pointer', fontFamily: R.ui, fontWeight: 800, fontSize: 15 }}>
+                  Confirmar cobro {money(total)}
+                </button>
+                <button onClick={() => { setPending(null); setPayFields({ authCode: '', cardLast4: '', reference: '' }) }} style={{ width: '100%', marginTop: 10, padding: '12px', background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: R.ui, fontWeight: 600, fontSize: 14, color: R.inkSoft }}>Volver</button>
+              </>
+            ) : pay === 'choose' ? (
               <>
                 <div style={{ textAlign: 'center', marginBottom: 18 }}>
                   <div style={{ fontSize: 13, color: R.inkSoft }}>Total a cobrar</div>
@@ -2286,14 +2354,14 @@ function PosView({ vert, items, setItems, onGo, taxMode, bizInfo }: { vert: Vert
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                   {PAY_METHODS.map(m => (
-                    <button key={m.id} onClick={() => { decrementStock(lines); setPay({ method: m.label, items: lines.map(l => ({ name: l.name, qty: l.qty, unit: l.unit })), base, iva, total, added, at: Date.now() }) }} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', background: R.surface, border: `1px solid ${R.line}`, borderRadius: 14, cursor: 'pointer', fontFamily: R.ui, textAlign: 'left' }}>
+                    <button key={m.id} onClick={() => { if (m.id === 'efectivo') registerSale(m.id, m.label, {}); else setPending({ id: m.id, label: m.label }) }} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', background: R.surface, border: `1px solid ${R.line}`, borderRadius: 14, cursor: 'pointer', fontFamily: R.ui, textAlign: 'left' }}>
                       <span style={{ width: 38, height: 38, borderRadius: 10, background: R.coralTint, display: 'grid', placeItems: 'center', flexShrink: 0 }}><Icon n={m.icon} size={18} color={R.coralPress} /></span>
                       <span style={{ flex: 1, fontWeight: 700, fontSize: 15, color: R.ink }}>{m.label}</span>
                       <Icon n="chevR" size={16} color={R.inkFaint} />
                     </button>
                   ))}
                 </div>
-                <button onClick={() => setPay(null)} style={{ width: '100%', marginTop: 14, padding: '12px', background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: R.ui, fontWeight: 600, fontSize: 14, color: R.inkSoft }}>Cancelar</button>
+                <button onClick={closePay} style={{ width: '100%', marginTop: 14, padding: '12px', background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: R.ui, fontWeight: 600, fontSize: 14, color: R.inkSoft }}>Cancelar</button>
               </>
             ) : (
               <div style={{ textAlign: 'center', padding: '8px 0' }}>
@@ -2301,7 +2369,10 @@ function PosView({ vert, items, setItems, onGo, taxMode, bizInfo }: { vert: Vert
                   <Icon n="check" size={30} color={R.jade} />
                 </div>
                 <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 22, color: R.ink }}>Cobro registrado</div>
-                <div style={{ fontSize: 14, color: R.inkSoft, marginTop: 4 }}>{money(pay.total)} · {pay.method}</div>
+                <div style={{ fontSize: 14, color: R.inkSoft, marginTop: 4 }}>{money(pay.total)} · {pay.method}{pay.cardLast4 ? ` ····${pay.cardLast4}` : ''}</div>
+                {(pay.authCode || pay.reference) && (
+                  <div style={{ fontSize: 12.5, color: R.inkFaint, marginTop: 3 }}>{pay.authCode ? `Autorización ${pay.authCode}` : `Referencia ${pay.reference}`}</div>
+                )}
                 <div style={{ fontSize: 12.5, color: R.inkFaint, marginTop: 10 }}>¿Quieres imprimir el ticket de la venta?</div>
                 <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
                   <button onClick={() => setReceipt(pay as Sale)} style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '13px', border: `1px solid ${R.line}`, borderRadius: 14, background: R.surface, color: R.ink, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14 }}>
@@ -2350,7 +2421,9 @@ function PosView({ vert, items, setItems, onGo, taxMode, bizInfo }: { vert: Vert
               )}
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 15, fontWeight: 700, marginTop: 4 }}><span>TOTAL</span><span>{money(receipt.total)}</span></div>
               <div style={{ borderTop: '1px dashed #bbb', margin: '12px 0' }} />
-              <div style={{ fontSize: 12 }}>Pago: {receipt.method}</div>
+              <div style={{ fontSize: 12 }}>Pago: {receipt.method}{receipt.cardLast4 ? ` ····${receipt.cardLast4}` : ''}</div>
+              {receipt.authCode && <div style={{ fontSize: 12 }}>Autorización: {receipt.authCode}</div>}
+              {receipt.reference && <div style={{ fontSize: 12 }}>Referencia: {receipt.reference}</div>}
               <div style={{ textAlign: 'center', fontSize: 12, marginTop: 12, lineHeight: 1.5 }}>¡Gracias por tu compra! 🌮<br />Vía Reva</div>
             </div>
             <div style={{ display: 'flex', gap: 10 }}>
@@ -2476,10 +2549,10 @@ function ReportsView({ vert, items, onGo, bizInfo, metrics, agenda, requests }: 
       return { daily: { title: 'Mensajes por día', cols: ['Fecha', 'Mensajes'], rows: daily.map(r => [dayLabel(r.date), num(r.mensajes)]) }, tx: null }
     }
     if (id === 'pos') {
-      const tx = (metrics?.txPos ?? []).map(t => [t.folio, t.hora, t.producto, fmt(t.total)] as (string | number)[])
+      const tx = (metrics?.txPos ?? []).map(t => [t.folio, t.hora, t.producto, t.metodo, t.ref, fmt(t.total)] as (string | number)[])
       return {
         daily: { title: 'Ventas por día', cols: ['Fecha', 'Ventas', 'Ingreso'], rows: daily.map(r => [dayLabel(r.date), num(r.ventas), fmt(r.ingreso)]) },
-        tx: tx.length ? { title: `Ventas — últimas ${tx.length}`, cols: ['Folio', 'Hora', 'Producto', 'Total'], rows: tx } : null,
+        tx: tx.length ? { title: `Ventas — últimas ${tx.length}`, cols: ['Folio', 'Hora', 'Producto', 'Método', 'Referencia', 'Total'], rows: tx } : null,
       }
     }
     if (id === 'catalog') {
