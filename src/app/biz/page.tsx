@@ -3829,6 +3829,10 @@ function DestacadoView({ vert }: { vert: Vert }) {
   const sel = T.plans.find(p => p.id === plan) ?? T.plans[1]
   const selContent = content === 'negocio' ? null : vert.catalog[content]
   const whatLabel = selContent ? selContent.name : 'Todo el negocio'
+  // Imagen de la vista previa: el producto destacado, o la portada del negocio
+  // (primera imagen del catálogo) cuando se destaca "Todo el negocio". Igual que
+  // la tarjeta que verá el huésped en Discover.
+  const previewImg = selContent?.img ?? vert.catalog.find(c => c.img)?.img
   const heldHere = featured?.tier === tier
   const ocupados = T.otros + (heldHere ? 1 : 0)
   const disponibles = Math.max(0, T.cupos - ocupados)
@@ -3882,6 +3886,9 @@ function DestacadoView({ vert }: { vert: Vert }) {
           type: 'featured',
           tier,
           days: sel.days,
+          // Producto destacado (null = "Todo el negocio"). Viaja a la metadata
+          // para que el webhook lo persista y /app pinte su imagen.
+          service_id: selContent?.id ?? null,
         }),
       })
       const data: { url?: string; error?: string } = await res.json().catch(() => ({}))
@@ -4038,11 +4045,11 @@ function DestacadoView({ vert }: { vert: Vert }) {
       {/* Vista previa */}
       <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink, margin: '26px 0 12px' }}>Así te verán en Discover</div>
       <BCard style={{ maxWidth: 360, padding: 0, overflow: 'hidden' }}>
-        <div style={{ height: 110, background: `linear-gradient(140deg, ${(selContent ?? vert).grad[0]}, ${(selContent ?? vert).grad[1]})`, position: 'relative' }}>
+        <div style={{ height: 110, background: previewImg ? `center/cover no-repeat url(${previewImg})` : `linear-gradient(140deg, ${(selContent ?? vert).grad[0]}, ${(selContent ?? vert).grad[1]})`, position: 'relative' }}>
           <span style={{ position: 'absolute', top: 12, left: 12, display: 'inline-flex', alignItems: 'center', gap: 5, background: A.press, color: '#fff', fontSize: 11, fontWeight: 700, padding: '4px 9px', borderRadius: 999 }}>
             {T.badge}
           </span>
-          <div style={{ position: 'absolute', right: -4, bottom: -8, fontFamily: R.display, fontWeight: 800, fontSize: 64, color: 'rgba(255,255,255,.18)' }}>{vert.mono}</div>
+          {!previewImg && <div style={{ position: 'absolute', right: -4, bottom: -8, fontFamily: R.display, fontWeight: 800, fontSize: 64, color: 'rgba(255,255,255,.18)' }}>{vert.mono}</div>}
         </div>
         <div style={{ padding: '14px 16px' }}>
           {selContent ? (

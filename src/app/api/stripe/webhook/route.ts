@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
 
   if (event.type === 'checkout.session.completed') {
     const session = event.data.object
-    const { user_id, biz_id, reservation_id, type, tier, days } = session.metadata!
+    const { user_id, biz_id, reservation_id, type, tier, days, service_id } = session.metadata!
 
     if (type === 'deposit') {
       await supabase.from('reservations').update({ deposit_paid: true, status: 'confirmed' }).eq('id', reservation_id)
@@ -32,6 +32,8 @@ export async function POST(req: NextRequest) {
         featured: true,
         tier: tier || 'destacado',
         featured_until: until,
+        // Producto destacado elegido en el panel; null = "Todo el negocio".
+        featured_service_id: service_id || null,
       }).eq('id', biz_id)
     }
 

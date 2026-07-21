@@ -20,6 +20,7 @@ interface DbBusiness {
   featured: boolean | null
   tier: FeaturedTier | null
   featured_until: string | null
+  featured_service_id: string | null
   grad_from: string | null
   grad_to: string | null
   mono: string | null
@@ -100,6 +101,7 @@ function mapBusiness(
   grad: [string, string],
   reviews: Business['reviews'],
   alerts: ProactiveAlert[],
+  img?: string,
 ): Business {
   const hours = b.hours || '09:00 – 21:00'
   const slots = slotsFromHours(hours, 60)
@@ -123,6 +125,7 @@ function mapBusiness(
     // explícito, cae en 'destacado' por compatibilidad.
     tier: isFeatured ? (b.tier ?? 'destacado') : undefined,
     grad,
+    img,
     mono: b.mono || b.name.charAt(0).toUpperCase(),
     en: `${b.name} — ${b.type || 'local favorite'} in ${b.hood || b.municipio}.`,
     es: `${b.name} — ${b.type || 'favorito local'} en ${b.hood || b.municipio}.`,
@@ -148,7 +151,7 @@ export async function fetchCityData(municipio: string): Promise<CityData> {
   const supabase = createClient()
   const { data: bizRows, error } = await supabase
     .from('businesses')
-    .select('id,name,type,kind,hood,municipio,hours,rating,local_fav,featured,tier,featured_until,grad_from,grad_to,mono')
+    .select('id,name,type,kind,hood,municipio,hours,rating,local_fav,featured,tier,featured_until,featured_service_id,grad_from,grad_to,mono')
     .eq('municipio', municipio)
 
   if (error || !bizRows || bizRows.length === 0) {
@@ -181,7 +184,14 @@ export async function fetchCityData(municipio: string): Promise<CityData> {
     catalog[b.id] = (svcRows ?? []).filter(s => s.biz_id === b.id).map(s => mapService(s as DbService, grad))
     const reviews = (revRows ?? []).filter(r => r.biz_id === b.id).map(mapReview)
     const alerts = (alertRows ?? []).filter(a => a.biz_id === b.id).map(a => mapAlert(a as DbAlert))
-    return mapBusiness(b, grad, reviews, alerts)
+    // Portada de la tarjeta en Discover: la imagen del producto que el negocio
+    // eligió destacar; si no eligió uno (o no tiene imagen), cae a la primera
+    // imagen del catálogo.
+    const featuredImg = b.featured_service_id
+      ? catalog[b.id].find(s => s.id === b.featured_service_id)?.img
+      : undefined
+    const cover = featuredImg ?? catalog[b.id].find(s => s.img)?.img
+    return mapBusiness(b, grad, reviews, alerts, cover)
   })
 
   return { businesses, catalog }

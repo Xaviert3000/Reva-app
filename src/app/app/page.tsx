@@ -819,8 +819,8 @@ function MiniCard({ biz, mode, onOpen }: { biz: Business; mode: Mode; onOpen: ()
   const en = useContext(LangContext) === 'en'
   return (
     <div onClick={onOpen} style={{ width: 188, flexShrink: 0, cursor: 'pointer', background: '#fff', border: '1px solid #E9E0D5', borderRadius: 18, overflow: 'hidden', boxShadow: '0 2px 10px rgba(34,28,25,.06)' }}>
-      <div style={{ height: 112, background: `linear-gradient(135deg,${biz.grad[0]},${biz.grad[1]})`, position: 'relative', display: 'flex', alignItems: 'flex-end', padding: '10px 12px' }}>
-        <span style={{ position: 'absolute', right: -2, bottom: -8, fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 72, opacity: .18, color: '#fff', lineHeight: 1 }}>{biz.mono}</span>
+      <div style={{ height: 112, background: biz.img ? `center/cover no-repeat url(${biz.img})` : `linear-gradient(135deg,${biz.grad[0]},${biz.grad[1]})`, position: 'relative', display: 'flex', alignItems: 'flex-end', padding: '10px 12px' }}>
+        {!biz.img && <span style={{ position: 'absolute', right: -2, bottom: -8, fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 72, opacity: .18, color: '#fff', lineHeight: 1 }}>{biz.mono}</span>}
         <Stars rating={biz.rating} />
       </div>
       <div style={{ padding: '11px 13px 13px' }}>
@@ -839,8 +839,8 @@ function DestacadoCard({ biz, onOpen }: { biz: Business; onOpen: () => void }) {
   const badge = featuredBadge(biz)
   return (
     <div onClick={onOpen} style={{ width: 188, flexShrink: 0, cursor: 'pointer', background: '#fff', border: '1px solid #E9E0D5', borderRadius: 18, overflow: 'hidden', boxShadow: '0 2px 10px rgba(34,28,25,.06)' }}>
-      <div style={{ height: 112, background: `linear-gradient(135deg,${biz.grad[0]},${biz.grad[1]})`, position: 'relative', display: 'flex', alignItems: 'flex-end', padding: '10px 12px' }}>
-        <span style={{ position: 'absolute', right: -2, bottom: -8, fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 72, opacity: .18, color: '#fff', lineHeight: 1 }}>{biz.mono}</span>
+      <div style={{ height: 112, background: biz.img ? `center/cover no-repeat url(${biz.img})` : `linear-gradient(135deg,${biz.grad[0]},${biz.grad[1]})`, position: 'relative', display: 'flex', alignItems: 'flex-end', padding: '10px 12px' }}>
+        {!biz.img && <span style={{ position: 'absolute', right: -2, bottom: -8, fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 72, opacity: .18, color: '#fff', lineHeight: 1 }}>{biz.mono}</span>}
         {badge && (
           <span style={{ position: 'absolute', top: 10, left: 10, background: 'rgba(27,36,54,.85)', color: '#fff', fontSize: 10, fontWeight: 700, letterSpacing: '.05em', textTransform: 'uppercase', padding: '4px 9px', borderRadius: 999 }}>{badge.icon} {badge.label}</span>
         )}
@@ -859,8 +859,8 @@ function DestacadoCard({ biz, onOpen }: { biz: Business; onOpen: () => void }) {
 function HeroFeatured({ biz, mode, onOpen }: { biz: Business; mode: Mode; onOpen: () => void }) {
   const en = useContext(LangContext) === 'en'
   return (
-    <div onClick={onOpen} style={{ margin: '0 16px 8px', borderRadius: 22, overflow: 'hidden', cursor: 'pointer', boxShadow: '0 10px 30px rgba(34,28,25,.10)', position: 'relative', height: 210, background: `linear-gradient(135deg,${biz.grad[0]},${biz.grad[1]})` }}>
-      <span style={{ position: 'absolute', right: -10, bottom: -16, fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 200, opacity: .12, color: '#fff', lineHeight: 1 }}>{biz.mono}</span>
+    <div onClick={onOpen} style={{ margin: '0 16px 8px', borderRadius: 22, overflow: 'hidden', cursor: 'pointer', boxShadow: '0 10px 30px rgba(34,28,25,.10)', position: 'relative', height: 210, background: biz.img ? `center/cover no-repeat url(${biz.img})` : `linear-gradient(135deg,${biz.grad[0]},${biz.grad[1]})` }}>
+      {!biz.img && <span style={{ position: 'absolute', right: -10, bottom: -16, fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 200, opacity: .12, color: '#fff', lineHeight: 1 }}>{biz.mono}</span>}
       {(() => { const badge = featuredBadge(biz); return badge && (
         <div style={{ position: 'absolute', top: 12, left: 12, background: 'rgba(27,36,54,.85)', color: '#fff', fontSize: 10.5, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', padding: '5px 10px', borderRadius: 999 }}>{badge.icon} {badge.label}</div>
       ) })()}
@@ -1045,8 +1045,8 @@ function BizDetail({ biz, mode, onClose, onBook, onMessage }: { biz: Business; m
     <div style={{ position: 'absolute', inset: 0, zIndex: 70, background: '#FAF5EE', display: 'flex', flexDirection: 'column' }}>
       <div style={{ flex: 1, overflowY: 'auto', paddingBottom: 12 }}>
         {/* hero */}
-        <div style={{ height: 290, background: `linear-gradient(135deg,${biz.grad[0]},${biz.grad[1]})`, position: 'relative' }}>
-          <span style={{ position: 'absolute', right: -10, bottom: -16, fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 220, opacity: .14, color: '#fff', lineHeight: 1 }}>{biz.mono}</span>
+        <div style={{ height: 290, background: biz.img ? `center/cover no-repeat url(${biz.img})` : `linear-gradient(135deg,${biz.grad[0]},${biz.grad[1]})`, position: 'relative' }}>
+          {!biz.img && <span style={{ position: 'absolute', right: -10, bottom: -16, fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 220, opacity: .14, color: '#fff', lineHeight: 1 }}>{biz.mono}</span>}
           <button onClick={onClose} style={{ position: 'absolute', top: 'max(56px, calc(env(safe-area-inset-top) + 20px))', left: 16, width: 40, height: 40, borderRadius: '50%', background: 'rgba(255,255,255,.92)', border: 'none', display: 'grid', placeItems: 'center', cursor: 'pointer' }}>
             <Icon n="chevL" size={20} color="#221C19" />
           </button>

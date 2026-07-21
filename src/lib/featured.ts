@@ -40,7 +40,7 @@ export async function clearFeatured(bizId: string): Promise<boolean> {
     const supabase = createClient()
     const { error } = await supabase
       .from('businesses')
-      .update({ featured: false, tier: null, featured_until: null })
+      .update({ featured: false, tier: null, featured_until: null, featured_service_id: null })
       .eq('id', bizId)
     if (error) throw error
     return true

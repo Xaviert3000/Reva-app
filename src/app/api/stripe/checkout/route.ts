@@ -9,7 +9,7 @@ export async function POST(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { biz_id, biz_name, amount, reservation_id, type, tier, days } = await req.json()
+  const { biz_id, biz_name, amount, reservation_id, type, tier, days, service_id } = await req.json()
 
   // Un depósito lo paga el cliente y va al NEGOCIO; Reva se queda la comisión.
   // Un "Destacado" lo paga el negocio a Reva, así que no se reparte.
@@ -64,6 +64,7 @@ export async function POST(req: NextRequest) {
       type,
       ...(tier ? { tier } : {}),
       ...(days != null ? { days: String(days) } : {}),
+      ...(service_id ? { service_id: String(service_id) } : {}),
     },
     // Un depósito lo paga el cliente desde /app; un Destacado lo paga el negocio
     // desde /biz, así que cada uno regresa a su propio panel.

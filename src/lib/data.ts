@@ -106,6 +106,9 @@ export interface Business {
   // Si featured=true y no hay tier, se asume 'destacado'.
   tier?: FeaturedTier
   grad: [string, string]
+  // URL pública de una imagen de portada (Supabase Storage): normalmente la
+  // primera imagen del catálogo del negocio. Absent = usa el gradiente + mono.
+  img?: string
   mono: string
   en: string
   es: string
