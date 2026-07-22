@@ -330,6 +330,82 @@ function AdminLogin({ onAuth }: { onAuth: () => void }) {
   )
 }
 
+// ── Aceptación de invitación al equipo (operador / analista) ──
+// Se muestra cuando /admin?invite=<token>. Valida el token, deja al invitado
+// crear su contraseña y lo activa; luego inicia sesión automáticamente.
+function AdminAccept({ token, onAuth }: { token: string; onAuth: () => void }) {
+  const [phase, setPhase] = useState<'loading' | 'form' | 'error' | 'busy'>('loading')
+  const [email, setEmail] = useState('')
+  const [role, setRole] = useState('')
+  const [pass, setPass] = useState('')
+  const [err, setErr] = useState('')
+
+  useEffect(() => {
+    fetch(`/api/admin/team/accept?token=${encodeURIComponent(token)}`)
+      .then(async r => {
+        const d = await r.json().catch(() => ({}))
+        if (!r.ok) { setErr(d.error || 'Invitación inválida.'); setPhase('error'); return }
+        setEmail(d.email); setRole(d.role); setPhase('form')
+      })
+      .catch(() => { setErr('No se pudo cargar la invitación.'); setPhase('error') })
+  }, [token])
+
+  async function activate() {
+    if (pass.length < 8) { setErr('La contraseña debe tener al menos 8 caracteres.'); return }
+    setPhase('busy'); setErr('')
+    const res = await fetch('/api/admin/team/accept', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token, password: pass }) })
+    const d = await res.json().catch(() => ({}))
+    if (!res.ok) { setErr(d.error || 'No se pudo activar la cuenta.'); setPhase('form'); return }
+    // Cuenta activa: inicia sesión automáticamente.
+    const supabase = createClient()
+    const { error } = await supabase.auth.signInWithPassword({ email, password: pass })
+    if (error) { setErr('Cuenta activada. Entra desde la pantalla de acceso con tu correo y contraseña.'); setPhase('error'); return }
+    onAuth()
+  }
+
+  const field: CSSProperties = { width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 12, padding: '12px 14px', fontSize: 14.5, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.surface }
+
+  return (
+    <div style={{ minHeight: '100vh', background: R.dusk, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, fontFamily: R.ui }}>
+      <div style={{ width: '100%', maxWidth: 400, background: R.bg, borderRadius: 24, padding: 28, boxShadow: '0 30px 80px rgba(0,0,0,.4)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
+          <div style={{ width: 38, height: 38, borderRadius: 11, background: R.coral, display: 'grid', placeItems: 'center' }}>
+            <svg width="22" height="22" viewBox="0 0 24 24"><path d="M5 17c0-4.4 3.2-8 7-8s7 3.6 7 8" fill="none" stroke="#fff" strokeWidth="2.6" strokeLinecap="round" /><circle cx="12" cy="17" r="2.2" fill="#fff" /></svg>
+          </div>
+          <div>
+            <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 18, color: R.ink, lineHeight: 1 }}>Reva</div>
+            <div style={{ fontSize: 10.5, color: R.inkFaint, fontWeight: 700, letterSpacing: '.05em' }}>EQUIPO</div>
+          </div>
+        </div>
+
+        {phase === 'loading' && <p style={{ fontSize: 14, color: R.inkSoft }}>Cargando invitación…</p>}
+
+        {phase === 'error' && (
+          <>
+            <h2 style={{ fontFamily: R.display, fontWeight: 800, fontSize: 20, color: R.ink, marginBottom: 6 }}>Invitación</h2>
+            <p style={{ fontSize: 13.5, color: R.coralPress, fontWeight: 600 }}>{err}</p>
+          </>
+        )}
+
+        {(phase === 'form' || phase === 'busy') && (
+          <>
+            <h2 style={{ fontFamily: R.display, fontWeight: 800, fontSize: 20, color: R.ink, marginBottom: 4 }}>Activa tu cuenta</h2>
+            <p style={{ fontSize: 13.5, color: R.inkSoft, marginBottom: 16 }}>
+              Fuiste invitado como <strong style={{ color: R.ink }}>{role}</strong>. Crea una contraseña para <strong style={{ color: R.ink }}>{email}</strong>.
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <input value={email} readOnly style={{ ...field, color: R.inkSoft, background: R.bgAlt }} />
+              <input value={pass} type="password" onChange={e => { setPass(e.target.value); setErr('') }} onKeyDown={e => { if (e.key === 'Enter') activate() }} placeholder="Contraseña (mín. 8 caracteres)" style={field} />
+              {err && <div style={{ fontSize: 13, color: R.coralPress, fontWeight: 600 }}>{err}</div>}
+              <button onClick={activate} disabled={phase === 'busy'} style={{ width: '100%', padding: '13px', background: R.coral, color: '#fff', border: 'none', borderRadius: 14, fontFamily: R.ui, fontWeight: 700, fontSize: 15, cursor: phase === 'busy' ? 'default' : 'pointer', marginTop: 4, opacity: phase === 'busy' ? 0.7 : 1 }}>{phase === 'busy' ? 'Activando…' : 'Activar y entrar'}</button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ── Rove Admin ─────────────────────────────────────────────
 
 const ROVE_STATUS_META: Record<string, { label: string; color: string; bg: string }> = {
@@ -343,7 +419,7 @@ const ROVE_CAT_EMOJI: Record<string, string> = { food: '🍽️', experience: '�
 
 type RoveFilter = 'all' | 'pending' | 'active' | 'paused' | 'rejected'
 
-function RoveAdminView({ rewards, onUpdate }: { rewards: RoveReward[]; onUpdate: (r: RoveReward) => void }) {
+function RoveAdminView({ rewards, onUpdate, canWrite }: { rewards: RoveReward[]; onUpdate: (r: RoveReward) => void; canWrite: boolean }) {
   const [filter, setFilter] = useState<RoveFilter>('pending')
   const [selected, setSelected] = useState<RoveReward | null>(null)
   const [ticketCostOverride, setTicketCostOverride] = useState('')
@@ -487,14 +563,16 @@ function RoveAdminView({ rewards, onUpdate }: { rewards: RoveReward[]; onUpdate:
             </div>
 
             {/* Ajustar costo en boletos */}
+            {canWrite && (
             <div style={{ marginBottom: 14 }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 6 }}>Costo en boletos (propuesto: {selected.ticketCost})</div>
               <input type="number" min={1} max={100} value={ticketCostOverride} onChange={e => setTicketCostOverride(e.target.value)} style={fieldStyle} />
               <div style={{ fontSize: 12, color: R.inkSoft, marginTop: 5 }}>Puedes ajustar el costo antes de aprobar. El negocio verá el valor final.</div>
             </div>
+            )}
 
             {/* Motivo de rechazo */}
-            {selected.status !== 'active' && (
+            {canWrite && selected.status !== 'active' && (
               <div style={{ marginBottom: 16 }}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 6 }}>Motivo de rechazo <span style={{ fontWeight: 500, textTransform: 'none' }}>(solo si rechazas)</span></div>
                 <input value={rejectReason} onChange={e => setRejectReason(e.target.value)} placeholder="Ej. El premio no cumple las condiciones mínimas" style={fieldStyle} />
@@ -503,27 +581,27 @@ function RoveAdminView({ rewards, onUpdate }: { rewards: RoveReward[]; onUpdate:
 
             {/* Acciones */}
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              {selected.status !== 'active' && (
+              {canWrite && selected.status !== 'active' && (
                 <button onClick={() => decide('active')} disabled={busy} style={{ flex: 2, minWidth: 120, padding: '12px', border: 'none', borderRadius: 12, background: R.jade, color: '#fff', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14, opacity: busy ? .7 : 1 }}>
                   {busy ? '…' : '✓ Aprobar y publicar'}
                 </button>
               )}
-              {selected.status === 'active' && (
+              {canWrite && selected.status === 'active' && (
                 <button onClick={() => decide('paused')} disabled={busy} style={{ flex: 1, padding: '12px', border: `1px solid ${R.line}`, borderRadius: 12, background: R.surface, color: R.ink, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14, opacity: busy ? .7 : 1 }}>
                   Pausar
                 </button>
               )}
-              {selected.status === 'paused' && (
+              {canWrite && selected.status === 'paused' && (
                 <button onClick={() => decide('active')} disabled={busy} style={{ flex: 1, padding: '12px', border: 'none', borderRadius: 12, background: R.jade, color: '#fff', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14, opacity: busy ? .7 : 1 }}>
                   Reactivar
                 </button>
               )}
-              {selected.status !== 'rejected' && (
+              {canWrite && selected.status !== 'rejected' && (
                 <button onClick={() => decide('rejected')} disabled={busy} style={{ flex: 1, padding: '12px', border: `1px solid ${R.line}`, borderRadius: 12, background: 'transparent', color: R.coralPress, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14, opacity: busy ? .7 : 1 }}>
                   Rechazar
                 </button>
               )}
-              <button onClick={() => setSelected(null)} style={{ padding: '12px 14px', border: `1px solid ${R.line}`, borderRadius: 12, background: 'transparent', color: R.inkSoft, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14 }}>Cancelar</button>
+              <button onClick={() => setSelected(null)} style={{ padding: '12px 14px', border: `1px solid ${R.line}`, borderRadius: 12, background: 'transparent', color: R.inkSoft, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14 }}>{canWrite ? 'Cancelar' : 'Cerrar'}</button>
             </div>
           </div>
         </div>
@@ -541,6 +619,8 @@ function RoveAdminView({ rewards, onUpdate }: { rewards: RoveReward[]; onUpdate:
 
 export default function AdminPage() {
   const [authed, setAuthed] = useState(false)
+  const [adminRole, setAdminRole] = useState<'super_admin' | 'operador' | 'analista'>('super_admin')
+  const [inviteToken, setInviteToken] = useState<string | null>(null)
   const [view, setView] = useState('destacados')
   const [integ, setInteg] = useState<string | null>(null) // módulo de integración abierto (null = listado)
   const [notifOpen, setNotifOpen] = useState(false)
@@ -589,6 +669,11 @@ export default function AdminPage() {
     fetch('/api/admin/revenue').then(r => r.ok ? r.json() : null).then((d: RevenueData | null) => {
       if (d?.totals) setRevenue(d)
     }).catch(() => {}).finally(() => setRevLoaded(true))
+    // Equipo Reva real (operadores / analistas). El Super Admin se mantiene
+    // desde la sesión; aquí se anexan los miembros persistidos en la BD.
+    fetch('/api/admin/team').then(r => r.ok ? r.json() : null).then(d => {
+      if (d?.members) setStaff(prev => [...prev.filter(s => s.role === 'Super Admin'), ...(d.members as StaffMember[])])
+    }).catch(() => {})
   }, [authed])
 
   function updateRoveReward(updated: RoveReward) {
@@ -677,29 +762,47 @@ export default function AdminPage() {
 
   // Equipo Reva (Ajustes)
   type StaffRole = 'Super Admin' | 'Operador' | 'Analista'
-  type StaffMember = { id: number; name: string; email: string; role: StaffRole; status: 'activo' | 'invitado' }
+  type StaffMember = { id: string | number; name: string; email: string; role: StaffRole; status: 'activo' | 'invitado' }
   const [staff, setStaff] = useState<StaffMember[]>([
     { id: 1, name: 'Operador Reva', email: 'admin@reva.mx', role: 'Super Admin', status: 'activo' },
   ])
   const [staffEmail, setStaffEmail] = useState('')
   const [staffRole, setStaffRole] = useState<'Operador' | 'Analista'>('Operador')
   const [staffError, setStaffError] = useState('')
-  const [resentStaffIds, setResentStaffIds] = useState<number[]>([])
+  const [staffNote, setStaffNote] = useState('')
+  const [resentStaffIds, setResentStaffIds] = useState<(string | number)[]>([])
 
-  function flashResentStaff(id: number) {
+  function flashResentStaff(id: string | number) {
     setResentStaffIds(prev => [...prev, id])
     setTimeout(() => setResentStaffIds(prev => prev.filter(x => x !== id)), 2500)
   }
 
-  function sendStaffInvite() {
+  async function sendStaffInvite() {
     const email = staffEmail.trim()
     if (!email || !email.includes('@')) { setStaffError('Ingresa un correo válido.'); return }
-    const existing = staff.find(s => s.email === email)
+    const existing = staff.find(s => s.email.toLowerCase() === email.toLowerCase())
     if (existing?.status === 'activo') { setStaffError('Este correo ya tiene acceso activo.'); return }
-    if (existing?.status === 'invitado') { flashResentStaff(existing.id); setStaffEmail(''); setStaffError(''); return }
-    setStaff(prev => [...prev, { id: Date.now(), name: '', email, role: staffRole, status: 'invitado' }])
-    setStaffEmail('')
-    setStaffError('')
+    setStaffError(''); setStaffNote('')
+    try {
+      const res = await fetch('/api/admin/team', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, role: staffRole }) })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) { setStaffError(d.error || 'No se pudo enviar la invitación.'); return }
+      if (existing) flashResentStaff(existing.id)
+      else if (d.member) setStaff(prev => [...prev, d.member as StaffMember])
+      setStaffEmail('')
+      setStaffNote(d.warning || 'Invitación enviada ✓')
+      setTimeout(() => setStaffNote(''), 3000)
+    } catch { setStaffError('No se pudo enviar la invitación.') }
+  }
+
+  async function resendStaffInvite(m: StaffMember) {
+    flashResentStaff(m.id)
+    try { await fetch('/api/admin/team', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: m.email, role: m.role }) }) } catch {}
+  }
+
+  function removeStaff(m: StaffMember) {
+    setStaff(prev => prev.filter(s => s.id !== m.id))
+    fetch('/api/admin/team', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: m.email }) }).catch(() => {})
   }
 
   // Settings panels
@@ -776,14 +879,38 @@ export default function AdminPage() {
   function setModelCfg(v: string) { setOrModel(v); persistOR({ model: v }) }
   function setFallbacksCfg(v: string) { setOrFallbacks(v); persistOR({ fallbackModels: v.split(',').map(s => s.trim()).filter(Boolean) }) }
 
+  // ?invite=<token> en la URL → mostrar la pantalla de activación del equipo.
+  useEffect(() => {
+    const t = new URLSearchParams(window.location.search).get('invite')
+    if (t) setInviteToken(t)
+  }, [])
+
   // Verifica la sesión admin real (Supabase + allowlist) al cargar.
-  useEffect(() => { fetch('/api/admin/session').then(r => r.json()).then(d => setAuthed(!!d.admin)).catch(() => {}) }, [])
+  useEffect(() => { fetch('/api/admin/session').then(r => r.json()).then(d => {
+    setAuthed(!!d.admin)
+    if (d.role) setAdminRole(d.role)
+    if (d.email) {
+      if (!d.role || d.role === 'super_admin') {
+        // Tarjeta propia del super admin (no vive en admin_team; se pinta desde la sesión).
+        setStaff(prev => prev.map(s => s.role === 'Super Admin' ? { ...s, email: d.email, name: d.email.split('@')[0] } : s))
+      } else {
+        // Operador/Analista: sin tarjeta sintética; ya aparece en la lista real del equipo.
+        setStaff(prev => prev.filter(s => s.role !== 'Super Admin'))
+      }
+    }
+  }).catch(() => {}) }, [])
   function login() { setAuthed(true) }
   async function logout() { try { await createClient().auth.signOut() } catch {} setAuthed(false) }
 
+  // ?invite=<token> → pantalla de activación del equipo (operador / analista).
+  if (inviteToken) return <AdminAccept token={inviteToken} onAuth={() => { setAuthed(true); setInviteToken(null); window.history.replaceState({}, '', '/admin') }} />
   if (!authed) return <AdminLogin onAuth={login} />
 
   const fmt = (n: number) => '$' + n.toLocaleString('es-MX')
+
+  // Permiso de escritura en la UI (misma matriz que canWrite del backend).
+  // Operador: soporte, moderación y reservas. Analista: solo lectura. Super admin: todo.
+  const canWriteUI = (mod: string) => adminRole === 'super_admin' || (adminRole === 'operador' && ['support', 'moderation', 'reservations'].includes(mod))
 
   // ── Derivados reales para el Resumen (base de datos) ──
   // Reservas por negocio (biz_id → n) desde /api/admin/reservations.
@@ -943,7 +1070,7 @@ export default function AdminPage() {
           </div>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-          {NAV.map(it => {
+          {NAV.filter(it => adminRole === 'super_admin' || !['integraciones', 'ajustes'].includes(it.id)).map(it => {
             const on = view === it.id
             const badge = it.id === 'moderacion' ? modQueue.length : it.id === 'soporte' ? tickets.filter(t => t.status === 'nuevo').length : it.id === 'rove' ? roveRewards.filter(r => r.status === 'pending').length : 0
             return (
@@ -1139,7 +1266,7 @@ export default function AdminPage() {
                       { v: 'moderacion', icon: 'flag', label: 'Moderación', sub: `${pendingMod} pendientes` },
                       { v: 'soporte', icon: 'chat', label: 'Soporte', sub: `${pendingTickets} abiertos` },
                       { v: 'integraciones', icon: 'link', label: 'Integraciones', sub: 'IA, lealtad, pagos' },
-                    ].map(q => (
+                    ].filter(q => adminRole === 'super_admin' || q.v !== 'integraciones').map(q => (
                       <button key={q.v} onClick={() => setView(q.v)} style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-start', textAlign: 'left', background: R.surface, border: `1px solid ${R.line}`, borderRadius: 14, padding: '14px 16px', cursor: 'pointer', fontFamily: R.ui }}>
                         <div style={{ width: 34, height: 34, borderRadius: 10, background: R.bgAlt, display: 'grid', placeItems: 'center' }}><Icon n={q.icon} size={16} color={R.ink} /></div>
                         <div>
@@ -1192,7 +1319,9 @@ export default function AdminPage() {
                           <Bar sold={r.destacadoSold} total={r.destacadoCap} color={R.coral} />
                           <span style={{ textAlign: 'right', fontSize: 13.5, fontWeight: 700, color: r.waitlist ? R.amberDeep : R.inkFaint }}>{r.waitlist || '—'}</span>
                           <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                            <button onClick={() => { setCapDraft({ premium: r.premiumCap, destacado: r.destacadoCap }); setCapEdit(k) }} style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 12.5, color: R.coral }}>Editar</button>
+                            {canWriteUI('featured') && (
+                              <button onClick={() => { setCapDraft({ premium: r.premiumCap, destacado: r.destacadoCap }); setCapEdit(k) }} style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 12.5, color: R.coral }}>Editar</button>
+                            )}
                           </div>
                         </>
                       )}
@@ -1314,9 +1443,11 @@ export default function AdminPage() {
               <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
                 <SearchBox value={bq} onChange={setBq} placeholder="Buscar negocio…" />
                 <Chips options={['Todos', 'Activo', 'Pausado']} value={bf} onChange={setBf} />
-                <button onClick={() => setAddBizOpen(true)} style={{ display: 'flex', alignItems: 'center', gap: 7, marginLeft: 'auto', padding: '10px 16px', border: 'none', borderRadius: 12, background: R.ink, color: '#fff', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5 }}>
-                  <Icon n="plus" size={15} color="#fff" /> Agregar negocio
-                </button>
+                {canWriteUI('businesses') && (
+                  <button onClick={() => setAddBizOpen(true)} style={{ display: 'flex', alignItems: 'center', gap: 7, marginLeft: 'auto', padding: '10px 16px', border: 'none', borderRadius: 12, background: R.ink, color: '#fff', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5 }}>
+                    <Icon n="plus" size={15} color="#fff" /> Agregar negocio
+                  </button>
+                )}
               </div>
               <Card style={{ padding: 0, overflow: 'hidden' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1.7fr 1.3fr 0.8fr 1fr 0.9fr', gap: 14, padding: '12px 18px', borderBottom: `1px solid ${R.line}`, background: R.bgAlt, fontSize: 11.5, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.04em' }}>
@@ -1396,10 +1527,14 @@ export default function AdminPage() {
                           <div style={{ fontSize: 13, color: R.ink, marginTop: 5 }}>Quiere destacar: <strong style={{ fontWeight: 700 }}>{m.que}</strong></div>
                           <div style={{ fontSize: 12, color: R.inkFaint, marginTop: 2 }}>Enviado {m.enviado}</div>
                         </div>
-                        <div style={{ display: 'flex', gap: 9, flexShrink: 0 }}>
-                          <button onClick={() => moderate(m.id, false)} style={{ padding: '10px 16px', border: `1px solid ${R.line}`, borderRadius: 12, background: 'transparent', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5, color: R.coralPress }}>Rechazar</button>
-                          <button onClick={() => moderate(m.id, true)} style={{ padding: '10px 16px', border: 'none', borderRadius: 12, background: R.jade, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5, color: '#fff', display: 'flex', alignItems: 'center', gap: 6 }}><Icon n="check" size={15} color="#fff" stroke={3} /> Aprobar</button>
-                        </div>
+                        {canWriteUI('moderation') ? (
+                          <div style={{ display: 'flex', gap: 9, flexShrink: 0 }}>
+                            <button onClick={() => moderate(m.id, false)} style={{ padding: '10px 16px', border: `1px solid ${R.line}`, borderRadius: 12, background: 'transparent', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5, color: R.coralPress }}>Rechazar</button>
+                            <button onClick={() => moderate(m.id, true)} style={{ padding: '10px 16px', border: 'none', borderRadius: 12, background: R.jade, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5, color: '#fff', display: 'flex', alignItems: 'center', gap: 6 }}><Icon n="check" size={15} color="#fff" stroke={3} /> Aprobar</button>
+                          </div>
+                        ) : (
+                          <span style={{ fontSize: 12, fontWeight: 600, color: R.inkFaint, background: R.bgAlt, padding: '6px 12px', borderRadius: 999, flexShrink: 0 }}>Solo lectura</span>
+                        )}
                       </Card>
                     )
                   })}
@@ -1709,15 +1844,21 @@ export default function AdminPage() {
                           <div style={{ fontSize: 10.5, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.07em' }}>Estatus</div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                             <span style={{ width: 10, height: 10, borderRadius: '50%', background: stColor(ticket.status)[0], flexShrink: 0 }} />
-                            <select
-                              value={ticket.status}
-                              onChange={e => setTicketStatus(ticket.id, e.target.value as Ticket['status'])}
-                              style={{ border: `1px solid ${R.line}`, borderRadius: 10, padding: '8px 12px', fontSize: 13.5, fontFamily: R.ui, fontWeight: 600, color: stColor(ticket.status)[0], background: stColor(ticket.status)[1], cursor: 'pointer', outline: 'none', appearance: 'none', WebkitAppearance: 'none', paddingRight: 28 }}>
-                              <option value="nuevo">Nuevo</option>
-                              <option value="en_progreso">En progreso</option>
-                              <option value="resuelto">Resuelto</option>
-                            </select>
-                            <span style={{ marginLeft: -26, pointerEvents: 'none', display: 'flex' }}><Icon n="chevron" size={14} color={R.inkFaint} /></span>
+                            {canWriteUI('support') ? (
+                              <>
+                                <select
+                                  value={ticket.status}
+                                  onChange={e => setTicketStatus(ticket.id, e.target.value as Ticket['status'])}
+                                  style={{ border: `1px solid ${R.line}`, borderRadius: 10, padding: '8px 12px', fontSize: 13.5, fontFamily: R.ui, fontWeight: 600, color: stColor(ticket.status)[0], background: stColor(ticket.status)[1], cursor: 'pointer', outline: 'none', appearance: 'none', WebkitAppearance: 'none', paddingRight: 28 }}>
+                                  <option value="nuevo">Nuevo</option>
+                                  <option value="en_progreso">En progreso</option>
+                                  <option value="resuelto">Resuelto</option>
+                                </select>
+                                <span style={{ marginLeft: -26, pointerEvents: 'none', display: 'flex' }}><Icon n="chevron" size={14} color={R.inkFaint} /></span>
+                              </>
+                            ) : (
+                              <span style={{ fontSize: 13.5, fontFamily: R.ui, fontWeight: 600, color: stColor(ticket.status)[0], background: stColor(ticket.status)[1], padding: '8px 12px', borderRadius: 10 }}>{stLabel(ticket.status)}</span>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -1733,7 +1874,7 @@ export default function AdminPage() {
                           </div>
                         ))}
                       </div>
-                      {ticket.status !== 'resuelto' && (
+                      {ticket.status !== 'resuelto' && canWriteUI('support') && (
                         <div style={{ borderTop: `1px solid ${R.line}`, padding: '14px 18px', display: 'flex', gap: 10 }}>
                           <input value={replyText} onChange={e => setReplyText(e.target.value)} onKeyDown={e => e.key === 'Enter' && sendReply()}
                             placeholder="Escribe una respuesta al usuario…"
@@ -1969,10 +2110,10 @@ export default function AdminPage() {
           })()}
 
           {view === 'rove' && (
-            <RoveAdminView rewards={roveRewards} onUpdate={updateRoveReward} />
+            <RoveAdminView rewards={roveRewards} onUpdate={updateRoveReward} canWrite={canWriteUI('rove')} />
           )}
 
-          {view === 'integraciones' && (
+          {view === 'integraciones' && adminRole === 'super_admin' && (
             <div style={{ maxWidth: 760 }}>
               {/* Listado de conexiones */}
               {integ === null && (
@@ -2255,7 +2396,7 @@ export default function AdminPage() {
             </div>
           )}
 
-          {view === 'ajustes' && (
+          {view === 'ajustes' && adminRole === 'super_admin' && (
             <div style={{ maxWidth: 640 }}>
               {/* ── Equipo Reva ──────────────────────────── */}
               <div style={{ background: R.surface, border: `1px solid ${R.line}`, borderRadius: 16, padding: '18px 20px', marginBottom: 20 }}>
@@ -2289,14 +2430,14 @@ export default function AdminPage() {
                           {resentStaffIds.includes(m.id) ? 'Reenviado ✓' : 'Pendiente'}
                         </span>
                       )}
-                      {m.status === 'invitado' && (
-                        <button onClick={() => flashResentStaff(m.id)} title="Reenviar invitación" aria-label="Reenviar" style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 4, color: R.inkFaint, display: 'grid', placeItems: 'center' }}>
+                      {m.status === 'invitado' && adminRole === 'super_admin' && (
+                        <button onClick={() => resendStaffInvite(m)} title="Reenviar invitación" aria-label="Reenviar" style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 4, color: R.inkFaint, display: 'grid', placeItems: 'center' }}>
                           <Icon n="send" size={13} color={R.inkFaint} />
                         </button>
                       )}
-                      {/* remove (not for Super Admin) */}
-                      {m.role !== 'Super Admin' && (
-                        <button onClick={() => setStaff(prev => prev.filter(s => s.id !== m.id))} style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 4, color: R.inkFaint, display: 'grid', placeItems: 'center' }} aria-label="Eliminar">
+                      {/* remove (solo super admin, nunca a un Super Admin) */}
+                      {m.role !== 'Super Admin' && adminRole === 'super_admin' && (
+                        <button onClick={() => removeStaff(m)} style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 4, color: R.inkFaint, display: 'grid', placeItems: 'center' }} aria-label="Eliminar">
                           <Icon n="x" size={15} color={R.inkFaint} />
                         </button>
                       )}
@@ -2304,7 +2445,8 @@ export default function AdminPage() {
                   ))}
                 </div>
 
-                {/* invite form */}
+                {/* invite form — solo el super admin gestiona el equipo */}
+                {adminRole === 'super_admin' && (
                 <div style={{ borderTop: `1px solid ${R.line}`, paddingTop: 14 }}>
                   <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase', color: R.inkSoft, marginBottom: 9 }}>Invitar al equipo</div>
                   <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
@@ -2326,6 +2468,7 @@ export default function AdminPage() {
                     </select>
                   </div>
                   {staffError && <div style={{ fontSize: 12, color: R.coral, marginBottom: 6 }}>{staffError}</div>}
+                  {staffNote && <div style={{ fontSize: 12, color: R.jade, marginBottom: 6 }}>{staffNote}</div>}
                   <button onClick={sendStaffInvite} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '10px 16px', border: 'none', borderRadius: 10, background: R.ink, color: '#fff', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5 }}>
                     <Icon n="send" size={14} color="#fff" />
                     Enviar invitación
@@ -2334,6 +2477,7 @@ export default function AdminPage() {
                     Operador: soporte, moderación y reservas. Analista: solo lectura de métricas.
                   </div>
                 </div>
+                )}
               </div>
 
               {/* ── Ajustes generales ─────────────────────── */}
@@ -2706,15 +2850,17 @@ export default function AdminPage() {
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '11px 14px', borderTop: `1px solid ${R.lineSoft}` }}><span style={{ fontSize: 13, color: R.inkSoft }}>Reservas</span><span style={{ fontSize: 13.5, fontWeight: 600, color: R.ink }}>{bizReservas(detail)}</span></div>
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '11px 14px', borderTop: `1px solid ${R.lineSoft}` }}><span style={{ fontSize: 13, color: R.inkSoft }}>Estado</span><span style={{ fontSize: 13.5, fontWeight: 700, color: detail.estado === 'Activo' ? R.jade : R.inkFaint }}>{detail.estado}</span></div>
             </div>
-            {detail.invitePending && detail.email && (
+            {detail.invitePending && detail.email && canWriteUI('businesses') && (
               <button onClick={() => resendInvite(detail)} disabled={resendLoading} style={{ width: '100%', padding: '12px', border: `1px solid ${R.line}`, borderRadius: 12, background: R.surface, color: R.ink, cursor: resendLoading ? 'default' : 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14, marginBottom: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, opacity: resendLoading ? .6 : 1 }}>
                 <Icon n="mail" size={16} color={R.ink} />
                 {resendLoading ? 'Reenviando…' : 'Reenviar invitación'}
               </button>
             )}
-            <button onClick={() => { toggleBiz(selBiz!) }} style={{ width: '100%', padding: '12px', border: 'none', borderRadius: 12, background: detail.estado === 'Activo' ? R.bgAlt : R.jade, color: detail.estado === 'Activo' ? R.ink : '#fff', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14 }}>
-              {detail.estado === 'Activo' ? 'Pausar negocio' : 'Reactivar negocio'}
-            </button>
+            {canWriteUI('businesses') && (
+              <button onClick={() => { toggleBiz(selBiz!) }} style={{ width: '100%', padding: '12px', border: 'none', borderRadius: 12, background: detail.estado === 'Activo' ? R.bgAlt : R.jade, color: detail.estado === 'Activo' ? R.ink : '#fff', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14 }}>
+                {detail.estado === 'Activo' ? 'Pausar negocio' : 'Reactivar negocio'}
+              </button>
+            )}
           </div>
         </div>
       )}

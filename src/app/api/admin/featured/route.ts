@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireAdmin } from '@/lib/admin-auth'
+import { requireAdmin, requireWriter } from '@/lib/admin-auth'
 import { createAdminClient } from '@/lib/supabase/admin'
 
 export const dynamic = 'force-dynamic'
@@ -141,7 +141,7 @@ export async function GET() {
 }
 
 export async function PATCH(req: NextRequest) {
-  if (!(await requireAdmin())) return NextResponse.json({ error: 'No autorizado' }, { status: 403 })
+  const g = await requireWriter('featured'); if (g.error) return g.error
   const { categoria, municipio, premium_cap, destacado_cap } = await req.json()
   if (!categoria || !municipio) return NextResponse.json({ error: 'Falta categoría o municipio' }, { status: 400 })
   const p = Number(premium_cap), d = Number(destacado_cap)

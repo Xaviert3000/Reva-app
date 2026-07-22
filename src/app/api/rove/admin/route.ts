@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAllRewards, reviewReward } from '@/lib/rove-db'
-import { requireAdmin } from '@/lib/admin-auth'
+import { requireAdmin, requireWriter } from '@/lib/admin-auth'
 
 export const dynamic = 'force-dynamic'
 
@@ -11,7 +11,7 @@ export async function GET() {
 
 // Admin aprueba, rechaza o pausa una recompensa.
 export async function PATCH(req: NextRequest) {
-  if (!(await requireAdmin())) return NextResponse.json({ error: 'No autorizado' }, { status: 403 })
+  const g = await requireWriter('rove'); if (g.error) return g.error
   const { rewardId, decision, ticketCost, rejectionReason } = await req.json()
 
   if (!rewardId || !decision) {

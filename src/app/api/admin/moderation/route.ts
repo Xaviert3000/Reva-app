@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireAdmin } from '@/lib/admin-auth'
+import { requireAdmin, requireWriter } from '@/lib/admin-auth'
 import { createAdminClient } from '@/lib/supabase/admin'
 
 export const dynamic = 'force-dynamic'
@@ -20,7 +20,7 @@ export async function GET() {
 }
 
 export async function PATCH(req: NextRequest) {
-  if (!(await requireAdmin())) return NextResponse.json({ error: 'No autorizado' }, { status: 403 })
+  const g = await requireWriter('moderation'); if (g.error) return g.error
   const { id, decision } = await req.json()
   if (!id || (decision !== 'approved' && decision !== 'rejected')) {
     return NextResponse.json({ error: 'Parámetros inválidos' }, { status: 400 })

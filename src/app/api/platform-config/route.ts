@@ -1,5 +1,5 @@
 import { loadPlatformConfig, savePlatformConfig, type PlatformConfig } from '@/lib/platform-config'
-import { requireAdmin } from '@/lib/admin-auth'
+import { requireAdmin, canWrite } from '@/lib/admin-auth'
 
 // Config de IA de la plataforma para el panel del super admin.
 // GET  → config actual (modelo, respaldos, prompts, toggles).
@@ -15,6 +15,7 @@ export async function GET() {
 export async function POST(req: Request) {
   const admin = await requireAdmin()
   if (!admin) return Response.json({ error: 'No autorizado' }, { status: 403 })
+  if (!canWrite(admin.role, 'platform')) return Response.json({ error: 'No tienes permiso para esta acción.' }, { status: 403 })
   try {
     const patch = (await req.json()) as Partial<PlatformConfig>
     const cfg = await savePlatformConfig(patch)
