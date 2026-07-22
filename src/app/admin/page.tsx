@@ -65,6 +65,7 @@ function Icon({ n, size = 20, color = 'currentColor', stroke = 2, fill = 'none' 
 const NAV = [
   { id: 'overview', label: 'Resumen', icon: 'chart' },
   { id: 'destacados', label: 'Destacados', icon: 'spark' },
+  { id: 'ingresos', label: 'Ingresos', icon: 'coins' },
   { id: 'negocios', label: 'Negocios', icon: 'grid' },
   { id: 'reservas', label: 'Reservas', icon: 'cal' },
   { id: 'moderacion', label: 'Moderación', icon: 'flag' },
@@ -167,6 +168,13 @@ function mapAdminReservation(r: AdminResRow): ResaItem {
     : 'Solicitud'
   const estado: Estado = r.status === 'confirmed' ? 'Confirmada' : r.status === 'completed' ? 'Sentados' : (r.status === 'cancelled' || r.status === 'no_show') ? 'Cancelada' : 'Por confirmar'
   return { cuando, guest: r.guest_name || 'Cliente', biz: r.businesses?.name || 'Negocio', party: r.party ?? 1, via: 'Explorer', estado }
+}
+
+type PaymentItem = { id: string; created_at: string; type: string; amount: number; revenue: number; currency: string; biz_name: string; mono: string; grad: [string, string]; guest_name: string }
+type RevenueTypeAgg = { count: number; gross: number; revenue: number }
+type RevenueData = {
+  payments: PaymentItem[]
+  totals: { gmv: number; platform: number; platformMonth: number; count: number; byType: Record<string, RevenueTypeAgg>; commissionRate: number }
 }
 
 type ModItem = { id: string; biz: string; mono: string; nivel: Niv; tipo: 'Servicio' | 'Negocio' | 'Promoción'; que: string; enviado: string; grad: [string, string] }
@@ -568,6 +576,10 @@ export default function AdminPage() {
     fetch('/api/admin/moderation').then(r => r.ok ? r.json() : null).then(d => {
       if (d?.items) setModQueue(d.items.map(mapModItem))
     }).catch(() => {})
+    // Ingresos reales de la plataforma.
+    fetch('/api/admin/revenue').then(r => r.ok ? r.json() : null).then((d: RevenueData | null) => {
+      if (d?.totals) setRevenue(d)
+    }).catch(() => {}).finally(() => setRevLoaded(true))
   }, [authed])
 
   function updateRoveReward(updated: RoveReward) {
@@ -625,6 +637,11 @@ export default function AdminPage() {
   const [rq, setRq] = useState('')
   const [rf, setRf] = useState('Todas')
   const [reservasList, setReservasList] = useState<ResaItem[]>(RESERVAS)
+
+  // Ingresos (pagos reales desde la tabla `payments` vía /api/admin/revenue)
+  const [revenue, setRevenue] = useState<RevenueData | null>(null)
+  const [revLoaded, setRevLoaded] = useState(false)
+  const [revFilter, setRevFilter] = useState<'Todos' | 'Destacados' | 'Depósitos'>('Todos')
 
   // Moderación
   const [modQueue, setModQueue] = useState<ModItem[]>(MOD_INIT)
@@ -855,6 +872,7 @@ export default function AdminPage() {
   const titles: Record<string, [string, string]> = {
     overview: ['Resumen', 'Cómo va la plataforma hoy'],
     destacados: ['Destacados', 'Inventario, ingresos y rotación del marketplace'],
+    ingresos: ['Ingresos', 'Todo lo que genera la plataforma, en tiempo real'],
     negocios: ['Negocios', 'Todos los negocios en Reva'],
     reservas: ['Reservas', 'Reservas en toda la plataforma'],
     moderacion: ['Moderación', 'Aprueba el contenido destacado'],
@@ -1137,6 +1155,83 @@ export default function AdminPage() {
               </div>
             </>
           )}
+
+          {view === 'ingresos' && (() => {
+            const t = revenue?.totals
+            const feat = t?.byType?.featured ?? { count: 0, gross: 0, revenue: 0 }
+            const dep = t?.byType?.deposit ?? { count: 0, gross: 0, revenue: 0 }
+            const sub = t?.byType?.subscription
+            const rate = Math.round((t?.commissionRate ?? 0.02) * 100)
+            const money2 = (n: number) => '$' + n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+            const conceptOf = (ty: string) => ty === 'featured' ? 'Destacado' : ty === 'deposit' ? 'Depósito' : ty === 'subscription' ? 'Suscripción' : ty
+            const allPays = revenue?.payments ?? []
+            const payRows = allPays.filter(p =>
+              revFilter === 'Todos' ? true : revFilter === 'Destacados' ? p.type === 'featured' : p.type === 'deposit')
+            return (
+              <>
+                <div style={{ display: 'flex', gap: 14, marginBottom: 22, flexWrap: 'wrap' }}>
+                  <KPI label="Ingreso de Reva (total)" value={fmt(Math.round(t?.platform ?? 0))} sub={`${t?.count ?? 0} pagos cobrados`} tint={R.coralTint} icon={<Icon n="coins" size={20} color={R.coral} />} />
+                  <KPI label="Ingreso de Reva (este mes)" value={fmt(Math.round(t?.platformMonth ?? 0))} sub="destacados + comisiones" tint={R.jadeTint} icon={<Icon n="chart" size={20} color={R.jade} />} />
+                  <KPI label="Volumen procesado (GMV)" value={fmt(Math.round(t?.gmv ?? 0))} sub="total movido por el sistema" tint={R.amberTint} icon={<Icon n="spark" size={20} color={R.amber} />} />
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 14, marginBottom: 26 }}>
+                  <Card style={{ padding: 18 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                      <span style={{ fontSize: 10.5, fontWeight: 700, color: R.coralPress, background: R.coralTint, padding: '3px 8px', borderRadius: 999 }}>✦ Destacados</span>
+                      <span style={{ fontSize: 12.5, color: R.inkSoft }}>{feat.count} pagos</span>
+                    </div>
+                    <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 24, color: R.ink }}>{fmt(Math.round(feat.revenue))}</div>
+                    <div style={{ fontSize: 12.5, color: R.inkFaint, marginTop: 4 }}>El negocio paga el 100% a Reva.</div>
+                  </Card>
+                  <Card style={{ padding: 18 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                      <span style={{ fontSize: 10.5, fontWeight: 700, color: R.jade, background: R.jadeTint, padding: '3px 8px', borderRadius: 999 }}>Comisión de depósitos</span>
+                      <span style={{ fontSize: 12.5, color: R.inkSoft }}>{dep.count} pagos</span>
+                    </div>
+                    <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 24, color: R.ink }}>{fmt(Math.round(dep.revenue))}</div>
+                    <div style={{ fontSize: 12.5, color: R.inkFaint, marginTop: 4 }}>{rate}% de {money2(dep.gross)} en depósitos. El resto va al negocio.</div>
+                  </Card>
+                  {sub && sub.count > 0 && (
+                    <Card style={{ padding: 18 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                        <span style={{ fontSize: 10.5, fontWeight: 700, color: R.inkSoft, background: R.bgAlt, padding: '3px 8px', borderRadius: 999 }}>Suscripciones</span>
+                        <span style={{ fontSize: 12.5, color: R.inkSoft }}>{sub.count} pagos</span>
+                      </div>
+                      <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 24, color: R.ink }}>{fmt(Math.round(sub.revenue))}</div>
+                      <div style={{ fontSize: 12.5, color: R.inkFaint, marginTop: 4 }}>Planes cobrados a negocios.</div>
+                    </Card>
+                  )}
+                </div>
+
+                <div style={{ display: 'flex', gap: 10, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink, marginRight: 'auto' }}>Transacciones</div>
+                  <Chips options={['Todos', 'Destacados', 'Depósitos']} value={revFilter} onChange={v => setRevFilter(v as typeof revFilter)} />
+                </div>
+                <Card style={{ padding: 0, overflow: 'hidden' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr 1fr 1fr 1fr', gap: 14, padding: '12px 18px', borderBottom: `1px solid ${R.line}`, background: R.bgAlt, fontSize: 11.5, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.04em' }}>
+                    <span>Cuándo</span><span>Negocio</span><span>Concepto</span><span style={{ textAlign: 'right' }}>Monto</span><span style={{ textAlign: 'right' }}>Ingreso Reva</span>
+                  </div>
+                  {payRows.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: '40px 0', color: R.inkSoft, fontSize: 14 }}>
+                      {revLoaded ? 'Aún no hay pagos registrados. Cuando un negocio compre un Destacado o un cliente pague un depósito, aparecerá aquí.' : 'Cargando ingresos…'}
+                    </div>
+                  ) : payRows.map((p, i) => (
+                    <div key={p.id} style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr 1fr 1fr 1fr', gap: 14, alignItems: 'center', padding: '13px 18px', borderTop: i ? `1px solid ${R.lineSoft}` : 'none' }}>
+                      <span style={{ fontSize: 13, color: R.inkSoft }}>{new Date(p.created_at).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                        <div style={{ width: 30, height: 30, borderRadius: 8, background: `linear-gradient(140deg, ${p.grad[0]}, ${p.grad[1]})`, display: 'grid', placeItems: 'center', fontFamily: R.display, fontWeight: 800, color: '#fff', fontSize: 13, flexShrink: 0 }}>{p.mono}</div>
+                        <span style={{ fontWeight: 600, fontSize: 13.5, color: R.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.biz_name}</span>
+                      </div>
+                      <span><span style={{ fontSize: 11, fontWeight: 700, color: p.type === 'featured' ? R.coralPress : R.jade, background: p.type === 'featured' ? R.coralTint : R.jadeTint, padding: '3px 9px', borderRadius: 999 }}>{conceptOf(p.type)}</span></span>
+                      <span style={{ textAlign: 'right', fontSize: 13.5, color: R.inkSoft }}>{money2(p.amount)}</span>
+                      <span style={{ textAlign: 'right', fontFamily: R.display, fontWeight: 700, fontSize: 13.5, color: R.ink }}>{money2(p.revenue)}</span>
+                    </div>
+                  ))}
+                </Card>
+              </>
+            )
+          })()}
 
           {view === 'negocios' && (
             <>
