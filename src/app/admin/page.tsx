@@ -674,6 +674,14 @@ export default function AdminPage() {
     fetch('/api/admin/team').then(r => r.ok ? r.json() : null).then(d => {
       if (d?.members) setStaff(prev => [...prev.filter(s => s.role === 'Super Admin'), ...(d.members as StaffMember[])])
     }).catch(() => {})
+    // Ajustes generales de la plataforma persistidos (nombre, URL, idioma, zona
+    // horaria, notificaciones y seguridad).
+    fetch('/api/admin/settings').then(r => r.ok ? r.json() : null).then(d => {
+      const s = d?.settings
+      if (!s) return
+      setPlatName(s.platName); setPlatUrl(s.platUrl); setPlatLang(s.platLang); setPlatTz(s.platTz)
+      setNotifEmail(s.notifEmail); setNotifs(s.notifs); setTwoFa(s.twoFa); setSessExpiry(s.sessExpiry)
+    }).catch(() => {})
   }, [authed])
 
   function updateRoveReward(updated: RoveReward) {
@@ -815,7 +823,31 @@ export default function AdminPage() {
   const [notifs, setNotifs] = useState({ nuevaReserva: true, nuevoDestacado: true, nuevoNegocio: false, reporteDiario: true, soporteUrgente: true })
   const [twoFa, setTwoFa] = useState(false)
   const [sessExpiry, setSessExpiry] = useState('7d')
+  const [settingsSaving, setSettingsSaving] = useState(false)
   const panelTitles: Record<string, string> = { plataforma: 'Plataforma', notificaciones: 'Notificaciones', seguridad: 'Seguridad', facturacion: 'Facturación', categorias: 'Categorías de negocio' }
+
+  // Persiste los ajustes generales de la plataforma. Facturación y Categorías se
+  // guardan por su cuenta (esta función cubre Plataforma / Notificaciones / Seguridad).
+  async function saveSettings() {
+    setSettingsSaving(true)
+    try {
+      const res = await fetch('/api/admin/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ platName, platUrl, platLang, platTz, notifEmail, notifs, twoFa, sessExpiry }),
+      })
+      if (!res.ok) {
+        const d = await res.json().catch(() => null)
+        alert(d?.error || 'No se pudieron guardar los cambios.')
+        return
+      }
+      setSettingsPanel(null)
+    } catch {
+      alert('No se pudieron guardar los cambios. Revisa tu conexión.')
+    } finally {
+      setSettingsSaving(false)
+    }
+  }
   const fldStyle: CSSProperties = { width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 10, padding: '11px 13px', fontSize: 14, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.bg }
   const lblStyle: CSSProperties = { display: 'block', fontSize: 11, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', color: R.inkSoft, marginBottom: 5 }
 
@@ -2743,9 +2775,16 @@ export default function AdminPage() {
             )}
 
             {/* save */}
-            <button onClick={() => setSettingsPanel(null)} style={{ width: '100%', marginTop: 22, padding: '13px', border: 'none', borderRadius: 14, background: R.ink, color: '#fff', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14.5 }}>
-              Guardar cambios
-            </button>
+            {settingsPanel === 'categorias' || settingsPanel === 'facturacion' ? (
+              // Categorías y Facturación se gestionan con sus propios controles.
+              <button onClick={() => setSettingsPanel(null)} style={{ width: '100%', marginTop: 22, padding: '13px', border: 'none', borderRadius: 14, background: R.ink, color: '#fff', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14.5 }}>
+                Listo
+              </button>
+            ) : (
+              <button onClick={saveSettings} disabled={settingsSaving} style={{ width: '100%', marginTop: 22, padding: '13px', border: 'none', borderRadius: 14, background: R.ink, color: '#fff', cursor: settingsSaving ? 'default' : 'pointer', opacity: settingsSaving ? 0.7 : 1, fontFamily: R.ui, fontWeight: 700, fontSize: 14.5 }}>
+                {settingsSaving ? 'Guardando…' : 'Guardar cambios'}
+              </button>
+            )}
           </div>
         </div>
       )}
