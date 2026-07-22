@@ -7,6 +7,14 @@ import { PROMPT_DEFS, DEFAULT_PROMPTS, type PromptId } from '@/lib/ai-prompts'
 import { STATES_DATA } from '@/lib/data'
 import { type RoveReward } from '@/lib/rove-rewards'
 import { createClient } from '@/lib/supabase/client'
+import { LangContext, useT } from '@/lib/i18n'
+
+// Etiquetas de navegación en inglés (el español vive en NAV como default)
+const NAV_EN: Record<string, string> = {
+  overview: 'Overview', destacados: 'Featured', ingresos: 'Revenue', negocios: 'Businesses',
+  reservas: 'Bookings', moderacion: 'Moderation', informes: 'Reports', rove: 'Reva+ Rewards',
+  soporte: 'Support', integraciones: 'Integrations', ajustes: 'Settings',
+}
 
 // ── Design tokens (compartidos con el panel del negocio) ───
 const R = {
@@ -81,10 +89,10 @@ const NAV = [
 
 
 // Catálogo de integraciones disponibles (listado de Integraciones)
-const INTEGRATIONS: { id: string; name: string; tag: string; desc: string; grad: [string, string]; icon: string; iconFill: boolean }[] = [
-  { id: 'openrouter', name: 'OpenRouter', tag: 'Inteligencia artificial', desc: 'Motor de IA del conserje, la negociación entre agentes y el agente del negocio.', grad: ['#0EA5A4', '#0B6E6D'], icon: 'cpu', iconFill: false },
-  { id: 'boomerangme', name: 'BoomerangMe', tag: 'Lealtad', desc: 'Sellos, cashback, cupones y más para los clientes de cada negocio.', grad: ['#7C5CFF', '#4A2FBF'], icon: 'spark', iconFill: true },
-  { id: 'stripe', name: 'Stripe', tag: 'Pagos', desc: 'Cobra depósitos de reserva y campañas de Destacados de forma segura.', grad: ['#635BFF', '#4B45C6'], icon: 'card', iconFill: false },
+const INTEGRATIONS: { id: string; name: string; tag: string; tagEn: string; desc: string; descEn: string; grad: [string, string]; icon: string; iconFill: boolean }[] = [
+  { id: 'openrouter', name: 'OpenRouter', tag: 'Inteligencia artificial', tagEn: 'Artificial intelligence', desc: 'Motor de IA del conserje, la negociación entre agentes y el agente del negocio.', descEn: 'AI engine for the concierge, agent-to-agent negotiation and the business agent.', grad: ['#0EA5A4', '#0B6E6D'], icon: 'cpu', iconFill: false },
+  { id: 'boomerangme', name: 'BoomerangMe', tag: 'Lealtad', tagEn: 'Loyalty', desc: 'Sellos, cashback, cupones y más para los clientes de cada negocio.', descEn: 'Stamps, cashback, coupons and more for each business’s customers.', grad: ['#7C5CFF', '#4A2FBF'], icon: 'spark', iconFill: true },
+  { id: 'stripe', name: 'Stripe', tag: 'Pagos', tagEn: 'Payments', desc: 'Cobra depósitos de reserva y campañas de Destacados de forma segura.', descEn: 'Securely charge booking deposits and Featured campaigns.', grad: ['#635BFF', '#4B45C6'], icon: 'card', iconFill: false },
 ]
 
 type Niv = 'Premium' | 'Destacado'
@@ -199,7 +207,8 @@ const RES_COLOR: Record<Estado, [string, string]> = {
   'Confirmada': [R.jade, R.jadeTint], 'Sentados': [R.dusk, '#EAECEF'],
   'Por confirmar': [R.amberDeep, R.amberTint], 'Cancelada': [R.coralPress, R.coralTint],
 }
-const nivColor = (n: Niv) => n === 'Premium' ? { main: R.amber, press: R.amberDeep, tint: R.amberTint, badge: '★ Premium' } : { main: R.coral, press: R.coralPress, tint: R.coralTint, badge: '✦ Destacado' }
+const ESTADO_EN: Record<Estado, string> = { 'Confirmada': 'Confirmed', 'Sentados': 'Seated', 'Por confirmar': 'To confirm', 'Cancelada': 'Cancelled' }
+const nivColor = (n: Niv, en = false) => n === 'Premium' ? { main: R.amber, press: R.amberDeep, tint: R.amberTint, badge: '★ Premium' } : { main: R.coral, press: R.coralPress, tint: R.coralTint, badge: en ? '✦ Featured' : '✦ Destacado' }
 
 function Card({ children, style, onClick }: { children: ReactNode; style?: CSSProperties; onClick?: () => void }) {
   return <div onClick={onClick} style={{ background: R.surface, border: `1px solid ${R.line}`, borderRadius: 18, padding: '20px 22px', ...style }}>{children}</div>
@@ -289,6 +298,10 @@ function AdminLogin({ onAuth }: { onAuth: () => void }) {
   const [pass, setPass] = useState('')
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
+  // Pre-auth no conoce el idioma de la plataforma (vive tras el login), así que
+  // detecta el idioma del navegador para esta pantalla.
+  const en = typeof navigator !== 'undefined' && navigator.language.toLowerCase().startsWith('en')
+  const t = (es: string, enTxt: string) => (en ? enTxt : es)
 
   // Inicia sesión con Supabase y valida que el correo sea admin (allowlist server).
   async function submit() {
@@ -296,11 +309,11 @@ function AdminLogin({ onAuth }: { onAuth: () => void }) {
     setBusy(true); setErr('')
     const supabase = createClient()
     const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password: pass })
-    if (error) { setErr('Credenciales incorrectas.'); setBusy(false); return }
+    if (error) { setErr(t('Credenciales incorrectas.', 'Incorrect credentials.')); setBusy(false); return }
     const res = await fetch('/api/admin/session')
     const data = await res.json().catch(() => ({ admin: false }))
     if (data.admin) { onAuth() }
-    else { await supabase.auth.signOut(); setErr('Esta cuenta no tiene acceso de administrador.') }
+    else { await supabase.auth.signOut(); setErr(t('Esta cuenta no tiene acceso de administrador.', 'This account does not have admin access.')) }
     setBusy(false)
   }
   const field: CSSProperties = { width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 12, padding: '12px 14px', fontSize: 14.5, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.surface }
@@ -317,13 +330,13 @@ function AdminLogin({ onAuth }: { onAuth: () => void }) {
             <div style={{ fontSize: 10.5, color: R.inkFaint, fontWeight: 700, letterSpacing: '.05em' }}>SUPER ADMIN</div>
           </div>
         </div>
-        <h2 style={{ fontFamily: R.display, fontWeight: 800, fontSize: 20, color: R.ink, marginBottom: 4 }}>Acceso restringido</h2>
-        <p style={{ fontSize: 13.5, color: R.inkSoft, marginBottom: 18 }}>Solo para el operador de la plataforma.</p>
+        <h2 style={{ fontFamily: R.display, fontWeight: 800, fontSize: 20, color: R.ink, marginBottom: 4 }}>{t('Acceso restringido', 'Restricted access')}</h2>
+        <p style={{ fontSize: 13.5, color: R.inkSoft, marginBottom: 18 }}>{t('Solo para el operador de la plataforma.', 'Platform operators only.')}</p>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <input value={email} onChange={e => setEmail(e.target.value)} placeholder="Correo" style={field} />
-          <input value={pass} type="password" onChange={e => setPass(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') submit() }} placeholder="Contraseña" style={field} />
+          <input value={email} onChange={e => setEmail(e.target.value)} placeholder={t('Correo', 'Email')} style={field} />
+          <input value={pass} type="password" onChange={e => setPass(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') submit() }} placeholder={t('Contraseña', 'Password')} style={field} />
           {err && <div style={{ fontSize: 13, color: R.coralPress, fontWeight: 600 }}>{err}</div>}
-          <button onClick={submit} disabled={busy} style={{ width: '100%', padding: '13px', background: R.coral, color: '#fff', border: 'none', borderRadius: 14, fontFamily: R.ui, fontWeight: 700, fontSize: 15, cursor: busy ? 'default' : 'pointer', marginTop: 4, opacity: busy ? 0.7 : 1 }}>{busy ? 'Entrando…' : 'Entrar'}</button>
+          <button onClick={submit} disabled={busy} style={{ width: '100%', padding: '13px', background: R.coral, color: '#fff', border: 'none', borderRadius: 14, fontFamily: R.ui, fontWeight: 700, fontSize: 15, cursor: busy ? 'default' : 'pointer', marginTop: 4, opacity: busy ? 0.7 : 1 }}>{busy ? t('Entrando…', 'Signing in…') : t('Entrar', 'Sign in')}</button>
         </div>
       </div>
     </div>
@@ -339,27 +352,29 @@ function AdminAccept({ token, onAuth }: { token: string; onAuth: () => void }) {
   const [role, setRole] = useState('')
   const [pass, setPass] = useState('')
   const [err, setErr] = useState('')
+  const en = typeof navigator !== 'undefined' && navigator.language.toLowerCase().startsWith('en')
+  const t = (es: string, enTxt: string) => (en ? enTxt : es)
 
   useEffect(() => {
     fetch(`/api/admin/team/accept?token=${encodeURIComponent(token)}`)
       .then(async r => {
         const d = await r.json().catch(() => ({}))
-        if (!r.ok) { setErr(d.error || 'Invitación inválida.'); setPhase('error'); return }
+        if (!r.ok) { setErr(d.error || t('Invitación inválida.', 'Invalid invitation.')); setPhase('error'); return }
         setEmail(d.email); setRole(d.role); setPhase('form')
       })
-      .catch(() => { setErr('No se pudo cargar la invitación.'); setPhase('error') })
+      .catch(() => { setErr(t('No se pudo cargar la invitación.', 'Could not load the invitation.')); setPhase('error') })
   }, [token])
 
   async function activate() {
-    if (pass.length < 8) { setErr('La contraseña debe tener al menos 8 caracteres.'); return }
+    if (pass.length < 8) { setErr(t('La contraseña debe tener al menos 8 caracteres.', 'The password must be at least 8 characters.')); return }
     setPhase('busy'); setErr('')
     const res = await fetch('/api/admin/team/accept', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token, password: pass }) })
     const d = await res.json().catch(() => ({}))
-    if (!res.ok) { setErr(d.error || 'No se pudo activar la cuenta.'); setPhase('form'); return }
+    if (!res.ok) { setErr(d.error || t('No se pudo activar la cuenta.', 'Could not activate the account.')); setPhase('form'); return }
     // Cuenta activa: inicia sesión automáticamente.
     const supabase = createClient()
     const { error } = await supabase.auth.signInWithPassword({ email, password: pass })
-    if (error) { setErr('Cuenta activada. Entra desde la pantalla de acceso con tu correo y contraseña.'); setPhase('error'); return }
+    if (error) { setErr(t('Cuenta activada. Entra desde la pantalla de acceso con tu correo y contraseña.', 'Account activated. Sign in from the login screen with your email and password.')); setPhase('error'); return }
     onAuth()
   }
 
@@ -378,26 +393,26 @@ function AdminAccept({ token, onAuth }: { token: string; onAuth: () => void }) {
           </div>
         </div>
 
-        {phase === 'loading' && <p style={{ fontSize: 14, color: R.inkSoft }}>Cargando invitación…</p>}
+        {phase === 'loading' && <p style={{ fontSize: 14, color: R.inkSoft }}>{t('Cargando invitación…', 'Loading invitation…')}</p>}
 
         {phase === 'error' && (
           <>
-            <h2 style={{ fontFamily: R.display, fontWeight: 800, fontSize: 20, color: R.ink, marginBottom: 6 }}>Invitación</h2>
+            <h2 style={{ fontFamily: R.display, fontWeight: 800, fontSize: 20, color: R.ink, marginBottom: 6 }}>{t('Invitación', 'Invitation')}</h2>
             <p style={{ fontSize: 13.5, color: R.coralPress, fontWeight: 600 }}>{err}</p>
           </>
         )}
 
         {(phase === 'form' || phase === 'busy') && (
           <>
-            <h2 style={{ fontFamily: R.display, fontWeight: 800, fontSize: 20, color: R.ink, marginBottom: 4 }}>Activa tu cuenta</h2>
+            <h2 style={{ fontFamily: R.display, fontWeight: 800, fontSize: 20, color: R.ink, marginBottom: 4 }}>{t('Activa tu cuenta', 'Activate your account')}</h2>
             <p style={{ fontSize: 13.5, color: R.inkSoft, marginBottom: 16 }}>
-              Fuiste invitado como <strong style={{ color: R.ink }}>{role}</strong>. Crea una contraseña para <strong style={{ color: R.ink }}>{email}</strong>.
+              {en ? <>You were invited as <strong style={{ color: R.ink }}>{role}</strong>. Create a password for <strong style={{ color: R.ink }}>{email}</strong>.</> : <>Fuiste invitado como <strong style={{ color: R.ink }}>{role}</strong>. Crea una contraseña para <strong style={{ color: R.ink }}>{email}</strong>.</>}
             </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               <input value={email} readOnly style={{ ...field, color: R.inkSoft, background: R.bgAlt }} />
-              <input value={pass} type="password" onChange={e => { setPass(e.target.value); setErr('') }} onKeyDown={e => { if (e.key === 'Enter') activate() }} placeholder="Contraseña (mín. 8 caracteres)" style={field} />
+              <input value={pass} type="password" onChange={e => { setPass(e.target.value); setErr('') }} onKeyDown={e => { if (e.key === 'Enter') activate() }} placeholder={t('Contraseña (mín. 8 caracteres)', 'Password (min. 8 characters)')} style={field} />
               {err && <div style={{ fontSize: 13, color: R.coralPress, fontWeight: 600 }}>{err}</div>}
-              <button onClick={activate} disabled={phase === 'busy'} style={{ width: '100%', padding: '13px', background: R.coral, color: '#fff', border: 'none', borderRadius: 14, fontFamily: R.ui, fontWeight: 700, fontSize: 15, cursor: phase === 'busy' ? 'default' : 'pointer', marginTop: 4, opacity: phase === 'busy' ? 0.7 : 1 }}>{phase === 'busy' ? 'Activando…' : 'Activar y entrar'}</button>
+              <button onClick={activate} disabled={phase === 'busy'} style={{ width: '100%', padding: '13px', background: R.coral, color: '#fff', border: 'none', borderRadius: 14, fontFamily: R.ui, fontWeight: 700, fontSize: 15, cursor: phase === 'busy' ? 'default' : 'pointer', marginTop: 4, opacity: phase === 'busy' ? 0.7 : 1 }}>{phase === 'busy' ? t('Activando…', 'Activating…') : t('Activar y entrar', 'Activate and sign in')}</button>
             </div>
           </>
         )}
@@ -415,6 +430,8 @@ const ROVE_STATUS_META: Record<string, { label: string; color: string; bg: strin
   rejected: { label: 'Rechazada',   color: '#D23B47', bg: '#FCE9E7' },
 }
 
+const ROVE_STATUS_EN: Record<string, string> = { pending: 'In review', active: 'Active', paused: 'Paused', rejected: 'Rejected' }
+
 const ROVE_CAT_EMOJI: Record<string, string> = { food: '🍽️', experience: '🌅', discount: '🏷️', upgrade: '⭐' }
 
 type RoveFilter = 'all' | 'pending' | 'active' | 'paused' | 'rejected'
@@ -426,8 +443,9 @@ function RoveAdminView({ rewards, onUpdate, canWrite }: { rewards: RoveReward[];
   const [rejectReason, setRejectReason] = useState('')
   const [busy, setBusy] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
+  const t = useT()
 
-  useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 3000); return () => clearTimeout(t) }, [toast])
+  useEffect(() => { if (!toast) return; const to = setTimeout(() => setToast(null), 3000); return () => clearTimeout(to) }, [toast])
 
   const pending = rewards.filter(r => r.status === 'pending')
   const active  = rewards.filter(r => r.status === 'active')
@@ -452,7 +470,7 @@ function RoveAdminView({ rewards, onUpdate, canWrite }: { rewards: RoveReward[];
       const data = await res.json()
       if (res.ok) {
         onUpdate(data.reward)
-        setToast(decision === 'active' ? '✓ Recompensa aprobada y publicada' : decision === 'rejected' ? 'Recompensa rechazada' : 'Recompensa pausada')
+        setToast(decision === 'active' ? t('✓ Recompensa aprobada y publicada', '✓ Reward approved and published') : decision === 'rejected' ? t('Recompensa rechazada', 'Reward rejected') : t('Recompensa pausada', 'Reward paused'))
         setSelected(null)
         setTicketCostOverride('')
         setRejectReason('')
@@ -467,19 +485,19 @@ function RoveAdminView({ rewards, onUpdate, canWrite }: { rewards: RoveReward[];
       {/* KPIs */}
       <div style={{ display: 'flex', gap: 14, marginBottom: 24, flexWrap: 'wrap' }}>
         <div style={{ flex: 1, minWidth: 160, background: R.amberTint, borderRadius: 16, padding: '16px 20px' }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: R.amberDeep, textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 6 }}>Por revisar</div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: R.amberDeep, textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 6 }}>{t('Por revisar', 'To review')}</div>
           <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 32, color: R.ink }}>{pending.length}</div>
         </div>
         <div style={{ flex: 1, minWidth: 160, background: R.jadeTint, borderRadius: 16, padding: '16px 20px' }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: '#16614c', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 6 }}>Activas</div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#16614c', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 6 }}>{t('Activas', 'Active')}</div>
           <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 32, color: R.ink }}>{active.length}</div>
         </div>
         <div style={{ flex: 1, minWidth: 160, background: R.bgAlt, borderRadius: 16, padding: '16px 20px' }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 6 }}>Pausadas</div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 6 }}>{t('Pausadas', 'Paused')}</div>
           <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 32, color: R.ink }}>{paused.length}</div>
         </div>
         <div style={{ flex: 1, minWidth: 160, background: R.surface, border: `1px solid ${R.line}`, borderRadius: 16, padding: '16px 20px' }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 6 }}>Negocios</div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 6 }}>{t('Negocios', 'Businesses')}</div>
           <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 32, color: R.ink }}>{new Set(rewards.map(r => r.bizId)).size}</div>
         </div>
       </div>
@@ -487,11 +505,11 @@ function RoveAdminView({ rewards, onUpdate, canWrite }: { rewards: RoveReward[];
       {/* Filtros */}
       <div style={{ display: 'inline-flex', gap: 4, background: R.bgAlt, borderRadius: 999, padding: 4, marginBottom: 18 }}>
         {([
-          ['all',      `Todas (${rewards.length})`],
-          ['pending',  `Por revisar (${pending.length})`],
-          ['active',   `Activas (${active.length})`],
-          ['paused',   `Pausadas (${paused.length})`],
-          ['rejected', 'Rechazadas'],
+          ['all',      `${t('Todas', 'All')} (${rewards.length})`],
+          ['pending',  `${t('Por revisar', 'To review')} (${pending.length})`],
+          ['active',   `${t('Activas', 'Active')} (${active.length})`],
+          ['paused',   `${t('Pausadas', 'Paused')} (${paused.length})`],
+          ['rejected', t('Rechazadas', 'Rejected')],
         ] as [RoveFilter, string][]).map(([id, label]) => (
           <button key={id} onClick={() => setFilter(id)} style={{ padding: '8px 16px', borderRadius: 999, border: 'none', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13, background: filter === id ? R.surface : 'transparent', color: filter === id ? R.ink : R.inkSoft, boxShadow: filter === id ? '0 1px 3px rgba(0,0,0,.08)' : 'none' }}>
             {label}
@@ -502,7 +520,7 @@ function RoveAdminView({ rewards, onUpdate, canWrite }: { rewards: RoveReward[];
       {/* Lista */}
       {visible.length === 0 ? (
         <div style={{ background: R.surface, border: `1px solid ${R.line}`, borderRadius: 16, padding: '40px 24px', textAlign: 'center', color: R.inkSoft }}>
-          {filter === 'pending' ? 'No hay recompensas pendientes de revisión.' : 'No hay recompensas en este estado.'}
+          {filter === 'pending' ? t('No hay recompensas pendientes de revisión.', 'No rewards pending review.') : t('No hay recompensas en este estado.', 'No rewards in this state.')}
         </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(300px,1fr))', gap: 14 }}>
@@ -517,19 +535,19 @@ function RoveAdminView({ rewards, onUpdate, canWrite }: { rewards: RoveReward[];
                     <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 15.5, color: R.ink }}>{r.title}</div>
                     <div style={{ fontSize: 12.5, color: R.inkSoft, marginTop: 1 }}>{r.bizName}</div>
                   </div>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: st.color, background: st.bg, padding: '3px 9px', borderRadius: 999, flexShrink: 0 }}>{st.label}</span>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: st.color, background: st.bg, padding: '3px 9px', borderRadius: 999, flexShrink: 0 }}>{t(st.label, ROVE_STATUS_EN[r.status] ?? st.label)}</span>
                 </div>
                 <p style={{ fontSize: 13, color: R.inkSoft, lineHeight: 1.5, margin: 0 }}>{r.description}</p>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: R.amberDeep, background: R.amberTint, padding: '3px 10px', borderRadius: 999 }}>{r.ticketCost} boletos</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: R.amberDeep, background: R.amberTint, padding: '3px 10px', borderRadius: 999 }}>{r.ticketCost} {t('boletos', 'tickets')}</span>
                   <span style={{ fontSize: 12, color: R.inkFaint, background: R.bgAlt, padding: '3px 10px', borderRadius: 999 }}>📅 {r.validDays}d</span>
                   {r.stock !== null && <span style={{ fontSize: 12, color: R.inkFaint, background: R.bgAlt, padding: '3px 10px', borderRadius: 999 }}>Stock: {r.stock}</span>}
                 </div>
                 {r.status === 'rejected' && r.rejectionReason && (
-                  <div style={{ fontSize: 12.5, color: R.coralPress, background: R.coralTint, borderRadius: 8, padding: '7px 10px' }}>Motivo: {r.rejectionReason}</div>
+                  <div style={{ fontSize: 12.5, color: R.coralPress, background: R.coralTint, borderRadius: 8, padding: '7px 10px' }}>{t('Motivo', 'Reason')}: {r.rejectionReason}</div>
                 )}
                 <button onClick={() => { setSelected(r); setTicketCostOverride(String(r.ticketCost)); setRejectReason('') }} style={{ marginTop: 'auto', padding: '10px', border: `1px solid ${R.line}`, borderRadius: 11, background: r.status === 'pending' ? R.ink : R.surface, color: r.status === 'pending' ? '#fff' : R.ink, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5 }}>
-                  {r.status === 'pending' ? 'Revisar y decidir' : 'Gestionar'}
+                  {r.status === 'pending' ? t('Revisar y decidir', 'Review and decide') : t('Gestionar', 'Manage')}
                 </button>
               </div>
             )
@@ -542,7 +560,7 @@ function RoveAdminView({ rewards, onUpdate, canWrite }: { rewards: RoveReward[];
         <div onClick={() => setSelected(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(34,28,25,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 20 }}>
           <div onClick={e => e.stopPropagation()} style={{ width: '100%', maxWidth: 480, maxHeight: 'calc(100vh - 40px)', overflowY: 'auto', background: R.bg, borderRadius: 20, padding: 26, boxShadow: '0 30px 80px rgba(0,0,0,.4)' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-              <span style={{ fontFamily: R.display, fontWeight: 800, fontSize: 19, color: R.ink }}>Revisar recompensa</span>
+              <span style={{ fontFamily: R.display, fontWeight: 800, fontSize: 19, color: R.ink }}>{t('Revisar recompensa', 'Review reward')}</span>
               <button onClick={() => setSelected(null)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: R.inkFaint, fontSize: 22, lineHeight: 1, padding: 0 }}>×</button>
             </div>
 
@@ -557,7 +575,7 @@ function RoveAdminView({ rewards, onUpdate, canWrite }: { rewards: RoveReward[];
               </div>
               <p style={{ fontSize: 13.5, color: R.inkSoft, lineHeight: 1.55, margin: '0 0 10px' }}>{selected.description}</p>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 12, background: R.bgAlt, padding: '3px 10px', borderRadius: 999, color: R.inkSoft }}>📅 {selected.validDays} días</span>
+                <span style={{ fontSize: 12, background: R.bgAlt, padding: '3px 10px', borderRadius: 999, color: R.inkSoft }}>📅 {selected.validDays} {t('días', 'days')}</span>
                 {selected.stock !== null && <span style={{ fontSize: 12, background: R.bgAlt, padding: '3px 10px', borderRadius: 999, color: R.inkSoft }}>Stock: {selected.stock}</span>}
               </div>
             </div>
@@ -565,17 +583,17 @@ function RoveAdminView({ rewards, onUpdate, canWrite }: { rewards: RoveReward[];
             {/* Ajustar costo en boletos */}
             {canWrite && (
             <div style={{ marginBottom: 14 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 6 }}>Costo en boletos (propuesto: {selected.ticketCost})</div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 6 }}>{t('Costo en boletos', 'Ticket cost')} ({t('propuesto', 'proposed')}: {selected.ticketCost})</div>
               <input type="number" min={1} max={100} value={ticketCostOverride} onChange={e => setTicketCostOverride(e.target.value)} style={fieldStyle} />
-              <div style={{ fontSize: 12, color: R.inkSoft, marginTop: 5 }}>Puedes ajustar el costo antes de aprobar. El negocio verá el valor final.</div>
+              <div style={{ fontSize: 12, color: R.inkSoft, marginTop: 5 }}>{t('Puedes ajustar el costo antes de aprobar. El negocio verá el valor final.', 'You can adjust the cost before approving. The business will see the final value.')}</div>
             </div>
             )}
 
             {/* Motivo de rechazo */}
             {canWrite && selected.status !== 'active' && (
               <div style={{ marginBottom: 16 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 6 }}>Motivo de rechazo <span style={{ fontWeight: 500, textTransform: 'none' }}>(solo si rechazas)</span></div>
-                <input value={rejectReason} onChange={e => setRejectReason(e.target.value)} placeholder="Ej. El premio no cumple las condiciones mínimas" style={fieldStyle} />
+                <div style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 6 }}>{t('Motivo de rechazo', 'Rejection reason')} <span style={{ fontWeight: 500, textTransform: 'none' }}>{t('(solo si rechazas)', '(only if you reject)')}</span></div>
+                <input value={rejectReason} onChange={e => setRejectReason(e.target.value)} placeholder={t('Ej. El premio no cumple las condiciones mínimas', 'e.g. The reward does not meet the minimum conditions')} style={fieldStyle} />
               </div>
             )}
 
@@ -583,25 +601,25 @@ function RoveAdminView({ rewards, onUpdate, canWrite }: { rewards: RoveReward[];
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               {canWrite && selected.status !== 'active' && (
                 <button onClick={() => decide('active')} disabled={busy} style={{ flex: 2, minWidth: 120, padding: '12px', border: 'none', borderRadius: 12, background: R.jade, color: '#fff', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14, opacity: busy ? .7 : 1 }}>
-                  {busy ? '…' : '✓ Aprobar y publicar'}
+                  {busy ? '…' : t('✓ Aprobar y publicar', '✓ Approve and publish')}
                 </button>
               )}
               {canWrite && selected.status === 'active' && (
                 <button onClick={() => decide('paused')} disabled={busy} style={{ flex: 1, padding: '12px', border: `1px solid ${R.line}`, borderRadius: 12, background: R.surface, color: R.ink, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14, opacity: busy ? .7 : 1 }}>
-                  Pausar
+                  {t('Pausar', 'Pause')}
                 </button>
               )}
               {canWrite && selected.status === 'paused' && (
                 <button onClick={() => decide('active')} disabled={busy} style={{ flex: 1, padding: '12px', border: 'none', borderRadius: 12, background: R.jade, color: '#fff', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14, opacity: busy ? .7 : 1 }}>
-                  Reactivar
+                  {t('Reactivar', 'Reactivate')}
                 </button>
               )}
               {canWrite && selected.status !== 'rejected' && (
                 <button onClick={() => decide('rejected')} disabled={busy} style={{ flex: 1, padding: '12px', border: `1px solid ${R.line}`, borderRadius: 12, background: 'transparent', color: R.coralPress, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14, opacity: busy ? .7 : 1 }}>
-                  Rechazar
+                  {t('Rechazar', 'Reject')}
                 </button>
               )}
-              <button onClick={() => setSelected(null)} style={{ padding: '12px 14px', border: `1px solid ${R.line}`, borderRadius: 12, background: 'transparent', color: R.inkSoft, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14 }}>{canWrite ? 'Cancelar' : 'Cerrar'}</button>
+              <button onClick={() => setSelected(null)} style={{ padding: '12px 14px', border: `1px solid ${R.line}`, borderRadius: 12, background: 'transparent', color: R.inkSoft, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14 }}>{canWrite ? t('Cancelar', 'Cancel') : t('Cerrar', 'Close')}</button>
             </div>
           </div>
         </div>
@@ -824,7 +842,9 @@ export default function AdminPage() {
   const [twoFa, setTwoFa] = useState(false)
   const [sessExpiry, setSessExpiry] = useState('7d')
   const [settingsSaving, setSettingsSaving] = useState(false)
-  const panelTitles: Record<string, string> = { plataforma: 'Plataforma', notificaciones: 'Notificaciones', seguridad: 'Seguridad', facturacion: 'Facturación', categorias: 'Categorías de negocio' }
+  const panelTitles: Record<string, string> = platLang === 'en'
+    ? { plataforma: 'Platform', notificaciones: 'Notifications', seguridad: 'Security', facturacion: 'Billing', categorias: 'Business categories' }
+    : { plataforma: 'Plataforma', notificaciones: 'Notificaciones', seguridad: 'Seguridad', facturacion: 'Facturación', categorias: 'Categorías de negocio' }
 
   // Persiste los ajustes generales de la plataforma. Facturación y Categorías se
   // guardan por su cuenta (esta función cubre Plataforma / Notificaciones / Seguridad).
@@ -1072,23 +1092,29 @@ export default function AdminPage() {
     setView(v)
   }
 
+  // Helper de idioma del panel — se alimenta del ajuste "Idioma por defecto"
+  // (platLang) que persiste en platform_settings.
+  const en = platLang === 'en'
+  const t = (es: string, enTxt: string) => (en ? enTxt : es)
+
   const titles: Record<string, [string, string]> = {
-    overview: ['Resumen', 'Cómo va la plataforma hoy'],
-    destacados: ['Destacados', 'Inventario, ingresos y rotación del marketplace'],
-    ingresos: ['Ingresos', 'Todo lo que genera la plataforma, en tiempo real'],
-    negocios: ['Negocios', 'Todos los negocios en Reva'],
-    reservas: ['Reservas', 'Reservas en toda la plataforma'],
-    moderacion: ['Moderación', 'Aprueba el contenido destacado'],
-    informes: ['Informes', 'Genera y descarga reportes de cada módulo'],
-    rove: ['Reva+ Rewards', 'Aprueba recompensas y monitorea boletos'],
-    soporte: ['Soporte', 'Conversaciones de usuarios con el equipo Reva'],
-    integraciones: ['Integraciones', 'Conexiones de la plataforma'],
-    ajustes: ['Ajustes', 'Configuración de la plataforma'],
+    overview: [t('Resumen', 'Overview'), t('Cómo va la plataforma hoy', 'How the platform is doing today')],
+    destacados: [t('Destacados', 'Featured'), t('Inventario, ingresos y rotación del marketplace', 'Marketplace inventory, revenue and rotation')],
+    ingresos: [t('Ingresos', 'Revenue'), t('Todo lo que genera la plataforma, en tiempo real', 'Everything the platform earns, in real time')],
+    negocios: [t('Negocios', 'Businesses'), t('Todos los negocios en Reva', 'Every business on Reva')],
+    reservas: [t('Reservas', 'Bookings'), t('Reservas en toda la plataforma', 'Bookings across the platform')],
+    moderacion: [t('Moderación', 'Moderation'), t('Aprueba el contenido destacado', 'Approve featured content')],
+    informes: [t('Informes', 'Reports'), t('Genera y descarga reportes de cada módulo', 'Generate and download reports for each module')],
+    rove: ['Reva+ Rewards', t('Aprueba recompensas y monitorea boletos', 'Approve rewards and monitor tickets')],
+    soporte: [t('Soporte', 'Support'), t('Conversaciones de usuarios con el equipo Reva', 'User conversations with the Reva team')],
+    integraciones: [t('Integraciones', 'Integrations'), t('Conexiones de la plataforma', 'Platform connections')],
+    ajustes: [t('Ajustes', 'Settings'), t('Configuración de la plataforma', 'Platform configuration')],
   }
   const [title, subtitle] = titles[view] ?? ['', '']
   const detail = selBiz !== null ? bizes[selBiz] : null
 
   return (
+    <LangContext.Provider value={platLang === 'en' ? 'en' : 'es'}>
     <div style={{ display: 'flex', height: '100vh', fontFamily: R.ui, background: R.bg, color: R.ink, overflow: 'hidden' }}>
       {/* Sidebar */}
       <div style={{ width: 236, flexShrink: 0, background: R.dusk, color: '#fff', display: 'flex', flexDirection: 'column', padding: '22px 16px' }}>
@@ -1108,7 +1134,7 @@ export default function AdminPage() {
             return (
               <button key={it.id} onClick={() => { setView(it.id); setInteg(null) }} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 14px', borderRadius: 12, cursor: 'pointer', border: 'none', width: '100%', textAlign: 'left', background: on ? 'rgba(255,255,255,.12)' : 'transparent', color: on ? '#fff' : 'rgba(255,255,255,.6)', fontWeight: on ? 700 : 500, fontSize: 14.5, fontFamily: R.ui }}>
                 <Icon n={it.icon} size={20} color={on ? '#fff' : 'rgba(255,255,255,.5)'} stroke={on ? 2.3 : 2} />
-                {it.label}
+                {t(it.label, NAV_EN[it.id] ?? it.label)}
                 {badge > 0 && <span style={{ marginLeft: 'auto', background: R.coral, color: '#fff', fontSize: 11, fontWeight: 700, borderRadius: 999, minWidth: 18, height: 18, display: 'grid', placeItems: 'center', padding: '0 5px' }}>{badge}</span>}
               </button>
             )
@@ -1123,7 +1149,7 @@ export default function AdminPage() {
             </div>
           </div>
           <button onClick={logout} style={{ display: 'flex', alignItems: 'center', gap: 9, background: 'transparent', border: '1px solid rgba(255,255,255,.15)', borderRadius: 12, padding: '10px 14px', cursor: 'pointer', color: 'rgba(255,255,255,.7)', fontFamily: R.ui, fontWeight: 600, fontSize: 13.5 }}>
-            <Icon n="logout" size={16} color="rgba(255,255,255,.7)" /> Cerrar sesión
+            <Icon n="logout" size={16} color="rgba(255,255,255,.7)" /> {t('Cerrar sesión', 'Log out')}
           </button>
         </div>
       </div>
@@ -1153,13 +1179,13 @@ export default function AdminPage() {
                   <div onClick={() => setNotifOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 40 }} />
                   <div style={{ position: 'absolute', top: 'calc(100% + 10px)', right: 0, width: 340, maxHeight: 420, overflowY: 'auto', background: R.surface, border: `1px solid ${R.line}`, borderRadius: 16, boxShadow: '0 18px 48px rgba(34,28,25,.16)', zIndex: 41 }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px 10px', borderBottom: `1px solid ${R.lineSoft}`, position: 'sticky', top: 0, background: R.surface }}>
-                      <span style={{ fontFamily: R.display, fontWeight: 800, fontSize: 15, color: R.ink }}>Notificaciones</span>
-                      {liveNotifs.length > 0 && <span style={{ fontSize: 11.5, fontWeight: 700, color: R.coralPress, background: R.coralTint, padding: '2px 9px', borderRadius: 999 }}>{liveNotifs.length} nuevas</span>}
+                      <span style={{ fontFamily: R.display, fontWeight: 800, fontSize: 15, color: R.ink }}>{t('Notificaciones', 'Notifications')}</span>
+                      {liveNotifs.length > 0 && <span style={{ fontSize: 11.5, fontWeight: 700, color: R.coralPress, background: R.coralTint, padding: '2px 9px', borderRadius: 999 }}>{liveNotifs.length} {t('nuevas', 'new')}</span>}
                     </div>
                     {liveNotifs.length === 0 ? (
                       <div style={{ textAlign: 'center', padding: '32px 20px', color: R.inkSoft, fontSize: 13 }}>
                         <Icon n="check" size={26} color={R.jade} />
-                        <div style={{ marginTop: 8 }}>Todo al día — sin pendientes.</div>
+                        <div style={{ marginTop: 8 }}>{t('Todo al día — sin pendientes.', 'All caught up — nothing pending.')}</div>
                       </div>
                     ) : (
                       <div style={{ display: 'flex', flexDirection: 'column' }}>
@@ -1185,7 +1211,7 @@ export default function AdminPage() {
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: R.jadeTint, borderRadius: 999, padding: '8px 14px' }}>
               <span style={{ width: 8, height: 8, borderRadius: '50%', background: R.jade }} />
-              <span style={{ fontSize: 13, fontWeight: 700, color: '#16614c' }}>Plataforma operativa</span>
+              <span style={{ fontSize: 13, fontWeight: 700, color: '#16614c' }}>{t('Plataforma operativa', 'Platform operational')}</span>
             </div>
           </div>
         </div>
@@ -1206,8 +1232,8 @@ export default function AdminPage() {
                       <button onClick={() => setView('moderacion')} style={{ flex: 1, minWidth: 240, display: 'flex', alignItems: 'center', gap: 13, textAlign: 'left', background: R.amberTint, border: `1px solid ${R.amber}`, borderRadius: 16, padding: '14px 18px', cursor: 'pointer', fontFamily: R.ui }}>
                         <div style={{ width: 38, height: 38, borderRadius: 11, background: '#fff', display: 'grid', placeItems: 'center', flexShrink: 0 }}><Icon n="flag" size={18} color={R.amberDeep} /></div>
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontWeight: 800, fontSize: 14.5, color: R.amberDeep }}>{pendingMod} elemento{pendingMod !== 1 ? 's' : ''} por aprobar</div>
-                          <div style={{ fontSize: 12.5, color: R.inkSoft }}>Contenido destacado esperando moderación</div>
+                          <div style={{ fontWeight: 800, fontSize: 14.5, color: R.amberDeep }}>{en ? `${pendingMod} item${pendingMod !== 1 ? 's' : ''} to approve` : `${pendingMod} elemento${pendingMod !== 1 ? 's' : ''} por aprobar`}</div>
+                          <div style={{ fontSize: 12.5, color: R.inkSoft }}>{t('Contenido destacado esperando moderación', 'Featured content awaiting moderation')}</div>
                         </div>
                         <Icon n="chevron" size={18} color={R.amberDeep} />
                       </button>
@@ -1216,8 +1242,8 @@ export default function AdminPage() {
                       <button onClick={() => setView('soporte')} style={{ flex: 1, minWidth: 240, display: 'flex', alignItems: 'center', gap: 13, textAlign: 'left', background: R.coralTint, border: `1px solid ${R.coral}`, borderRadius: 16, padding: '14px 18px', cursor: 'pointer', fontFamily: R.ui }}>
                         <div style={{ width: 38, height: 38, borderRadius: 11, background: '#fff', display: 'grid', placeItems: 'center', flexShrink: 0 }}><Icon n="chat" size={18} color={R.coralPress} /></div>
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontWeight: 800, fontSize: 14.5, color: R.coralPress }}>{pendingTickets} ticket{pendingTickets !== 1 ? 's' : ''} de soporte abiertos</div>
-                          <div style={{ fontSize: 12.5, color: R.inkSoft }}>Usuarios esperando respuesta</div>
+                          <div style={{ fontWeight: 800, fontSize: 14.5, color: R.coralPress }}>{en ? `${pendingTickets} open support ticket${pendingTickets !== 1 ? 's' : ''}` : `${pendingTickets} ticket${pendingTickets !== 1 ? 's' : ''} de soporte abiertos`}</div>
+                          <div style={{ fontSize: 12.5, color: R.inkSoft }}>{t('Usuarios esperando respuesta', 'Users waiting for a reply')}</div>
                         </div>
                         <Icon n="chevron" size={18} color={R.coralPress} />
                       </button>
@@ -1226,21 +1252,21 @@ export default function AdminPage() {
                 )}
 
                 <div style={{ display: 'flex', gap: 14, marginBottom: 22, flexWrap: 'wrap' }}>
-                  <KPI label="Negocios activos" value={`${bizes.filter(b => b.estado === 'Activo').length}`} sub={pausedBizes ? `${pausedBizes} pausados · ${bizes.length} en total` : `${bizes.length} en total`} tint={R.coralTint} icon={<Icon n="grid" size={20} color={R.coral} />} />
-                  <KPI label="Reservas (mes)" value={resStats.month.toLocaleString('es-MX')} sub="vía Reva" tint={R.jadeTint} icon={<Icon n="cal" size={20} color={R.jade} />} />
-                  <KPI label="Ingreso plataforma (mes)" value={fmt(platformMonth)} sub="comisiones + destacados" tint={R.amberTint} icon={<Icon n="coins" size={20} color={R.amber} />} />
-                  <KPI label="Ingreso por Destacados (mes)" value={fmt(featuredMonth)} sub={`${featuredActive} ${featuredActive === 1 ? 'campaña activa' : 'campañas activas'}`} tint={R.coralTint} icon={<Icon n="spark" size={20} color={R.coral} />} />
+                  <KPI label={t('Negocios activos', 'Active businesses')} value={`${bizes.filter(b => b.estado === 'Activo').length}`} sub={pausedBizes ? (en ? `${pausedBizes} paused · ${bizes.length} total` : `${pausedBizes} pausados · ${bizes.length} en total`) : (en ? `${bizes.length} total` : `${bizes.length} en total`)} tint={R.coralTint} icon={<Icon n="grid" size={20} color={R.coral} />} />
+                  <KPI label={t('Reservas (mes)', 'Bookings (month)')} value={resStats.month.toLocaleString(en ? 'en-US' : 'es-MX')} sub={t('vía Reva', 'via Reva')} tint={R.jadeTint} icon={<Icon n="cal" size={20} color={R.jade} />} />
+                  <KPI label={t('Ingreso plataforma (mes)', 'Platform revenue (month)')} value={fmt(platformMonth)} sub={t('comisiones + destacados', 'commissions + featured')} tint={R.amberTint} icon={<Icon n="coins" size={20} color={R.amber} />} />
+                  <KPI label={t('Ingreso por Destacados (mes)', 'Featured revenue (month)')} value={fmt(featuredMonth)} sub={en ? `${featuredActive} ${featuredActive === 1 ? 'active campaign' : 'active campaigns'}` : `${featuredActive} ${featuredActive === 1 ? 'campaña activa' : 'campañas activas'}`} tint={R.coralTint} icon={<Icon n="spark" size={20} color={R.coral} />} />
                 </div>
 
                 <Card style={{ marginBottom: 22 }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-                    <span style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink }}>Destacados — negocios activos</span>
-                    <button onClick={() => setView('destacados')} style={{ background: 'none', border: 'none', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5, color: R.coral, cursor: 'pointer' }}>Ver módulo →</button>
+                    <span style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink }}>{t('Destacados — negocios activos', 'Featured — active businesses')}</span>
+                    <button onClick={() => setView('destacados')} style={{ background: 'none', border: 'none', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5, color: R.coral, cursor: 'pointer' }}>{t('Ver módulo →', 'View module →')}</button>
                   </div>
                   <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
-                    <div style={{ flex: 1, minWidth: 160 }}><div style={{ fontSize: 12.5, color: R.inkSoft, marginBottom: 6 }}>★ Premium</div><div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 22, color: R.ink }}>{premiumLive} <span style={{ fontSize: 13, fontWeight: 600, color: R.inkFaint }}>{premiumLive === 1 ? 'negocio' : 'negocios'}</span></div></div>
-                    <div style={{ flex: 1, minWidth: 160 }}><div style={{ fontSize: 12.5, color: R.inkSoft, marginBottom: 6 }}>✦ Destacado</div><div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 22, color: R.ink }}>{destacadoLive} <span style={{ fontSize: 13, fontWeight: 600, color: R.inkFaint }}>{destacadoLive === 1 ? 'negocio' : 'negocios'}</span></div></div>
-                    <div style={{ flex: 1, minWidth: 160 }}><div style={{ fontSize: 12.5, color: R.inkSoft, marginBottom: 6 }}>Sin destacar</div><div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 22, color: R.ink }}>{sinDestacar} <span style={{ fontSize: 13, fontWeight: 600, color: R.inkFaint }}>{sinDestacar === 1 ? 'negocio' : 'negocios'}</span></div></div>
+                    <div style={{ flex: 1, minWidth: 160 }}><div style={{ fontSize: 12.5, color: R.inkSoft, marginBottom: 6 }}>★ Premium</div><div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 22, color: R.ink }}>{premiumLive} <span style={{ fontSize: 13, fontWeight: 600, color: R.inkFaint }}>{en ? (premiumLive === 1 ? 'business' : 'businesses') : (premiumLive === 1 ? 'negocio' : 'negocios')}</span></div></div>
+                    <div style={{ flex: 1, minWidth: 160 }}><div style={{ fontSize: 12.5, color: R.inkSoft, marginBottom: 6 }}>{t('✦ Destacado', '✦ Featured')}</div><div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 22, color: R.ink }}>{destacadoLive} <span style={{ fontSize: 13, fontWeight: 600, color: R.inkFaint }}>{en ? (destacadoLive === 1 ? 'business' : 'businesses') : (destacadoLive === 1 ? 'negocio' : 'negocios')}</span></div></div>
+                    <div style={{ flex: 1, minWidth: 160 }}><div style={{ fontSize: 12.5, color: R.inkSoft, marginBottom: 6 }}>{t('Sin destacar', 'Not featured')}</div><div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 22, color: R.ink }}>{sinDestacar} <span style={{ fontSize: 13, fontWeight: 600, color: R.inkFaint }}>{en ? (sinDestacar === 1 ? 'business' : 'businesses') : (sinDestacar === 1 ? 'negocio' : 'negocios')}</span></div></div>
                   </div>
                 </Card>
 
@@ -1248,8 +1274,8 @@ export default function AdminPage() {
                   {/* Top negocios por reservas */}
                   <div style={{ flex: '1 1 360px', minWidth: 320 }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                      <span style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink }}>Negocios con más reservas</span>
-                      <button onClick={() => setView('negocios')} style={{ background: 'none', border: 'none', fontFamily: R.ui, fontWeight: 700, fontSize: 13, color: R.coral, cursor: 'pointer' }}>Ver todos →</button>
+                      <span style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink }}>{t('Negocios con más reservas', 'Businesses with most bookings')}</span>
+                      <button onClick={() => setView('negocios')} style={{ background: 'none', border: 'none', fontFamily: R.ui, fontWeight: 700, fontSize: 13, color: R.coral, cursor: 'pointer' }}>{t('Ver todos →', 'View all →')}</button>
                     </div>
                     <Card style={{ padding: 0, overflow: 'hidden' }}>
                       {topBizes.map((b, i) => (
@@ -1268,8 +1294,8 @@ export default function AdminPage() {
                   {/* Próximas reservas */}
                   <div style={{ flex: '1 1 360px', minWidth: 320 }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                      <span style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink }}>Próximas reservas</span>
-                      <button onClick={() => setView('reservas')} style={{ background: 'none', border: 'none', fontFamily: R.ui, fontWeight: 700, fontSize: 13, color: R.coral, cursor: 'pointer' }}>Ver todas →</button>
+                      <span style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink }}>{t('Próximas reservas', 'Upcoming bookings')}</span>
+                      <button onClick={() => setView('reservas')} style={{ background: 'none', border: 'none', fontFamily: R.ui, fontWeight: 700, fontSize: 13, color: R.coral, cursor: 'pointer' }}>{t('Ver todas →', 'View all →')}</button>
                     </div>
                     <Card style={{ padding: 0, overflow: 'hidden' }}>
                       {nextReservas.map((r, i) => {
@@ -1279,9 +1305,9 @@ export default function AdminPage() {
                             <div style={{ width: 64, flexShrink: 0, fontFamily: R.display, fontWeight: 700, fontSize: 12.5, color: R.ink }}>{r.cuando}</div>
                             <div style={{ flex: 1, minWidth: 0 }}>
                               <div style={{ fontWeight: 700, fontSize: 13.5, color: R.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.guest} · {r.biz}</div>
-                              <div style={{ fontSize: 12, color: R.inkSoft }}>{r.party} personas · {r.via}</div>
+                              <div style={{ fontSize: 12, color: R.inkSoft }}>{r.party} {t('personas', 'people')} · {r.via}</div>
                             </div>
-                            <span style={{ fontSize: 11, fontWeight: 700, color: tc, background: tb, padding: '3px 9px', borderRadius: 999, flexShrink: 0 }}>{r.estado}</span>
+                            <span style={{ fontSize: 11, fontWeight: 700, color: tc, background: tb, padding: '3px 9px', borderRadius: 999, flexShrink: 0 }}>{t(r.estado, ESTADO_EN[r.estado])}</span>
                           </div>
                         )
                       })}
@@ -1291,13 +1317,13 @@ export default function AdminPage() {
 
                 {/* Accesos rápidos */}
                 <div style={{ marginTop: 22 }}>
-                  <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink, marginBottom: 12 }}>Accesos rápidos</div>
+                  <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink, marginBottom: 12 }}>{t('Accesos rápidos', 'Quick access')}</div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 12 }}>
                     {[
-                      { v: 'negocios', icon: 'plus', label: 'Agregar negocio', sub: 'Alta de negocio nuevo' },
-                      { v: 'moderacion', icon: 'flag', label: 'Moderación', sub: `${pendingMod} pendientes` },
-                      { v: 'soporte', icon: 'chat', label: 'Soporte', sub: `${pendingTickets} abiertos` },
-                      { v: 'integraciones', icon: 'link', label: 'Integraciones', sub: 'IA, lealtad, pagos' },
+                      { v: 'negocios', icon: 'plus', label: t('Agregar negocio', 'Add business'), sub: t('Alta de negocio nuevo', 'Register a new business') },
+                      { v: 'moderacion', icon: 'flag', label: t('Moderación', 'Moderation'), sub: en ? `${pendingMod} pending` : `${pendingMod} pendientes` },
+                      { v: 'soporte', icon: 'chat', label: t('Soporte', 'Support'), sub: en ? `${pendingTickets} open` : `${pendingTickets} abiertos` },
+                      { v: 'integraciones', icon: 'link', label: t('Integraciones', 'Integrations'), sub: t('IA, lealtad, pagos', 'AI, loyalty, payments') },
                     ].filter(q => adminRole === 'super_admin' || q.v !== 'integraciones').map(q => (
                       <button key={q.v} onClick={() => setView(q.v)} style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-start', textAlign: 'left', background: R.surface, border: `1px solid ${R.line}`, borderRadius: 14, padding: '14px 16px', cursor: 'pointer', fontFamily: R.ui }}>
                         <div style={{ width: 34, height: 34, borderRadius: 10, background: R.bgAlt, display: 'grid', placeItems: 'center' }}><Icon n={q.icon} size={16} color={R.ink} /></div>
@@ -1316,18 +1342,18 @@ export default function AdminPage() {
           {view === 'destacados' && (
             <>
               <div style={{ display: 'flex', gap: 14, marginBottom: 24, flexWrap: 'wrap' }}>
-                <KPI label="Ingreso por Destacados (mes)" value={fmt(featuredMonth)} sub={`${featuredActive} ${featuredActive === 1 ? 'campaña activa' : 'campañas activas'}`} tint={R.coralTint} icon={<Icon n="coins" size={20} color={R.coral} />} />
-                <KPI label="Ocupación de cupos" value={`${featOcc}%`} sub={`${featSoldTotal} de ${featCapTotal} vendidos`} tint={R.jadeTint} icon={<Icon n="spark" size={20} color={R.jade} />} />
-                <KPI label="En lista de espera" value={`${featTotals.waitlist}`} sub="activos sin cupo" tint={R.amberTint} icon={<Icon n="clock" size={20} color={R.amber} />} />
+                <KPI label={t('Ingreso por Destacados (mes)', 'Featured revenue (month)')} value={fmt(featuredMonth)} sub={en ? `${featuredActive} ${featuredActive === 1 ? 'active campaign' : 'active campaigns'}` : `${featuredActive} ${featuredActive === 1 ? 'campaña activa' : 'campañas activas'}`} tint={R.coralTint} icon={<Icon n="coins" size={20} color={R.coral} />} />
+                <KPI label={t('Ocupación de cupos', 'Slot occupancy')} value={`${featOcc}%`} sub={en ? `${featSoldTotal} of ${featCapTotal} sold` : `${featSoldTotal} de ${featCapTotal} vendidos`} tint={R.jadeTint} icon={<Icon n="spark" size={20} color={R.jade} />} />
+                <KPI label={t('En lista de espera', 'On waitlist')} value={`${featTotals.waitlist}`} sub={t('activos sin cupo', 'active without a slot')} tint={R.amberTint} icon={<Icon n="clock" size={20} color={R.amber} />} />
               </div>
-              <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink, marginBottom: 12 }}>Inventario por categoría × municipio</div>
+              <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink, marginBottom: 12 }}>{t('Inventario por categoría × municipio', 'Inventory by category × municipality')}</div>
               <Card style={{ padding: 0, overflow: 'hidden', marginBottom: 26 }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr 1fr 70px 64px', gap: 14, padding: '12px 18px', borderBottom: `1px solid ${R.line}`, background: R.bgAlt, fontSize: 11.5, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.04em' }}>
-                  <span>Categoría · Municipio</span><span>★ Premium</span><span>✦ Destacado</span><span style={{ textAlign: 'right' }}>Espera</span><span style={{ textAlign: 'right' }}>Cupos</span>
+                  <span>{t('Categoría · Municipio', 'Category · Municipality')}</span><span>★ Premium</span><span>{t('✦ Destacado', '✦ Featured')}</span><span style={{ textAlign: 'right' }}>{t('Espera', 'Wait')}</span><span style={{ textAlign: 'right' }}>{t('Cupos', 'Slots')}</span>
                 </div>
                 {featInventory.length === 0 ? (
                   <div style={{ textAlign: 'center', padding: '40px 0', color: R.inkSoft, fontSize: 14 }}>
-                    {featured ? 'Aún no hay negocios destacados ni cupos configurados.' : 'Cargando inventario…'}
+                    {featured ? t('Aún no hay negocios destacados ni cupos configurados.', 'No featured businesses or configured slots yet.') : t('Cargando inventario…', 'Loading inventory…')}
                   </div>
                 ) : featInventory.map((r, i) => {
                   const k = `${r.categoria}|||${r.municipio}`
@@ -1341,8 +1367,8 @@ export default function AdminPage() {
                           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ fontSize: 13, fontWeight: 700, color: R.ink }}>{r.destacadoSold}/</span><input type="number" min={0} value={capDraft.destacado} onChange={e => setCapDraft(d => ({ ...d, destacado: Math.max(0, Number(e.target.value) || 0) }))} style={{ width: 46, border: `1px solid ${R.line}`, borderRadius: 8, padding: '5px 6px', fontFamily: R.ui, fontSize: 13, color: R.ink, outline: 'none' }} /></div>
                           <span style={{ textAlign: 'right', fontSize: 13.5, fontWeight: 700, color: r.waitlist ? R.amberDeep : R.inkFaint }}>{r.waitlist || '—'}</span>
                           <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                            <button onClick={() => saveCap(r.categoria, r.municipio, capDraft.premium, capDraft.destacado)} aria-label="Guardar" style={{ width: 28, height: 28, borderRadius: 8, border: 'none', background: R.jade, cursor: 'pointer', display: 'grid', placeItems: 'center' }}><Icon n="check" size={14} color="#fff" stroke={3} /></button>
-                            <button onClick={() => setCapEdit(null)} aria-label="Cancelar" style={{ width: 28, height: 28, borderRadius: 8, border: `1px solid ${R.line}`, background: R.surface, cursor: 'pointer', color: R.inkSoft, fontSize: 15, lineHeight: 1 }}>×</button>
+                            <button onClick={() => saveCap(r.categoria, r.municipio, capDraft.premium, capDraft.destacado)} aria-label={t('Guardar', 'Save')} style={{ width: 28, height: 28, borderRadius: 8, border: 'none', background: R.jade, cursor: 'pointer', display: 'grid', placeItems: 'center' }}><Icon n="check" size={14} color="#fff" stroke={3} /></button>
+                            <button onClick={() => setCapEdit(null)} aria-label={t('Cancelar', 'Cancel')} style={{ width: 28, height: 28, borderRadius: 8, border: `1px solid ${R.line}`, background: R.surface, cursor: 'pointer', color: R.inkSoft, fontSize: 15, lineHeight: 1 }}>×</button>
                           </div>
                         </>
                       ) : (
@@ -1352,7 +1378,7 @@ export default function AdminPage() {
                           <span style={{ textAlign: 'right', fontSize: 13.5, fontWeight: 700, color: r.waitlist ? R.amberDeep : R.inkFaint }}>{r.waitlist || '—'}</span>
                           <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                             {canWriteUI('featured') && (
-                              <button onClick={() => { setCapDraft({ premium: r.premiumCap, destacado: r.destacadoCap }); setCapEdit(k) }} style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 12.5, color: R.coral }}>Editar</button>
+                              <button onClick={() => { setCapDraft({ premium: r.premiumCap, destacado: r.destacadoCap }); setCapEdit(k) }} style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 12.5, color: R.coral }}>{t('Editar', 'Edit')}</button>
                             )}
                           </div>
                         </>
@@ -1361,15 +1387,15 @@ export default function AdminPage() {
                   )
                 })}
               </Card>
-              <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink, marginBottom: 12 }}>Negocios destacados ahora</div>
+              <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink, marginBottom: 12 }}>{t('Negocios destacados ahora', 'Businesses featured now')}</div>
               {featActive.length === 0 ? (
                 <Card style={{ textAlign: 'center', padding: '32px 0', color: R.inkSoft, fontSize: 14 }}>
-                  {featured ? 'Ningún negocio tiene un Destacado vigente. Cuando un negocio compre una campaña, aparecerá aquí.' : 'Cargando campañas…'}
+                  {featured ? t('Ningún negocio tiene un Destacado vigente. Cuando un negocio compre una campaña, aparecerá aquí.', 'No business has an active Featured campaign. When a business buys one, it will appear here.') : t('Cargando campañas…', 'Loading campaigns…')}
                 </Card>
               ) : (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 14 }}>
                   {featActive.map(a => {
-                    const nc = nivColor(a.nivel)
+                    const nc = nivColor(a.nivel, en)
                     return (
                       <Card key={a.id} style={{ padding: 16, display: 'flex', gap: 13, alignItems: 'flex-start' }}>
                         <div style={{ width: 44, height: 44, borderRadius: 12, background: `linear-gradient(140deg, ${a.grad[0]}, ${a.grad[1]})`, display: 'grid', placeItems: 'center', fontFamily: R.display, fontWeight: 800, color: '#fff', flexShrink: 0 }}>{a.mono}</div>
@@ -1380,10 +1406,10 @@ export default function AdminPage() {
                           </div>
                           <div style={{ fontSize: 12.5, color: R.inkSoft, marginTop: 2 }}>{a.cat} · {a.mun}</div>
                           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginTop: 10 }}>
-                            <span style={{ fontSize: 12.5, color: R.ink }}>Destaca: <strong style={{ fontWeight: 700 }}>{a.que}</strong></span>
+                            <span style={{ fontSize: 12.5, color: R.ink }}>{t('Destaca', 'Featuring')}: <strong style={{ fontWeight: 700 }}>{a.que}</strong></span>
                             <span style={{ fontFamily: R.display, fontWeight: 700, fontSize: 14, color: nc.press }}>{a.amount ? fmt(a.amount) : '—'}</span>
                           </div>
-                          <div style={{ fontSize: 12, color: R.inkFaint, marginTop: 4 }}>{a.dias === null ? 'Sin fecha de expiración' : `${a.dias} ${a.dias === 1 ? 'día restante' : 'días restantes'}`} · en rotación</div>
+                          <div style={{ fontSize: 12, color: R.inkFaint, marginTop: 4 }}>{a.dias === null ? t('Sin fecha de expiración', 'No expiration date') : (en ? `${a.dias} ${a.dias === 1 ? 'day left' : 'days left'}` : `${a.dias} ${a.dias === 1 ? 'día restante' : 'días restantes'}`)} · {t('en rotación', 'in rotation')}</div>
                         </div>
                       </Card>
                     )
@@ -1399,63 +1425,63 @@ export default function AdminPage() {
             const dep = t?.byType?.deposit ?? { count: 0, gross: 0, revenue: 0 }
             const sub = t?.byType?.subscription
             const rate = Math.round((t?.commissionRate ?? 0.02) * 100)
-            const money2 = (n: number) => '$' + n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-            const conceptOf = (ty: string) => ty === 'featured' ? 'Destacado' : ty === 'deposit' ? 'Depósito' : ty === 'subscription' ? 'Suscripción' : ty
+            const money2 = (n: number) => '$' + n.toLocaleString(en ? 'en-US' : 'es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+            const conceptOf = (ty: string) => ty === 'featured' ? (en ? 'Featured' : 'Destacado') : ty === 'deposit' ? (en ? 'Deposit' : 'Depósito') : ty === 'subscription' ? (en ? 'Subscription' : 'Suscripción') : ty
             const allPays = revenue?.payments ?? []
             const payRows = allPays.filter(p =>
               revFilter === 'Todos' ? true : revFilter === 'Destacados' ? p.type === 'featured' : p.type === 'deposit')
             return (
               <>
                 <div style={{ display: 'flex', gap: 14, marginBottom: 22, flexWrap: 'wrap' }}>
-                  <KPI label="Ingreso de Reva (total)" value={fmt(Math.round(t?.platform ?? 0))} sub={`${t?.count ?? 0} pagos cobrados`} tint={R.coralTint} icon={<Icon n="coins" size={20} color={R.coral} />} />
-                  <KPI label="Ingreso de Reva (este mes)" value={fmt(Math.round(t?.platformMonth ?? 0))} sub="destacados + comisiones" tint={R.jadeTint} icon={<Icon n="chart" size={20} color={R.jade} />} />
-                  <KPI label="Volumen procesado (GMV)" value={fmt(Math.round(t?.gmv ?? 0))} sub="total movido por el sistema" tint={R.amberTint} icon={<Icon n="spark" size={20} color={R.amber} />} />
+                  <KPI label={en ? 'Reva revenue (total)' : 'Ingreso de Reva (total)'} value={fmt(Math.round(t?.platform ?? 0))} sub={en ? `${t?.count ?? 0} payments collected` : `${t?.count ?? 0} pagos cobrados`} tint={R.coralTint} icon={<Icon n="coins" size={20} color={R.coral} />} />
+                  <KPI label={en ? 'Reva revenue (this month)' : 'Ingreso de Reva (este mes)'} value={fmt(Math.round(t?.platformMonth ?? 0))} sub={en ? 'featured + commissions' : 'destacados + comisiones'} tint={R.jadeTint} icon={<Icon n="chart" size={20} color={R.jade} />} />
+                  <KPI label={en ? 'Processed volume (GMV)' : 'Volumen procesado (GMV)'} value={fmt(Math.round(t?.gmv ?? 0))} sub={en ? 'total moved by the system' : 'total movido por el sistema'} tint={R.amberTint} icon={<Icon n="spark" size={20} color={R.amber} />} />
                 </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 14, marginBottom: 26 }}>
                   <Card style={{ padding: 18 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                      <span style={{ fontSize: 10.5, fontWeight: 700, color: R.coralPress, background: R.coralTint, padding: '3px 8px', borderRadius: 999 }}>✦ Destacados</span>
-                      <span style={{ fontSize: 12.5, color: R.inkSoft }}>{feat.count} pagos</span>
+                      <span style={{ fontSize: 10.5, fontWeight: 700, color: R.coralPress, background: R.coralTint, padding: '3px 8px', borderRadius: 999 }}>{en ? '✦ Featured' : '✦ Destacados'}</span>
+                      <span style={{ fontSize: 12.5, color: R.inkSoft }}>{feat.count} {en ? 'payments' : 'pagos'}</span>
                     </div>
                     <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 24, color: R.ink }}>{fmt(Math.round(feat.revenue))}</div>
-                    <div style={{ fontSize: 12.5, color: R.inkFaint, marginTop: 4 }}>El negocio paga el 100% a Reva.</div>
+                    <div style={{ fontSize: 12.5, color: R.inkFaint, marginTop: 4 }}>{en ? 'The business pays 100% to Reva.' : 'El negocio paga el 100% a Reva.'}</div>
                   </Card>
                   <Card style={{ padding: 18 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                      <span style={{ fontSize: 10.5, fontWeight: 700, color: R.jade, background: R.jadeTint, padding: '3px 8px', borderRadius: 999 }}>Comisión de depósitos</span>
-                      <span style={{ fontSize: 12.5, color: R.inkSoft }}>{dep.count} pagos</span>
+                      <span style={{ fontSize: 10.5, fontWeight: 700, color: R.jade, background: R.jadeTint, padding: '3px 8px', borderRadius: 999 }}>{en ? 'Deposit commission' : 'Comisión de depósitos'}</span>
+                      <span style={{ fontSize: 12.5, color: R.inkSoft }}>{dep.count} {en ? 'payments' : 'pagos'}</span>
                     </div>
                     <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 24, color: R.ink }}>{fmt(Math.round(dep.revenue))}</div>
-                    <div style={{ fontSize: 12.5, color: R.inkFaint, marginTop: 4 }}>{rate}% de {money2(dep.gross)} en depósitos. El resto va al negocio.</div>
+                    <div style={{ fontSize: 12.5, color: R.inkFaint, marginTop: 4 }}>{en ? `${rate}% of ${money2(dep.gross)} in deposits. The rest goes to the business.` : `${rate}% de ${money2(dep.gross)} en depósitos. El resto va al negocio.`}</div>
                   </Card>
                   {sub && sub.count > 0 && (
                     <Card style={{ padding: 18 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                        <span style={{ fontSize: 10.5, fontWeight: 700, color: R.inkSoft, background: R.bgAlt, padding: '3px 8px', borderRadius: 999 }}>Suscripciones</span>
-                        <span style={{ fontSize: 12.5, color: R.inkSoft }}>{sub.count} pagos</span>
+                        <span style={{ fontSize: 10.5, fontWeight: 700, color: R.inkSoft, background: R.bgAlt, padding: '3px 8px', borderRadius: 999 }}>{en ? 'Subscriptions' : 'Suscripciones'}</span>
+                        <span style={{ fontSize: 12.5, color: R.inkSoft }}>{sub.count} {en ? 'payments' : 'pagos'}</span>
                       </div>
                       <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 24, color: R.ink }}>{fmt(Math.round(sub.revenue))}</div>
-                      <div style={{ fontSize: 12.5, color: R.inkFaint, marginTop: 4 }}>Planes cobrados a negocios.</div>
+                      <div style={{ fontSize: 12.5, color: R.inkFaint, marginTop: 4 }}>{en ? 'Plans charged to businesses.' : 'Planes cobrados a negocios.'}</div>
                     </Card>
                   )}
                 </div>
 
                 <div style={{ display: 'flex', gap: 10, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center' }}>
-                  <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink, marginRight: 'auto' }}>Transacciones</div>
-                  <Chips options={['Todos', 'Destacados', 'Depósitos']} value={revFilter} onChange={v => setRevFilter(v as typeof revFilter)} />
+                  <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink, marginRight: 'auto' }}>{en ? 'Transactions' : 'Transacciones'}</div>
+                  <Chips options={en ? ['All', 'Featured', 'Deposits'] : ['Todos', 'Destacados', 'Depósitos']} value={en ? (revFilter === 'Todos' ? 'All' : revFilter === 'Destacados' ? 'Featured' : 'Deposits') : revFilter} onChange={v => setRevFilter((en ? (v === 'All' ? 'Todos' : v === 'Featured' ? 'Destacados' : 'Depósitos') : v) as typeof revFilter)} />
                 </div>
                 <Card style={{ padding: 0, overflow: 'hidden' }}>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr 1fr 1fr 1fr', gap: 14, padding: '12px 18px', borderBottom: `1px solid ${R.line}`, background: R.bgAlt, fontSize: 11.5, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.04em' }}>
-                    <span>Cuándo</span><span>Negocio</span><span>Concepto</span><span style={{ textAlign: 'right' }}>Monto</span><span style={{ textAlign: 'right' }}>Ingreso Reva</span>
+                    <span>{en ? 'When' : 'Cuándo'}</span><span>{en ? 'Business' : 'Negocio'}</span><span>{en ? 'Concept' : 'Concepto'}</span><span style={{ textAlign: 'right' }}>{en ? 'Amount' : 'Monto'}</span><span style={{ textAlign: 'right' }}>{en ? 'Reva revenue' : 'Ingreso Reva'}</span>
                   </div>
                   {payRows.length === 0 ? (
                     <div style={{ textAlign: 'center', padding: '40px 0', color: R.inkSoft, fontSize: 14 }}>
-                      {revLoaded ? 'Aún no hay pagos registrados. Cuando un negocio compre un Destacado o un cliente pague un depósito, aparecerá aquí.' : 'Cargando ingresos…'}
+                      {revLoaded ? (en ? 'No payments recorded yet. When a business buys a Featured campaign or a customer pays a deposit, it will appear here.' : 'Aún no hay pagos registrados. Cuando un negocio compre un Destacado o un cliente pague un depósito, aparecerá aquí.') : (en ? 'Loading revenue…' : 'Cargando ingresos…')}
                     </div>
                   ) : payRows.map((p, i) => (
                     <div key={p.id} style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr 1fr 1fr 1fr', gap: 14, alignItems: 'center', padding: '13px 18px', borderTop: i ? `1px solid ${R.lineSoft}` : 'none' }}>
-                      <span style={{ fontSize: 13, color: R.inkSoft }}>{new Date(p.created_at).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+                      <span style={{ fontSize: 13, color: R.inkSoft }}>{new Date(p.created_at).toLocaleDateString(en ? 'en-US' : 'es-MX', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
                         <div style={{ width: 30, height: 30, borderRadius: 8, background: `linear-gradient(140deg, ${p.grad[0]}, ${p.grad[1]})`, display: 'grid', placeItems: 'center', fontFamily: R.display, fontWeight: 800, color: '#fff', fontSize: 13, flexShrink: 0 }}>{p.mono}</div>
                         <span style={{ fontWeight: 600, fontSize: 13.5, color: R.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.biz_name}</span>
@@ -1473,20 +1499,20 @@ export default function AdminPage() {
           {view === 'negocios' && (
             <>
               <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
-                <SearchBox value={bq} onChange={setBq} placeholder="Buscar negocio…" />
-                <Chips options={['Todos', 'Activo', 'Pausado']} value={bf} onChange={setBf} />
+                <SearchBox value={bq} onChange={setBq} placeholder={t('Buscar negocio…', 'Search business…')} />
+                <Chips options={en ? ['All', 'Active', 'Paused'] : ['Todos', 'Activo', 'Pausado']} value={en ? (bf === 'Todos' ? 'All' : bf === 'Activo' ? 'Active' : 'Paused') : bf} onChange={v => setBf(en ? (v === 'All' ? 'Todos' : v === 'Active' ? 'Activo' : 'Pausado') : v)} />
                 {canWriteUI('businesses') && (
                   <button onClick={() => setAddBizOpen(true)} style={{ display: 'flex', alignItems: 'center', gap: 7, marginLeft: 'auto', padding: '10px 16px', border: 'none', borderRadius: 12, background: R.ink, color: '#fff', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5 }}>
-                    <Icon n="plus" size={15} color="#fff" /> Agregar negocio
+                    <Icon n="plus" size={15} color="#fff" /> {t('Agregar negocio', 'Add business')}
                   </button>
                 )}
               </div>
               <Card style={{ padding: 0, overflow: 'hidden' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1.7fr 1.3fr 0.8fr 1fr 0.9fr', gap: 14, padding: '12px 18px', borderBottom: `1px solid ${R.line}`, background: R.bgAlt, fontSize: 11.5, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.04em' }}>
-                  <span>Negocio</span><span>Categoría · Municipio</span><span>Plan</span><span>Destacado</span><span style={{ textAlign: 'right' }}>Estado</span>
+                  <span>{t('Negocio', 'Business')}</span><span>{t('Categoría · Municipio', 'Category · Municipality')}</span><span>{t('Plan', 'Plan')}</span><span>{t('Destacado', 'Featured')}</span><span style={{ textAlign: 'right' }}>{t('Estado', 'Status')}</span>
                 </div>
                 {bizRows.length === 0 ? (
-                  <div style={{ textAlign: 'center', padding: '36px 0', color: R.inkSoft, fontSize: 14 }}>Sin resultados.</div>
+                  <div style={{ textAlign: 'center', padding: '36px 0', color: R.inkSoft, fontSize: 14 }}>{t('Sin resultados.', 'No results.')}</div>
                 ) : bizRows.map(({ b, idx }, i) => (
                   <div key={idx} onClick={() => setSelBiz(idx)} style={{ display: 'grid', gridTemplateColumns: '1.7fr 1.3fr 0.8fr 1fr 0.9fr', gap: 14, alignItems: 'center', padding: '13px 18px', borderTop: i ? `1px solid ${R.lineSoft}` : 'none', cursor: 'pointer' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 11, minWidth: 0 }}>
@@ -1495,8 +1521,8 @@ export default function AdminPage() {
                     </div>
                     <span style={{ fontSize: 13, color: R.inkSoft, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{b.cat} · {b.mun}</span>
                     <span style={{ fontSize: 13, color: R.ink }}>{b.plan}</span>
-                    <span>{b.dest === '—' ? <span style={{ color: R.inkFaint, fontSize: 13 }}>—</span> : <span style={{ fontSize: 10.5, fontWeight: 700, color: nivColor(b.dest as Niv).press, background: nivColor(b.dest as Niv).tint, padding: '3px 8px', borderRadius: 999 }}>{nivColor(b.dest as Niv).badge}</span>}</span>
-                    <span style={{ textAlign: 'right', fontSize: 12, fontWeight: 700, color: b.estado === 'Activo' ? R.jade : R.inkFaint }}>● {b.estado}</span>
+                    <span>{b.dest === '—' ? <span style={{ color: R.inkFaint, fontSize: 13 }}>—</span> : <span style={{ fontSize: 10.5, fontWeight: 700, color: nivColor(b.dest as Niv).press, background: nivColor(b.dest as Niv).tint, padding: '3px 8px', borderRadius: 999 }}>{nivColor(b.dest as Niv, en).badge}</span>}</span>
+                    <span style={{ textAlign: 'right', fontSize: 12, fontWeight: 700, color: b.estado === 'Activo' ? R.jade : R.inkFaint }}>● {en ? (b.estado === 'Activo' ? 'Active' : 'Paused') : b.estado}</span>
                   </div>
                 ))}
               </Card>
@@ -1506,15 +1532,15 @@ export default function AdminPage() {
           {view === 'reservas' && (
             <>
               <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
-                <SearchBox value={rq} onChange={setRq} placeholder="Buscar por cliente o negocio…" />
-                <Chips options={['Todas', 'Confirmada', 'Sentados', 'Por confirmar', 'Cancelada']} value={rf} onChange={setRf} />
+                <SearchBox value={rq} onChange={setRq} placeholder={t('Buscar por cliente o negocio…', 'Search by customer or business…')} />
+                <Chips options={en ? ['All', 'Confirmed', 'Seated', 'To confirm', 'Cancelled'] : ['Todas', 'Confirmada', 'Sentados', 'Por confirmar', 'Cancelada']} value={en ? (rf === 'Todas' ? 'All' : rf === 'Confirmada' ? 'Confirmed' : rf === 'Sentados' ? 'Seated' : rf === 'Por confirmar' ? 'To confirm' : 'Cancelled') : rf} onChange={v => setRf(en ? (v === 'All' ? 'Todas' : v === 'Confirmed' ? 'Confirmada' : v === 'Seated' ? 'Sentados' : v === 'To confirm' ? 'Por confirmar' : 'Cancelada') : v)} />
               </div>
               <Card style={{ padding: 0, overflow: 'hidden' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr 1.4fr 0.8fr 1fr', gap: 14, padding: '12px 18px', borderBottom: `1px solid ${R.line}`, background: R.bgAlt, fontSize: 11.5, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.04em' }}>
-                  <span>Cuándo</span><span>Cliente</span><span>Negocio</span><span>Personas</span><span style={{ textAlign: 'right' }}>Estado</span>
+                  <span>{t('Cuándo', 'When')}</span><span>{t('Cliente', 'Customer')}</span><span>{t('Negocio', 'Business')}</span><span>{t('Personas', 'People')}</span><span style={{ textAlign: 'right' }}>{t('Estado', 'Status')}</span>
                 </div>
                 {resRows.length === 0 ? (
-                  <div style={{ textAlign: 'center', padding: '36px 0', color: R.inkSoft, fontSize: 14 }}>Sin resultados.</div>
+                  <div style={{ textAlign: 'center', padding: '36px 0', color: R.inkSoft, fontSize: 14 }}>{t('Sin resultados.', 'No results.')}</div>
                 ) : resRows.map((r, i) => {
                   const [tc, tb] = RES_COLOR[r.estado]
                   return (
@@ -1523,7 +1549,7 @@ export default function AdminPage() {
                       <span style={{ fontSize: 13.5, color: R.ink }}>{r.guest} <span style={{ color: R.inkFaint, fontSize: 11.5 }}>· {r.via}</span></span>
                       <span style={{ fontSize: 13, color: R.inkSoft, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.biz}</span>
                       <span style={{ fontSize: 13, color: R.ink }}>{r.party}</span>
-                      <span style={{ textAlign: 'right' }}><span style={{ fontSize: 11.5, fontWeight: 700, color: tc, background: tb, padding: '4px 11px', borderRadius: 999, whiteSpace: 'nowrap' }}>{r.estado}</span></span>
+                      <span style={{ textAlign: 'right' }}><span style={{ fontSize: 11.5, fontWeight: 700, color: tc, background: tb, padding: '4px 11px', borderRadius: 999, whiteSpace: 'nowrap' }}>{t(r.estado, ESTADO_EN[r.estado])}</span></span>
                     </div>
                   )
                 })}
@@ -1534,19 +1560,19 @@ export default function AdminPage() {
           {view === 'moderacion' && (
             <>
               <div style={{ display: 'flex', gap: 14, marginBottom: 22, flexWrap: 'wrap' }}>
-                <KPI label="Pendientes de revisar" value={`${modQueue.length}`} sub="contenido destacado" tint={R.amberTint} icon={<Icon n="flag" size={20} color={R.amber} />} />
-                <KPI label="Aprobadas hoy" value={`${resolved.aprobadas}`} tint={R.jadeTint} icon={<Icon n="check" size={20} color={R.jade} />} />
-                <KPI label="Rechazadas hoy" value={`${resolved.rechazadas}`} tint={R.coralTint} icon={<Icon n="x" size={20} color={R.coral} />} />
+                <KPI label={t('Pendientes de revisar', 'Pending review')} value={`${modQueue.length}`} sub={t('contenido destacado', 'featured content')} tint={R.amberTint} icon={<Icon n="flag" size={20} color={R.amber} />} />
+                <KPI label={t('Aprobadas hoy', 'Approved today')} value={`${resolved.aprobadas}`} tint={R.jadeTint} icon={<Icon n="check" size={20} color={R.jade} />} />
+                <KPI label={t('Rechazadas hoy', 'Rejected today')} value={`${resolved.rechazadas}`} tint={R.coralTint} icon={<Icon n="x" size={20} color={R.coral} />} />
               </div>
-              <div style={{ fontSize: 13, color: R.inkSoft, marginBottom: 14 }}>Antes de mostrar un Destacado, revisa que el contenido sea honesto, real y apropiado.</div>
+              <div style={{ fontSize: 13, color: R.inkSoft, marginBottom: 14 }}>{t('Antes de mostrar un Destacado, revisa que el contenido sea honesto, real y apropiado.', 'Before showing a Featured listing, check that the content is honest, real and appropriate.')}</div>
               {modQueue.length === 0 ? (
                 <Card style={{ textAlign: 'center', padding: '44px 0', color: R.inkSoft }}>
-                  <Icon n="check" size={28} color={R.jade} stroke={2.4} /> <div style={{ marginTop: 8 }}>Todo revisado. Sin contenido pendiente.</div>
+                  <Icon n="check" size={28} color={R.jade} stroke={2.4} /> <div style={{ marginTop: 8 }}>{t('Todo revisado. Sin contenido pendiente.', 'All reviewed. No pending content.')}</div>
                 </Card>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                   {modQueue.map(m => {
-                    const nc = nivColor(m.nivel)
+                    const nc = nivColor(m.nivel, en)
                     return (
                       <Card key={m.id} style={{ padding: 16, display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
                         <div style={{ width: 44, height: 44, borderRadius: 12, background: `linear-gradient(140deg, ${m.grad[0]}, ${m.grad[1]})`, display: 'grid', placeItems: 'center', fontFamily: R.display, fontWeight: 800, color: '#fff', flexShrink: 0 }}>{m.mono}</div>
@@ -1556,16 +1582,16 @@ export default function AdminPage() {
                             <span style={{ fontSize: 10.5, fontWeight: 700, color: nc.press, background: nc.tint, padding: '3px 8px', borderRadius: 999 }}>{nc.badge}</span>
                             <span style={{ fontSize: 10.5, fontWeight: 700, color: R.inkSoft, background: R.bgAlt, padding: '3px 8px', borderRadius: 999 }}>{m.tipo}</span>
                           </div>
-                          <div style={{ fontSize: 13, color: R.ink, marginTop: 5 }}>Quiere destacar: <strong style={{ fontWeight: 700 }}>{m.que}</strong></div>
-                          <div style={{ fontSize: 12, color: R.inkFaint, marginTop: 2 }}>Enviado {m.enviado}</div>
+                          <div style={{ fontSize: 13, color: R.ink, marginTop: 5 }}>{t('Quiere destacar', 'Wants to feature')}: <strong style={{ fontWeight: 700 }}>{m.que}</strong></div>
+                          <div style={{ fontSize: 12, color: R.inkFaint, marginTop: 2 }}>{t('Enviado', 'Submitted')} {m.enviado}</div>
                         </div>
                         {canWriteUI('moderation') ? (
                           <div style={{ display: 'flex', gap: 9, flexShrink: 0 }}>
-                            <button onClick={() => moderate(m.id, false)} style={{ padding: '10px 16px', border: `1px solid ${R.line}`, borderRadius: 12, background: 'transparent', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5, color: R.coralPress }}>Rechazar</button>
-                            <button onClick={() => moderate(m.id, true)} style={{ padding: '10px 16px', border: 'none', borderRadius: 12, background: R.jade, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5, color: '#fff', display: 'flex', alignItems: 'center', gap: 6 }}><Icon n="check" size={15} color="#fff" stroke={3} /> Aprobar</button>
+                            <button onClick={() => moderate(m.id, false)} style={{ padding: '10px 16px', border: `1px solid ${R.line}`, borderRadius: 12, background: 'transparent', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5, color: R.coralPress }}>{t('Rechazar', 'Reject')}</button>
+                            <button onClick={() => moderate(m.id, true)} style={{ padding: '10px 16px', border: 'none', borderRadius: 12, background: R.jade, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5, color: '#fff', display: 'flex', alignItems: 'center', gap: 6 }}><Icon n="check" size={15} color="#fff" stroke={3} /> {t('Aprobar', 'Approve')}</button>
                           </div>
                         ) : (
-                          <span style={{ fontSize: 12, fontWeight: 600, color: R.inkFaint, background: R.bgAlt, padding: '6px 12px', borderRadius: 999, flexShrink: 0 }}>Solo lectura</span>
+                          <span style={{ fontSize: 12, fontWeight: 600, color: R.inkFaint, background: R.bgAlt, padding: '6px 12px', borderRadius: 999, flexShrink: 0 }}>{t('Solo lectura', 'Read-only')}</span>
                         )}
                       </Card>
                     )
@@ -1593,12 +1619,12 @@ export default function AdminPage() {
             // Definiciones de cada reporte (columnas, filtros, filas y KPIs) desde datos reales.
             const REPORTS: Record<ReportKey, ReportDef> = {
               negocios: {
-                columns: [{ label: 'Negocio' }, { label: 'Categoría' }, { label: 'Municipio' }, { label: 'Plan' }, { label: 'Destacado' }, { label: 'Reservas', align: 'right' }, { label: 'Estado', align: 'right' }],
+                columns: [{ label: t('Negocio', 'Business') }, { label: t('Categoría', 'Category') }, { label: t('Municipio', 'Municipality') }, { label: t('Plan', 'Plan') }, { label: t('Destacado', 'Featured') }, { label: t('Reservas', 'Bookings'), align: 'right' }, { label: t('Estado', 'Status'), align: 'right' }],
                 filters: ['Todos', 'Activo', 'Pausado'],
                 kpis: [
-                  { label: 'Negocios totales', value: `${bizes.length}`, tint: R.coralTint, icon: <Icon n="grid" size={20} color={R.coral} /> },
-                  { label: 'Activos', value: `${bizes.filter(b => b.estado === 'Activo').length}`, tint: R.jadeTint, icon: <Icon n="check" size={20} color={R.jade} /> },
-                  { label: 'Destacados vigentes', value: `${featuredActive}`, tint: R.amberTint, icon: <Icon n="spark" size={20} color={R.amber} /> },
+                  { label: t('Negocios totales', 'Total businesses'), value: `${bizes.length}`, tint: R.coralTint, icon: <Icon n="grid" size={20} color={R.coral} /> },
+                  { label: t('Activos', 'Active'), value: `${bizes.filter(b => b.estado === 'Activo').length}`, tint: R.jadeTint, icon: <Icon n="check" size={20} color={R.jade} /> },
+                  { label: t('Destacados vigentes', 'Active featured'), value: `${featuredActive}`, tint: R.amberTint, icon: <Icon n="spark" size={20} color={R.amber} /> },
                 ],
                 rows: bizes.map(b => {
                   const n = bizReservas(b)
@@ -1616,12 +1642,12 @@ export default function AdminPage() {
                 }),
               },
               reservas: {
-                columns: [{ label: 'Cuándo' }, { label: 'Cliente' }, { label: 'Negocio' }, { label: 'Vía' }, { label: 'Personas', align: 'right' }, { label: 'Estado', align: 'right' }],
+                columns: [{ label: t('Cuándo', 'When') }, { label: t('Cliente', 'Customer') }, { label: t('Negocio', 'Business') }, { label: t('Vía', 'Via') }, { label: t('Personas', 'People'), align: 'right' }, { label: t('Estado', 'Status'), align: 'right' }],
                 filters: ['Todos', 'Confirmada', 'Sentados', 'Por confirmar', 'Cancelada'],
                 kpis: [
-                  { label: 'Reservas listadas', value: `${reservasList.length}`, tint: R.coralTint, icon: <Icon n="cal" size={20} color={R.coral} /> },
-                  { label: 'Confirmadas', value: `${reservasList.filter(r => r.estado === 'Confirmada').length}`, tint: R.jadeTint, icon: <Icon n="check" size={20} color={R.jade} /> },
-                  { label: 'Canceladas', value: `${reservasList.filter(r => r.estado === 'Cancelada').length}`, tint: R.amberTint, icon: <Icon n="x" size={20} color={R.amber} /> },
+                  { label: t('Reservas listadas', 'Listed bookings'), value: `${reservasList.length}`, tint: R.coralTint, icon: <Icon n="cal" size={20} color={R.coral} /> },
+                  { label: t('Confirmadas', 'Confirmed'), value: `${reservasList.filter(r => r.estado === 'Confirmada').length}`, tint: R.jadeTint, icon: <Icon n="check" size={20} color={R.jade} /> },
+                  { label: t('Canceladas', 'Cancelled'), value: `${reservasList.filter(r => r.estado === 'Cancelada').length}`, tint: R.amberTint, icon: <Icon n="x" size={20} color={R.amber} /> },
                 ],
                 rows: reservasList.map(r => ({
                   search: `${r.guest} ${r.biz} ${r.via} ${r.estado}`.toLowerCase(),
@@ -1639,12 +1665,12 @@ export default function AdminPage() {
                 const pays = revenue?.payments ?? []
                 const conceptOf = (ty: string) => ty === 'featured' ? 'Destacado' : ty === 'deposit' ? 'Depósito' : ty === 'subscription' ? 'Suscripción' : ty
                 return {
-                  columns: [{ label: 'Fecha' }, { label: 'Negocio' }, { label: 'Concepto' }, { label: 'Monto', align: 'right' }, { label: 'Ingreso Reva', align: 'right' }],
+                  columns: [{ label: t('Fecha', 'Date') }, { label: t('Negocio', 'Business') }, { label: t('Concepto', 'Concept') }, { label: t('Monto', 'Amount'), align: 'right' }, { label: t('Ingreso Reva', 'Reva revenue'), align: 'right' }],
                   filters: ['Todos', 'Destacado', 'Depósito', 'Suscripción'],
                   kpis: [
-                    { label: 'Ingreso Reva (total)', value: fmt(Math.round(revenue?.totals.platform ?? 0)), tint: R.coralTint, icon: <Icon n="coins" size={20} color={R.coral} /> },
-                    { label: 'GMV procesado', value: fmt(Math.round(revenue?.totals.gmv ?? 0)), tint: R.jadeTint, icon: <Icon n="chart" size={20} color={R.jade} /> },
-                    { label: 'Pagos cobrados', value: `${revenue?.totals.count ?? 0}`, tint: R.amberTint, icon: <Icon n="card" size={20} color={R.amber} /> },
+                    { label: t('Ingreso Reva (total)', 'Reva revenue (total)'), value: fmt(Math.round(revenue?.totals.platform ?? 0)), tint: R.coralTint, icon: <Icon n="coins" size={20} color={R.coral} /> },
+                    { label: t('GMV procesado', 'Processed GMV'), value: fmt(Math.round(revenue?.totals.gmv ?? 0)), tint: R.jadeTint, icon: <Icon n="chart" size={20} color={R.jade} /> },
+                    { label: t('Pagos cobrados', 'Payments collected'), value: `${revenue?.totals.count ?? 0}`, tint: R.amberTint, icon: <Icon n="card" size={20} color={R.amber} /> },
                   ],
                   rows: pays.map(p => ({
                     search: `${p.biz_name} ${conceptOf(p.type)} ${p.guest_name ?? ''}`.toLowerCase(),
@@ -1660,12 +1686,12 @@ export default function AdminPage() {
                 }
               })(),
               destacados: {
-                columns: [{ label: 'Negocio' }, { label: 'Categoría' }, { label: 'Municipio' }, { label: 'Nivel' }, { label: 'Contenido' }, { label: 'Días', align: 'right' }, { label: 'Monto', align: 'right' }],
+                columns: [{ label: t('Negocio', 'Business') }, { label: t('Categoría', 'Category') }, { label: t('Municipio', 'Municipality') }, { label: t('Nivel', 'Tier') }, { label: t('Contenido', 'Content') }, { label: t('Días', 'Days'), align: 'right' }, { label: t('Monto', 'Amount'), align: 'right' }],
                 filters: ['Todos', 'Premium', 'Destacado'],
                 kpis: [
-                  { label: 'Campañas vigentes', value: `${featActive.length}`, tint: R.coralTint, icon: <Icon n="spark" size={20} color={R.coral} /> },
-                  { label: 'Ocupación de cupos', value: `${featOcc}%`, tint: R.jadeTint, icon: <Icon n="chart" size={20} color={R.jade} /> },
-                  { label: 'Ingreso destacados', value: fmt(Math.round(revenue?.totals.byType?.featured?.revenue ?? 0)), tint: R.amberTint, icon: <Icon n="coins" size={20} color={R.amber} /> },
+                  { label: t('Campañas vigentes', 'Active campaigns'), value: `${featActive.length}`, tint: R.coralTint, icon: <Icon n="spark" size={20} color={R.coral} /> },
+                  { label: t('Ocupación de cupos', 'Slot occupancy'), value: `${featOcc}%`, tint: R.jadeTint, icon: <Icon n="chart" size={20} color={R.jade} /> },
+                  { label: t('Ingreso destacados', 'Featured revenue'), value: fmt(Math.round(revenue?.totals.byType?.featured?.revenue ?? 0)), tint: R.amberTint, icon: <Icon n="coins" size={20} color={R.amber} /> },
                 ],
                 rows: featActive.map(f => ({
                   search: `${f.biz} ${f.cat} ${f.mun} ${f.nivel} ${f.que}`.toLowerCase(),
@@ -1680,12 +1706,12 @@ export default function AdminPage() {
                 })),
               },
               moderacion: {
-                columns: [{ label: 'Negocio' }, { label: 'Nivel' }, { label: 'Tipo' }, { label: 'Contenido' }, { label: 'Enviado', align: 'right' }],
+                columns: [{ label: t('Negocio', 'Business') }, { label: t('Nivel', 'Tier') }, { label: t('Tipo', 'Type') }, { label: t('Contenido', 'Content') }, { label: t('Enviado', 'Submitted'), align: 'right' }],
                 filters: ['Todos', 'Servicio', 'Negocio', 'Promoción'],
                 kpis: [
-                  { label: 'En cola', value: `${modQueue.length}`, tint: R.amberTint, icon: <Icon n="flag" size={20} color={R.amber} /> },
-                  { label: 'Aprobadas hoy', value: `${resolved.aprobadas}`, tint: R.jadeTint, icon: <Icon n="check" size={20} color={R.jade} /> },
-                  { label: 'Rechazadas hoy', value: `${resolved.rechazadas}`, tint: R.coralTint, icon: <Icon n="x" size={20} color={R.coral} /> },
+                  { label: t('En cola', 'In queue'), value: `${modQueue.length}`, tint: R.amberTint, icon: <Icon n="flag" size={20} color={R.amber} /> },
+                  { label: t('Aprobadas hoy', 'Approved today'), value: `${resolved.aprobadas}`, tint: R.jadeTint, icon: <Icon n="check" size={20} color={R.jade} /> },
+                  { label: t('Rechazadas hoy', 'Rejected today'), value: `${resolved.rechazadas}`, tint: R.coralTint, icon: <Icon n="x" size={20} color={R.coral} /> },
                 ],
                 rows: modQueue.map(m => ({
                   search: `${m.biz} ${m.nivel} ${m.tipo} ${m.que}`.toLowerCase(),
@@ -1699,12 +1725,12 @@ export default function AdminPage() {
                 })),
               },
               soporte: {
-                columns: [{ label: 'Usuario' }, { label: 'Ciudad' }, { label: 'Modo' }, { label: 'Asunto' }, { label: 'Recibido' }, { label: 'Estado', align: 'right' }],
+                columns: [{ label: t('Usuario', 'User') }, { label: t('Ciudad', 'City') }, { label: t('Modo', 'Mode') }, { label: t('Asunto', 'Subject') }, { label: t('Recibido', 'Received') }, { label: t('Estado', 'Status'), align: 'right' }],
                 filters: ['Todos', 'Nuevo', 'En progreso', 'Resuelto'],
                 kpis: [
-                  { label: 'Tickets totales', value: `${tickets.length}`, tint: R.coralTint, icon: <Icon n="chat" size={20} color={R.coral} /> },
-                  { label: 'Nuevos', value: `${tickets.filter(t => t.status === 'nuevo').length}`, tint: R.amberTint, icon: <Icon n="bell" size={20} color={R.amber} /> },
-                  { label: 'Resueltos', value: `${tickets.filter(t => t.status === 'resuelto').length}`, tint: R.jadeTint, icon: <Icon n="check" size={20} color={R.jade} /> },
+                  { label: t('Tickets totales', 'Total tickets'), value: `${tickets.length}`, tint: R.coralTint, icon: <Icon n="chat" size={20} color={R.coral} /> },
+                  { label: t('Nuevos', 'New'), value: `${tickets.filter(t => t.status === 'nuevo').length}`, tint: R.amberTint, icon: <Icon n="bell" size={20} color={R.amber} /> },
+                  { label: t('Resueltos', 'Resolved'), value: `${tickets.filter(t => t.status === 'resuelto').length}`, tint: R.jadeTint, icon: <Icon n="check" size={20} color={R.jade} /> },
                 ],
                 rows: tickets.map(t => {
                   const sc = t.status === 'resuelto' ? [R.jade, R.jadeTint] : t.status === 'en_progreso' ? [R.amberDeep, R.amberTint] : [R.coralPress, R.coralTint]
@@ -1720,12 +1746,12 @@ export default function AdminPage() {
                 }),
               },
               rove: {
-                columns: [{ label: 'Recompensa' }, { label: 'Negocio' }, { label: 'Categoría' }, { label: 'Costo', align: 'right' }, { label: 'Stock', align: 'right' }, { label: 'Estado', align: 'right' }],
+                columns: [{ label: t('Recompensa', 'Reward') }, { label: t('Negocio', 'Business') }, { label: t('Categoría', 'Category') }, { label: t('Costo', 'Cost'), align: 'right' }, { label: 'Stock', align: 'right' }, { label: t('Estado', 'Status'), align: 'right' }],
                 filters: ['Todos', 'En revisión', 'Activa', 'Pausada', 'Rechazada'],
                 kpis: [
-                  { label: 'Recompensas', value: `${roveRewards.length}`, tint: R.coralTint, icon: <Icon n="ticket" size={20} color={R.coral} /> },
-                  { label: 'Activas', value: `${roveRewards.filter(r => r.status === 'active').length}`, tint: R.jadeTint, icon: <Icon n="check" size={20} color={R.jade} /> },
-                  { label: 'En revisión', value: `${roveRewards.filter(r => r.status === 'pending').length}`, tint: R.amberTint, icon: <Icon n="clock" size={20} color={R.amber} /> },
+                  { label: t('Recompensas', 'Rewards'), value: `${roveRewards.length}`, tint: R.coralTint, icon: <Icon n="ticket" size={20} color={R.coral} /> },
+                  { label: t('Activas', 'Active'), value: `${roveRewards.filter(r => r.status === 'active').length}`, tint: R.jadeTint, icon: <Icon n="check" size={20} color={R.jade} /> },
+                  { label: t('En revisión', 'In review'), value: `${roveRewards.filter(r => r.status === 'pending').length}`, tint: R.amberTint, icon: <Icon n="clock" size={20} color={R.amber} /> },
                 ],
                 rows: roveRewards.map(r => {
                   const meta = ROVE_STATUS_META[r.status]
@@ -1747,12 +1773,12 @@ export default function AdminPage() {
             }
 
             const REPORT_TABS: { key: ReportKey; label: string; icon: string }[] = [
-              { key: 'negocios', label: 'Negocios', icon: 'grid' },
-              { key: 'reservas', label: 'Reservas', icon: 'cal' },
-              { key: 'ingresos', label: 'Ingresos', icon: 'coins' },
-              { key: 'destacados', label: 'Destacados', icon: 'spark' },
-              { key: 'moderacion', label: 'Moderación', icon: 'flag' },
-              { key: 'soporte', label: 'Soporte', icon: 'chat' },
+              { key: 'negocios', label: t('Negocios', 'Businesses'), icon: 'grid' },
+              { key: 'reservas', label: t('Reservas', 'Bookings'), icon: 'cal' },
+              { key: 'ingresos', label: t('Ingresos', 'Revenue'), icon: 'coins' },
+              { key: 'destacados', label: t('Destacados', 'Featured'), icon: 'spark' },
+              { key: 'moderacion', label: t('Moderación', 'Moderation'), icon: 'flag' },
+              { key: 'soporte', label: t('Soporte', 'Support'), icon: 'chat' },
               { key: 'rove', label: 'Reva+ Rewards', icon: 'ticket' },
             ]
 
@@ -1791,15 +1817,15 @@ export default function AdminPage() {
 
                 {/* Buscador + filtros + descarga */}
                 <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
-                  <SearchBox value={repQuery} onChange={setRepQuery} placeholder={`Buscar en ${activeTab.label.toLowerCase()}…`} />
+                  <SearchBox value={repQuery} onChange={setRepQuery} placeholder={en ? `Search in ${activeTab.label.toLowerCase()}…` : `Buscar en ${activeTab.label.toLowerCase()}…`} />
                   <Chips options={def.filters} value={repFilter} onChange={setRepFilter} />
                   <button onClick={exportReport} disabled={filtered.length === 0} style={{ display: 'flex', alignItems: 'center', gap: 7, marginLeft: 'auto', padding: '10px 16px', border: 'none', borderRadius: 12, background: filtered.length === 0 ? R.bgAlt : R.ink, color: filtered.length === 0 ? R.inkFaint : '#fff', cursor: filtered.length === 0 ? 'default' : 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5 }}>
-                    <Icon n="download" size={16} color={filtered.length === 0 ? R.inkFaint : '#fff'} /> Descargar CSV
+                    <Icon n="download" size={16} color={filtered.length === 0 ? R.inkFaint : '#fff'} /> {t('Descargar CSV', 'Download CSV')}
                   </button>
                 </div>
 
                 <div style={{ fontSize: 12.5, color: R.inkFaint, marginBottom: 10 }}>
-                  {filtered.length} {filtered.length === 1 ? 'registro' : 'registros'}{filtered.length !== def.rows.length ? ` de ${def.rows.length}` : ''} · el CSV incluye solo lo filtrado
+                  {filtered.length} {en ? (filtered.length === 1 ? 'record' : 'records') : (filtered.length === 1 ? 'registro' : 'registros')}{filtered.length !== def.rows.length ? (en ? ` of ${def.rows.length}` : ` de ${def.rows.length}`) : ''} · {en ? 'the CSV includes only what is filtered' : 'el CSV incluye solo lo filtrado'}
                 </div>
 
                 {/* Tabla del reporte */}
@@ -1811,7 +1837,7 @@ export default function AdminPage() {
                       </div>
                       {filtered.length === 0 ? (
                         <div style={{ textAlign: 'center', padding: '40px 0', color: R.inkSoft, fontSize: 14 }}>
-                          {def.rows.length === 0 ? 'Aún no hay datos para este reporte.' : 'Sin resultados para tu búsqueda.'}
+                          {def.rows.length === 0 ? (en ? 'No data for this report yet.' : 'Aún no hay datos para este reporte.') : (en ? 'No results for your search.' : 'Sin resultados para tu búsqueda.')}
                         </div>
                       ) : filtered.map((row, i) => (
                         <div key={i} style={{ display: 'grid', gridTemplateColumns: gridCols, gap: 14, alignItems: 'center', padding: '13px 18px', borderTop: i ? `1px solid ${R.lineSoft}` : 'none' }}>
@@ -1831,7 +1857,7 @@ export default function AdminPage() {
             const progCount = tickets.filter(t => t.status === 'en_progreso').length
             const doneCount = tickets.filter(t => t.status === 'resuelto').length
             const stColor = (s: Ticket['status']) => s === 'nuevo' ? [R.coral, R.coralTint] : s === 'en_progreso' ? [R.amberDeep, R.amberTint] : [R.jade, R.jadeTint]
-            const stLabel = (s: Ticket['status']) => s === 'nuevo' ? 'Nuevo' : s === 'en_progreso' ? 'En progreso' : 'Resuelto'
+            const stLabel = (s: Ticket['status']) => s === 'nuevo' ? t('Nuevo', 'New') : s === 'en_progreso' ? t('En progreso', 'In progress') : t('Resuelto', 'Resolved')
 
             function sendReply() {
               if (!replyText.trim() || !selTicket) return
@@ -1854,7 +1880,7 @@ export default function AdminPage() {
               // ── Ticket detail — two-column layout ──
               <div>
                 <button onClick={() => setSelTicket(null)} style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'none', border: 'none', cursor: 'pointer', color: R.inkSoft, fontFamily: R.ui, fontSize: 13.5, fontWeight: 600, marginBottom: 18 }}>
-                  <Icon n="back" size={16} color={R.inkSoft} /> Volver a tickets
+                  <Icon n="back" size={16} color={R.inkSoft} /> {t('Volver a tickets', 'Back to tickets')}
                 </button>
                 <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start' }}>
 
@@ -1873,7 +1899,7 @@ export default function AdminPage() {
 
                         {/* Status selector */}
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flexShrink: 0 }}>
-                          <div style={{ fontSize: 10.5, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.07em' }}>Estatus</div>
+                          <div style={{ fontSize: 10.5, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.07em' }}>{t('Estatus', 'Status')}</div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                             <span style={{ width: 10, height: 10, borderRadius: '50%', background: stColor(ticket.status)[0], flexShrink: 0 }} />
                             {canWriteUI('support') ? (
@@ -1882,9 +1908,9 @@ export default function AdminPage() {
                                   value={ticket.status}
                                   onChange={e => setTicketStatus(ticket.id, e.target.value as Ticket['status'])}
                                   style={{ border: `1px solid ${R.line}`, borderRadius: 10, padding: '8px 12px', fontSize: 13.5, fontFamily: R.ui, fontWeight: 600, color: stColor(ticket.status)[0], background: stColor(ticket.status)[1], cursor: 'pointer', outline: 'none', appearance: 'none', WebkitAppearance: 'none', paddingRight: 28 }}>
-                                  <option value="nuevo">Nuevo</option>
-                                  <option value="en_progreso">En progreso</option>
-                                  <option value="resuelto">Resuelto</option>
+                                  <option value="nuevo">{t('Nuevo', 'New')}</option>
+                                  <option value="en_progreso">{t('En progreso', 'In progress')}</option>
+                                  <option value="resuelto">{t('Resuelto', 'Resolved')}</option>
                                 </select>
                                 <span style={{ marginLeft: -26, pointerEvents: 'none', display: 'flex' }}><Icon n="chevron" size={14} color={R.inkFaint} /></span>
                               </>
@@ -1899,7 +1925,7 @@ export default function AdminPage() {
                       <div style={{ maxHeight: 400, overflowY: 'auto', padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 12 }}>
                         {ticket.thread.map((m, i) => (
                           <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: m.from === 'user' ? 'flex-start' : 'flex-end', gap: 4 }}>
-                            <div style={{ fontSize: 11.5, color: R.inkFaint, fontWeight: 600 }}>{m.from === 'user' ? ticket.user : 'Operador Reva'} · {m.time}</div>
+                            <div style={{ fontSize: 11.5, color: R.inkFaint, fontWeight: 600 }}>{m.from === 'user' ? ticket.user : t('Operador Reva', 'Reva Operator')} · {m.time}</div>
                             <div style={{ maxWidth: '80%', padding: '11px 14px', borderRadius: m.from === 'user' ? '4px 16px 16px 16px' : '16px 4px 16px 16px', background: m.from === 'user' ? R.bgAlt : R.dusk, color: m.from === 'user' ? R.ink : '#fff', fontSize: 14, lineHeight: 1.45 }}>
                               {m.txt}
                             </div>
@@ -1909,9 +1935,9 @@ export default function AdminPage() {
                       {ticket.status !== 'resuelto' && canWriteUI('support') && (
                         <div style={{ borderTop: `1px solid ${R.line}`, padding: '14px 18px', display: 'flex', gap: 10 }}>
                           <input value={replyText} onChange={e => setReplyText(e.target.value)} onKeyDown={e => e.key === 'Enter' && sendReply()}
-                            placeholder="Escribe una respuesta al usuario…"
+                            placeholder={t('Escribe una respuesta al usuario…', 'Write a reply to the user…')}
                             style={{ flex: 1, border: `1px solid ${R.line}`, borderRadius: 12, padding: '10px 14px', fontSize: 14, color: R.ink, fontFamily: R.ui, outline: 'none' }} />
-                          <button onClick={sendReply} style={{ padding: '10px 18px', border: 'none', borderRadius: 12, background: R.coral, color: '#fff', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5 }}>Enviar</button>
+                          <button onClick={sendReply} style={{ padding: '10px 18px', border: 'none', borderRadius: 12, background: R.coral, color: '#fff', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5 }}>{t('Enviar', 'Send')}</button>
                         </div>
                       )}
                     </Card>
@@ -1937,9 +1963,9 @@ export default function AdminPage() {
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
                         {[
                           { label: 'Email', val: ticket.email },
-                          ...(ticket.phone ? [{ label: 'Teléfono', val: ticket.phone }] : []),
-                          { label: 'Idioma', val: ticket.lang },
-                          { label: 'Miembro desde', val: ticket.memberSince },
+                          ...(ticket.phone ? [{ label: t('Teléfono', 'Phone'), val: ticket.phone }] : []),
+                          { label: t('Idioma', 'Language'), val: ticket.lang },
+                          { label: t('Miembro desde', 'Member since'), val: ticket.memberSince },
                         ].map((row, i) => (
                           <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13 }}>
                             <span style={{ color: R.inkFaint, fontWeight: 600 }}>{row.label}</span>
@@ -1951,12 +1977,12 @@ export default function AdminPage() {
 
                     {/* Stats */}
                     <Card style={{ padding: '14px 18px' }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.07em', marginBottom: 12 }}>Actividad</div>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.07em', marginBottom: 12 }}>{t('Actividad', 'Activity')}</div>
                       <div style={{ display: 'flex', gap: 0 }}>
                         {[
-                          { val: ticket.reservasTotal, label: 'Reservas' },
-                          { val: ticket.prevTickets.length, label: 'Tickets prev.' },
-                          { val: ticket.mode === 'Vecino' ? '★ Local' : '🌍 Turista', label: 'Perfil' },
+                          { val: ticket.reservasTotal, label: t('Reservas', 'Bookings') },
+                          { val: ticket.prevTickets.length, label: t('Tickets prev.', 'Prev. tickets') },
+                          { val: ticket.mode === 'Vecino' ? (en ? '★ Local' : '★ Local') : (en ? '🌍 Tourist' : '🌍 Turista'), label: t('Perfil', 'Profile') },
                         ].map((s, i) => (
                           <div key={i} style={{ flex: 1, textAlign: 'center', borderLeft: i ? `1px solid ${R.line}` : 'none', padding: '0 8px' }}>
                             <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 20, color: R.ink }}>{s.val}</div>
@@ -1968,9 +1994,9 @@ export default function AdminPage() {
 
                     {/* Historial de tickets */}
                     <Card style={{ padding: '14px 18px' }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.07em', marginBottom: 10 }}>Historial de tickets</div>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.07em', marginBottom: 10 }}>{t('Historial de tickets', 'Ticket history')}</div>
                       {ticket.prevTickets.length === 0 ? (
-                        <div style={{ fontSize: 13, color: R.inkFaint, fontStyle: 'italic' }}>Sin tickets anteriores</div>
+                        <div style={{ fontSize: 13, color: R.inkFaint, fontStyle: 'italic' }}>{t('Sin tickets anteriores', 'No previous tickets')}</div>
                       ) : (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
                           {ticket.prevTickets.map((pt, i) => (
@@ -1989,17 +2015,17 @@ export default function AdminPage() {
 
                     {/* Acciones rápidas */}
                     <Card style={{ padding: '14px 18px' }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.07em', marginBottom: 10 }}>Acciones</div>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.07em', marginBottom: 10 }}>{t('Acciones', 'Actions')}</div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                         <button onClick={() => navigator.clipboard?.writeText(ticket.email)} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '9px 12px', border: `1px solid ${R.line}`, borderRadius: 11, background: 'transparent', cursor: 'pointer', fontFamily: R.ui, fontSize: 13, color: R.ink, fontWeight: 600, textAlign: 'left' }}>
-                          <Icon n="link" size={15} color={R.inkSoft} /> Copiar email
+                          <Icon n="link" size={15} color={R.inkSoft} /> {t('Copiar email', 'Copy email')}
                         </button>
                         <button onClick={() => { setSelTicket(null); setView('reservas') }} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '9px 12px', border: `1px solid ${R.line}`, borderRadius: 11, background: 'transparent', cursor: 'pointer', fontFamily: R.ui, fontSize: 13, color: R.ink, fontWeight: 600, textAlign: 'left' }}>
-                          <Icon n="cal" size={15} color={R.inkSoft} /> Ver reservas
+                          <Icon n="cal" size={15} color={R.inkSoft} /> {t('Ver reservas', 'View bookings')}
                         </button>
                         {ticket.status !== 'resuelto' && (
                           <button onClick={() => setTicketStatus(ticket.id, 'resuelto')} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '9px 12px', border: 'none', borderRadius: 11, background: R.jadeTint, cursor: 'pointer', fontFamily: R.ui, fontSize: 13, color: R.jade, fontWeight: 700, textAlign: 'left' }}>
-                            <Icon n="check" size={15} color={R.jade} stroke={3} /> Marcar resuelto
+                            <Icon n="check" size={15} color={R.jade} stroke={3} /> {t('Marcar resuelto', 'Mark resolved')}
                           </button>
                         )}
                       </div>
@@ -2014,9 +2040,9 @@ export default function AdminPage() {
                 {/* KPI cards — clickeables como filtros */}
                 <div style={{ display: 'flex', gap: 14, marginBottom: 20, flexWrap: 'wrap' }}>
                   {([
-                    { filter: 'nuevo' as const, label: 'Tickets nuevos', value: newCount, tint: R.coralTint, icon: <Icon n="chat" size={20} color={R.coral} />, active: R.coral },
-                    { filter: 'en_progreso' as const, label: 'En progreso', value: progCount, tint: R.amberTint, icon: <Icon n="clock" size={20} color={R.amber} />, active: R.amber },
-                    { filter: 'resuelto' as const, label: 'Resueltos hoy', value: doneCount, tint: R.jadeTint, icon: <Icon n="check" size={20} color={R.jade} />, active: R.jade },
+                    { filter: 'nuevo' as const, label: t('Tickets nuevos', 'New tickets'), value: newCount, tint: R.coralTint, icon: <Icon n="chat" size={20} color={R.coral} />, active: R.coral },
+                    { filter: 'en_progreso' as const, label: t('En progreso', 'In progress'), value: progCount, tint: R.amberTint, icon: <Icon n="clock" size={20} color={R.amber} />, active: R.amber },
+                    { filter: 'resuelto' as const, label: t('Resueltos hoy', 'Resolved today'), value: doneCount, tint: R.jadeTint, icon: <Icon n="check" size={20} color={R.jade} />, active: R.jade },
                   ]).map(k => {
                     const on = statusFilter === k.filter
                     return (
@@ -2038,7 +2064,7 @@ export default function AdminPage() {
                   <input
                     value={supportSearch}
                     onChange={e => setSupportSearch(e.target.value)}
-                    placeholder="Buscar por usuario, ticket, problema o ciudad…"
+                    placeholder={t('Buscar por usuario, ticket, problema o ciudad…', 'Search by user, ticket, issue or city…')}
                     style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 12, padding: '11px 16px 11px 42px', fontSize: 14, fontFamily: R.ui, color: R.ink, outline: 'none', background: R.surface, transition: 'border-color .15s' }}
                     onFocus={e => e.target.style.borderColor = R.coral}
                     onBlur={e => e.target.style.borderColor = R.line}
@@ -2054,10 +2080,10 @@ export default function AdminPage() {
                 {/* Filter tab pills */}
                 <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
                   {([
-                    { id: 'todos' as const, label: `Todos (${tickets.length})` },
-                    { id: 'nuevo' as const, label: `Nuevo (${newCount})` },
-                    { id: 'en_progreso' as const, label: `En progreso (${progCount})` },
-                    { id: 'resuelto' as const, label: `Resuelto (${doneCount})` },
+                    { id: 'todos' as const, label: `${t('Todos', 'All')} (${tickets.length})` },
+                    { id: 'nuevo' as const, label: `${t('Nuevo', 'New')} (${newCount})` },
+                    { id: 'en_progreso' as const, label: `${t('En progreso', 'In progress')} (${progCount})` },
+                    { id: 'resuelto' as const, label: `${t('Resuelto', 'Resolved')} (${doneCount})` },
                   ]).map(f => {
                     const on = statusFilter === f.id
                     return (
@@ -2070,7 +2096,7 @@ export default function AdminPage() {
                   {statusFilter !== 'todos' && (
                     <button onClick={() => setStatusFilter('todos')}
                       style={{ padding: '7px 12px', borderRadius: 999, border: 'none', background: 'transparent', color: R.coral, fontFamily: R.ui, fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
-                      × Limpiar filtro
+                      × {t('Limpiar filtro', 'Clear filter')}
                     </button>
                   )}
                 </div>
@@ -2086,8 +2112,8 @@ export default function AdminPage() {
                   return (
                     <div style={{ fontSize: 13, color: R.inkSoft, marginBottom: 14 }}>
                       {q || statusFilter !== 'todos'
-                        ? <>{filtered.length} resultado{filtered.length !== 1 ? 's' : ''}{statusFilter !== 'todos' ? ` · ${stLabel(statusFilter)}` : ''}{q ? ` · "${supportSearch}"` : ''}</>
-                        : 'Mensajes enviados desde la pantalla de Ayuda y soporte en la app.'}
+                        ? <>{filtered.length} {en ? `result${filtered.length !== 1 ? 's' : ''}` : `resultado${filtered.length !== 1 ? 's' : ''}`}{statusFilter !== 'todos' ? ` · ${stLabel(statusFilter)}` : ''}{q ? ` · "${supportSearch}"` : ''}</>
+                        : t('Mensajes enviados desde la pantalla de Ayuda y soporte en la app.', 'Messages sent from the Help & support screen in the app.')}
                     </div>
                   )
                 })()}
@@ -2111,7 +2137,7 @@ export default function AdminPage() {
                             <span style={{ fontSize: 10.5, fontWeight: 700, color: R.inkFaint }}>{t.id}</span>
                           </div>
                           <div style={{ fontSize: 13.5, color: R.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.issue}</div>
-                          <div style={{ fontSize: 12, color: R.inkFaint, marginTop: 2 }}>{t.city} · {t.mode} · último: "{last.txt.slice(0, 55)}…"</div>
+                          <div style={{ fontSize: 12, color: R.inkFaint, marginTop: 2 }}>{t.city} · {t.mode} · {en ? 'last' : 'último'}: "{last.txt.slice(0, 55)}…"</div>
                         </div>
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
                           <span style={{ fontSize: 12, color: R.inkFaint }}>{t.time}</span>
@@ -2127,11 +2153,11 @@ export default function AdminPage() {
                     <Card style={{ textAlign: 'center', padding: '44px 0', color: R.inkSoft }}>
                       <Icon n="search" size={28} color={R.inkFaint} stroke={1.8} />
                       <div style={{ marginTop: 8 }}>
-                        {supportSearch.trim() ? `Sin resultados para "${supportSearch}"` : 'Sin tickets con este estatus.'}
+                        {supportSearch.trim() ? (en ? `No results for "${supportSearch}"` : `Sin resultados para "${supportSearch}"`) : t('Sin tickets con este estatus.', 'No tickets with this status.')}
                       </div>
                       {supportSearch.trim() && (
                         <button onClick={() => setSupportSearch('')} style={{ marginTop: 10, background: 'none', border: 'none', color: R.coral, fontFamily: R.ui, fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
-                          Limpiar búsqueda
+                          {t('Limpiar búsqueda', 'Clear search')}
                         </button>
                       )}
                     </Card>
@@ -2150,7 +2176,7 @@ export default function AdminPage() {
               {/* Listado de conexiones */}
               {integ === null && (
                 <>
-                  <div style={{ fontSize: 13.5, color: R.inkSoft, marginBottom: 16 }}>Elige una conexión para configurar su módulo.</div>
+                  <div style={{ fontSize: 13.5, color: R.inkSoft, marginBottom: 16 }}>{t('Elige una conexión para configurar su módulo.', 'Choose a connection to configure its module.')}</div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(330px, 1fr))', gap: 14 }}>
                     {INTEGRATIONS.map(it => {
                       const connected = it.id === 'openrouter' ? orConnected : it.id === 'boomerangme' ? bmConnected : true
@@ -2162,15 +2188,15 @@ export default function AdminPage() {
                             </div>
                             <div style={{ flex: 1, minWidth: 0 }}>
                               <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 17, color: R.ink }}>{it.name}</div>
-                              <div style={{ fontSize: 11, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', marginTop: 2 }}>{it.tag}</div>
+                              <div style={{ fontSize: 11, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', marginTop: 2 }}>{en ? it.tagEn : it.tag}</div>
                             </div>
                             <Icon n="chevron" size={18} color={R.inkFaint} />
                           </div>
-                          <div style={{ fontSize: 13, color: R.inkSoft, lineHeight: 1.45 }}>{it.desc}</div>
+                          <div style={{ fontSize: 13, color: R.inkSoft, lineHeight: 1.45 }}>{en ? it.descEn : it.desc}</div>
                           <div>
                             {connected
-                              ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 700, color: '#16614c', background: R.jadeTint, padding: '4px 11px', borderRadius: 999 }}><span style={{ width: 7, height: 7, borderRadius: '50%', background: R.jade }} /> Conectado</span>
-                              : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 700, color: R.amberDeep, background: R.amberTint, padding: '4px 11px', borderRadius: 999 }}><Icon n="clock" size={12} color={R.amberDeep} /> Pendiente</span>}
+                              ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 700, color: '#16614c', background: R.jadeTint, padding: '4px 11px', borderRadius: 999 }}><span style={{ width: 7, height: 7, borderRadius: '50%', background: R.jade }} /> {t('Conectado', 'Connected')}</span>
+                              : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 700, color: R.amberDeep, background: R.amberTint, padding: '4px 11px', borderRadius: 999 }}><Icon n="clock" size={12} color={R.amberDeep} /> {t('Pendiente', 'Pending')}</span>}
                           </div>
                         </Card>
                       )
@@ -2183,7 +2209,7 @@ export default function AdminPage() {
               {integ === 'openrouter' && (
                 <>
                   <button onClick={() => setInteg(null)} style={{ display: 'inline-flex', alignItems: 'center', gap: 7, background: 'transparent', border: 'none', cursor: 'pointer', color: R.inkSoft, fontFamily: R.ui, fontWeight: 700, fontSize: 13.5, padding: 0, marginBottom: 18 }}>
-                    <Icon n="back" size={17} color={R.inkSoft} /> Integraciones
+                    <Icon n="back" size={17} color={R.inkSoft} /> {t('Integraciones', 'Integrations')}
                   </button>
                   <Card style={{ marginBottom: 22 }}>
                     <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, marginBottom: 18 }}>
@@ -2195,9 +2221,9 @@ export default function AdminPage() {
                           <span style={{ fontFamily: R.display, fontWeight: 800, fontSize: 18, color: R.ink }}>OpenRouter</span>
                           {orConnected
                             ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 700, color: '#16614c', background: R.jadeTint, padding: '3px 10px', borderRadius: 999 }}><span style={{ width: 7, height: 7, borderRadius: '50%', background: R.jade }} /> Conectado</span>
-                            : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 700, color: R.amberDeep, background: R.amberTint, padding: '3px 10px', borderRadius: 999 }}><Icon n="clock" size={12} color={R.amberDeep} /> Pendiente · falta API key</span>}
+                            : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 700, color: R.amberDeep, background: R.amberTint, padding: '3px 10px', borderRadius: 999 }}><Icon n="clock" size={12} color={R.amberDeep} /> {t('Pendiente · falta API key', 'Pending · API key missing')}</span>}
                         </div>
-                        <div style={{ fontSize: 13.5, color: R.inkSoft, marginTop: 4 }}>Motor de inteligencia artificial de la plataforma. Una sola conexión alimenta todas las funciones de IA de Reva.</div>
+                        <div style={{ fontSize: 13.5, color: R.inkSoft, marginTop: 4 }}>{t('Motor de inteligencia artificial de la plataforma. Una sola conexión alimenta todas las funciones de IA de Reva.', 'The platform’s AI engine. A single connection powers all of Reva’s AI features.')}</div>
                       </div>
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
@@ -2206,45 +2232,45 @@ export default function AdminPage() {
                         <input value={orKey} onChange={e => setOrKey(e.target.value)} disabled={orConnected} type="password" placeholder="sk-or-…" style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 10, padding: '11px 13px', fontSize: 14, color: R.ink, outline: 'none', fontFamily: R.ui, background: orConnected ? R.bgAlt : R.surface }} />
                       </div>
                       <div>
-                        <div style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 8 }}>Modelo por defecto</div>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 8 }}>{t('Modelo por defecto', 'Default model')}</div>
                         <input value={orModel} onChange={e => setModelCfg(e.target.value)} placeholder={OR_DEFAULT_MODEL} style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 10, padding: '11px 13px', fontSize: 14, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.surface }} />
                       </div>
                     </div>
                     <div style={{ marginBottom: 14 }}>
-                      <div style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 8 }}>Modelos de respaldo <span style={{ textTransform: 'none', letterSpacing: 0, color: R.inkFaint, fontWeight: 600 }}>· opcional, separados por coma</span></div>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 8 }}>{t('Modelos de respaldo', 'Fallback models')} <span style={{ textTransform: 'none', letterSpacing: 0, color: R.inkFaint, fontWeight: 600 }}>{t('· opcional, separados por coma', '· optional, comma-separated')}</span></div>
                       <input value={orFallbacks} onChange={e => setFallbacksCfg(e.target.value)} placeholder="anthropic/claude-3.5-haiku, google/gemini-flash-1.5" style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 10, padding: '11px 13px', fontSize: 14, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.surface }} />
-                      <div style={{ fontSize: 12, color: R.inkFaint, marginTop: 7 }}>Si el modelo principal se satura, la IA salta automáticamente al siguiente. Verifica los slugs en openrouter.ai/models.</div>
+                      <div style={{ fontSize: 12, color: R.inkFaint, marginTop: 7 }}>{t('Si el modelo principal se satura, la IA salta automáticamente al siguiente. Verifica los slugs en openrouter.ai/models.', 'If the main model is overloaded, the AI automatically falls back to the next one. Check the slugs at openrouter.ai/models.')}</div>
                     </div>
-                    <div style={{ fontSize: 12, color: R.inkFaint, marginBottom: 14 }}>Ejemplos: <code style={{ background: R.bgAlt, padding: '2px 6px', borderRadius: 6, fontSize: 12, color: R.ink }}>openai/gpt-4o</code> · <code style={{ background: R.bgAlt, padding: '2px 6px', borderRadius: 6, fontSize: 12, color: R.ink }}>anthropic/claude-3.5-haiku</code> · <code style={{ background: R.bgAlt, padding: '2px 6px', borderRadius: 6, fontSize: 12, color: R.ink }}>google/gemini-flash-1.5</code></div>
+                    <div style={{ fontSize: 12, color: R.inkFaint, marginBottom: 14 }}>{t('Ejemplos', 'Examples')}: <code style={{ background: R.bgAlt, padding: '2px 6px', borderRadius: 6, fontSize: 12, color: R.ink }}>openai/gpt-4o</code> · <code style={{ background: R.bgAlt, padding: '2px 6px', borderRadius: 6, fontSize: 12, color: R.ink }}>anthropic/claude-3.5-haiku</code> · <code style={{ background: R.bgAlt, padding: '2px 6px', borderRadius: 6, fontSize: 12, color: R.ink }}>google/gemini-flash-1.5</code></div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
                       {orConnected ? (
-                        <button onClick={disconnectOR} style={{ padding: '11px 18px', border: `1px solid ${R.line}`, borderRadius: 12, background: 'transparent', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14, color: R.coralPress }}>Desconectar</button>
+                        <button onClick={disconnectOR} style={{ padding: '11px 18px', border: `1px solid ${R.line}`, borderRadius: 12, background: 'transparent', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14, color: R.coralPress }}>{t('Desconectar', 'Disconnect')}</button>
                       ) : (
-                        <button onClick={connectOR} disabled={!orKey.trim()} style={{ padding: '11px 20px', border: 'none', borderRadius: 12, background: orKey.trim() ? R.coral : R.coralTint, cursor: orKey.trim() ? 'pointer' : 'not-allowed', fontFamily: R.ui, fontWeight: 700, fontSize: 14, color: orKey.trim() ? '#fff' : R.coralPress }}>Conectar</button>
+                        <button onClick={connectOR} disabled={!orKey.trim()} style={{ padding: '11px 20px', border: 'none', borderRadius: 12, background: orKey.trim() ? R.coral : R.coralTint, cursor: orKey.trim() ? 'pointer' : 'not-allowed', fontFamily: R.ui, fontWeight: 700, fontSize: 14, color: orKey.trim() ? '#fff' : R.coralPress }}>{t('Conectar', 'Connect')}</button>
                       )}
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: R.inkFaint }}>
-                        <Icon n="shield" size={14} color={R.jade} /> La llave se guarda cifrada a nivel plataforma.
+                        <Icon n="shield" size={14} color={R.jade} /> {t('La llave se guarda cifrada a nivel plataforma.', 'The key is stored encrypted at the platform level.')}
                       </span>
                     </div>
                     {!orConnected && (
                       <div style={{ marginTop: 14, padding: '11px 13px', background: R.amberTint, borderRadius: 10, fontSize: 12.5, color: R.amberDeep }}>
-                        <strong>Pendiente:</strong> agrega tu API key de openrouter.ai/keys para activar la IA de la plataforma. Todo lo demás ya está listo.
+                        <strong>{t('Pendiente:', 'Pending:')}</strong> {t('agrega tu API key de openrouter.ai/keys para activar la IA de la plataforma. Todo lo demás ya está listo.', 'add your API key from openrouter.ai/keys to activate the platform’s AI. Everything else is ready.')}
                       </div>
                     )}
                   </Card>
 
                   {/* Funciones de IA habilitadas */}
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                    <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink }}>Funciones de IA habilitadas</div>
-                    <span style={{ fontSize: 12.5, fontWeight: 700, color: R.coralPress, background: R.coralTint, padding: '3px 10px', borderRadius: 999 }}>{orOptions.filter(o => o.on).length} de {orOptions.length}</span>
+                    <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink }}>{t('Funciones de IA habilitadas', 'Enabled AI features')}</div>
+                    <span style={{ fontSize: 12.5, fontWeight: 700, color: R.coralPress, background: R.coralTint, padding: '3px 10px', borderRadius: 999 }}>{orOptions.filter(o => o.on).length} {en ? 'of' : 'de'} {orOptions.length}</span>
                   </div>
-                  <div style={{ fontSize: 13, color: R.inkSoft, marginBottom: 14 }}>Elige qué funciones de IA usan el motor de OpenRouter.</div>
+                  <div style={{ fontSize: 13, color: R.inkSoft, marginBottom: 14 }}>{t('Elige qué funciones de IA usan el motor de OpenRouter.', 'Choose which AI features use the OpenRouter engine.')}</div>
                   <Card style={{ padding: 0, overflow: 'hidden', opacity: orConnected ? 1 : .85 }}>
                     {orOptions.map((o, i) => (
                       <div key={o.id} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 18px', borderTop: i ? `1px solid ${R.lineSoft}` : 'none' }}>
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontWeight: 600, fontSize: 14.5, color: R.ink }}>{o.label}</div>
-                          <div style={{ fontSize: 12.5, color: R.inkSoft, marginTop: 1 }}>{o.desc}</div>
+                          <div style={{ fontWeight: 600, fontSize: 14.5, color: R.ink }}>{en ? (o.labelEn ?? o.label) : o.label}</div>
+                          <div style={{ fontSize: 12.5, color: R.inkSoft, marginTop: 1 }}>{en ? (o.descEn ?? o.desc) : o.desc}</div>
                         </div>
                         <button onClick={() => toggleOR(o.id)} aria-label={o.label} style={{ width: 38, height: 22, borderRadius: 999, border: 'none', cursor: 'pointer', background: o.on ? R.jade : R.inkFaint, position: 'relative', flexShrink: 0 }}>
                           <span style={{ position: 'absolute', top: 2, left: o.on ? 18 : 2, width: 18, height: 18, borderRadius: '50%', background: '#fff', transition: 'left .18s' }} />
@@ -2252,14 +2278,14 @@ export default function AdminPage() {
                       </div>
                     ))}
                   </Card>
-                  {!orConnected && <div style={{ fontSize: 12.5, color: R.inkFaint, marginTop: 10 }}>Puedes preconfigurar qué funciones habilitar; se activarán al conectar OpenRouter.</div>}
+                  {!orConnected && <div style={{ fontSize: 12.5, color: R.inkFaint, marginTop: 10 }}>{t('Puedes preconfigurar qué funciones habilitar; se activarán al conectar OpenRouter.', 'You can pre-configure which features to enable; they activate when you connect OpenRouter.')}</div>}
 
                   {/* Prompts de la IA */}
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 30, marginBottom: 6 }}>
-                    <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink }}>Prompts de la IA</div>
-                    <span style={{ fontSize: 12.5, fontWeight: 700, color: R.coralPress, background: R.coralTint, padding: '3px 10px', borderRadius: 999 }}>{PROMPT_DEFS.filter(p => orPrompts[p.id] !== DEFAULT_PROMPTS[p.id]).length} editados</span>
+                    <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink }}>{t('Prompts de la IA', 'AI prompts')}</div>
+                    <span style={{ fontSize: 12.5, fontWeight: 700, color: R.coralPress, background: R.coralTint, padding: '3px 10px', borderRadius: 999 }}>{PROMPT_DEFS.filter(p => orPrompts[p.id] !== DEFAULT_PROMPTS[p.id]).length} {en ? 'edited' : 'editados'}</span>
                   </div>
-                  <div style={{ fontSize: 13, color: R.inkSoft, marginBottom: 14 }}>Edita las instrucciones que sigue la IA en cada situación. Conserva los {'{{'}placeholders{'}}'} para que se inyecten los datos reales.</div>
+                  <div style={{ fontSize: 13, color: R.inkSoft, marginBottom: 14 }}>{en ? <>Edit the instructions the AI follows in each situation. Keep the {'{{'}placeholders{'}}'} so real data is injected.</> : <>Edita las instrucciones que sigue la IA en cada situación. Conserva los {'{{'}placeholders{'}}'} para que se inyecten los datos reales.</>}</div>
                   <Card style={{ padding: 0, overflow: 'hidden' }}>
                     {PROMPT_DEFS.map((p, i) => {
                       const open = orPromptOpen === p.id
@@ -2270,11 +2296,11 @@ export default function AdminPage() {
                           <button onClick={() => setOrPromptOpen(open ? null : p.id)} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 12, padding: '14px 18px', background: open ? R.bgAlt : 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: R.ui }}>
                             <div style={{ flex: 1, minWidth: 0 }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                                <span style={{ fontWeight: 600, fontSize: 14.5, color: R.ink }}>{p.label}</span>
-                                <span style={{ fontSize: 10.5, fontWeight: 700, color: isCli ? '#16614c' : R.amberDeep, background: isCli ? R.jadeTint : R.amberTint, padding: '2px 8px', borderRadius: 999 }}>{isCli ? 'Cliente' : 'Negocio'}</span>
-                                {edited && <span style={{ fontSize: 10.5, fontWeight: 700, color: R.coralPress, background: R.coralTint, padding: '2px 8px', borderRadius: 999 }}>Editado</span>}
+                                <span style={{ fontWeight: 600, fontSize: 14.5, color: R.ink }}>{en ? (p.labelEn ?? p.label) : p.label}</span>
+                                <span style={{ fontSize: 10.5, fontWeight: 700, color: isCli ? '#16614c' : R.amberDeep, background: isCli ? R.jadeTint : R.amberTint, padding: '2px 8px', borderRadius: 999 }}>{isCli ? t('Cliente', 'Customer') : t('Negocio', 'Business')}</span>
+                                {edited && <span style={{ fontSize: 10.5, fontWeight: 700, color: R.coralPress, background: R.coralTint, padding: '2px 8px', borderRadius: 999 }}>{t('Editado', 'Edited')}</span>}
                               </div>
-                              <div style={{ fontSize: 12.5, color: R.inkSoft, marginTop: 2 }}>{p.description}</div>
+                              <div style={{ fontSize: 12.5, color: R.inkSoft, marginTop: 2 }}>{en ? (p.descriptionEn ?? p.description) : p.description}</div>
                             </div>
                             <span style={{ transform: open ? 'rotate(90deg)' : 'none', transition: 'transform .15s', flexShrink: 0 }}><Icon n="chevron" size={18} color={R.inkFaint} /></span>
                           </button>
@@ -2291,9 +2317,9 @@ export default function AdminPage() {
                                 <div style={{ fontSize: 12, color: R.inkFaint }}>
                                   {p.placeholders.length > 0
                                     ? <>Placeholders: {p.placeholders.map((ph, k) => <code key={ph} style={{ background: R.bgAlt, padding: '2px 6px', borderRadius: 6, fontSize: 11.5, color: R.ink, marginRight: k < p.placeholders.length - 1 ? 5 : 0 }}>{ph}</code>)}</>
-                                    : <>Sin placeholders.</>}
+                                    : <>{t('Sin placeholders.', 'No placeholders.')}</>}
                                 </div>
-                                <button onClick={() => resetPrompt(p.id)} disabled={!edited} style={{ border: 'none', background: 'transparent', cursor: edited ? 'pointer' : 'default', color: edited ? R.coralPress : R.inkFaint, fontFamily: R.ui, fontWeight: 700, fontSize: 12.5, padding: 0 }}>↺ Restablecer</button>
+                                <button onClick={() => resetPrompt(p.id)} disabled={!edited} style={{ border: 'none', background: 'transparent', cursor: edited ? 'pointer' : 'default', color: edited ? R.coralPress : R.inkFaint, fontFamily: R.ui, fontWeight: 700, fontSize: 12.5, padding: 0 }}>↺ {t('Restablecer', 'Reset')}</button>
                               </div>
                             </div>
                           )}
@@ -2301,7 +2327,7 @@ export default function AdminPage() {
                       )
                     })}
                   </Card>
-                  <div style={{ fontSize: 12.5, color: R.inkFaint, marginTop: 10 }}>Los cambios se guardan al instante y los usa la IA del cliente y del negocio.</div>
+                  <div style={{ fontSize: 12.5, color: R.inkFaint, marginTop: 10 }}>{t('Los cambios se guardan al instante y los usa la IA del cliente y del negocio.', 'Changes are saved instantly and used by the customer and business AI.')}</div>
                 </>
               )}
 
@@ -2309,7 +2335,7 @@ export default function AdminPage() {
               {integ === 'boomerangme' && (
                 <>
                   <button onClick={() => setInteg(null)} style={{ display: 'inline-flex', alignItems: 'center', gap: 7, background: 'transparent', border: 'none', cursor: 'pointer', color: R.inkSoft, fontFamily: R.ui, fontWeight: 700, fontSize: 13.5, padding: 0, marginBottom: 18 }}>
-                    <Icon n="back" size={17} color={R.inkSoft} /> Integraciones
+                    <Icon n="back" size={17} color={R.inkSoft} /> {t('Integraciones', 'Integrations')}
                   </button>
                   <Card style={{ marginBottom: 22 }}>
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, marginBottom: 18 }}>
@@ -2321,50 +2347,50 @@ export default function AdminPage() {
                       <span style={{ fontFamily: R.display, fontWeight: 800, fontSize: 18, color: R.ink }}>BoomerangMe</span>
                       {bmConnected
                         ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 700, color: '#16614c', background: R.jadeTint, padding: '3px 10px', borderRadius: 999 }}><span style={{ width: 7, height: 7, borderRadius: '50%', background: R.jade }} /> Conectado</span>
-                        : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 700, color: R.amberDeep, background: R.amberTint, padding: '3px 10px', borderRadius: 999 }}><Icon n="clock" size={12} color={R.amberDeep} /> Pendiente · faltan API keys</span>}
+                        : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 700, color: R.amberDeep, background: R.amberTint, padding: '3px 10px', borderRadius: 999 }}><Icon n="clock" size={12} color={R.amberDeep} /> {t('Pendiente · faltan API keys', 'Pending · API keys missing')}</span>}
                     </div>
-                    <div style={{ fontSize: 13.5, color: R.inkSoft, marginTop: 4 }}>Plataforma de lealtad digital. La conexión es a nivel plataforma: los negocios la usan sin manejar las llaves.</div>
+                    <div style={{ fontSize: 13.5, color: R.inkSoft, marginTop: 4 }}>{t('Plataforma de lealtad digital. La conexión es a nivel plataforma: los negocios la usan sin manejar las llaves.', 'Digital loyalty platform. The connection is platform-level: businesses use it without handling the keys.')}</div>
                   </div>
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
                   <div>
                     <div style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 8 }}>API Key</div>
-                    <input value={bmKey} onChange={e => setBmKey(e.target.value)} disabled={bmConnected} type="password" placeholder="Pega tu API Key" style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 10, padding: '11px 13px', fontSize: 14, color: R.ink, outline: 'none', fontFamily: R.ui, background: bmConnected ? R.bgAlt : R.surface }} />
+                    <input value={bmKey} onChange={e => setBmKey(e.target.value)} disabled={bmConnected} type="password" placeholder={t('Pega tu API Key', 'Paste your API Key')} style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 10, padding: '11px 13px', fontSize: 14, color: R.ink, outline: 'none', fontFamily: R.ui, background: bmConnected ? R.bgAlt : R.surface }} />
                   </div>
                   <div>
                     <div style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 8 }}>API Secret</div>
-                    <input value={bmSecret} onChange={e => setBmSecret(e.target.value)} disabled={bmConnected} type="password" placeholder="Pega tu API Secret" style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 10, padding: '11px 13px', fontSize: 14, color: R.ink, outline: 'none', fontFamily: R.ui, background: bmConnected ? R.bgAlt : R.surface }} />
+                    <input value={bmSecret} onChange={e => setBmSecret(e.target.value)} disabled={bmConnected} type="password" placeholder={t('Pega tu API Secret', 'Paste your API Secret')} style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 10, padding: '11px 13px', fontSize: 14, color: R.ink, outline: 'none', fontFamily: R.ui, background: bmConnected ? R.bgAlt : R.surface }} />
                   </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
                   {bmConnected ? (
-                    <button onClick={disconnectBM} style={{ padding: '11px 18px', border: `1px solid ${R.line}`, borderRadius: 12, background: 'transparent', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14, color: R.coralPress }}>Desconectar</button>
+                    <button onClick={disconnectBM} style={{ padding: '11px 18px', border: `1px solid ${R.line}`, borderRadius: 12, background: 'transparent', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14, color: R.coralPress }}>{t('Desconectar', 'Disconnect')}</button>
                   ) : (
-                    <button onClick={connectBM} disabled={!bmKey.trim() || !bmSecret.trim()} style={{ padding: '11px 20px', border: 'none', borderRadius: 12, background: (bmKey.trim() && bmSecret.trim()) ? R.coral : R.coralTint, cursor: (bmKey.trim() && bmSecret.trim()) ? 'pointer' : 'not-allowed', fontFamily: R.ui, fontWeight: 700, fontSize: 14, color: (bmKey.trim() && bmSecret.trim()) ? '#fff' : R.coralPress }}>Conectar</button>
+                    <button onClick={connectBM} disabled={!bmKey.trim() || !bmSecret.trim()} style={{ padding: '11px 20px', border: 'none', borderRadius: 12, background: (bmKey.trim() && bmSecret.trim()) ? R.coral : R.coralTint, cursor: (bmKey.trim() && bmSecret.trim()) ? 'pointer' : 'not-allowed', fontFamily: R.ui, fontWeight: 700, fontSize: 14, color: (bmKey.trim() && bmSecret.trim()) ? '#fff' : R.coralPress }}>{t('Conectar', 'Connect')}</button>
                   )}
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: R.inkFaint }}>
-                    <Icon n="shield" size={14} color={R.jade} /> Las llaves se guardan cifradas a nivel plataforma.
+                    <Icon n="shield" size={14} color={R.jade} /> {t('Las llaves se guardan cifradas a nivel plataforma.', 'The keys are stored encrypted at the platform level.')}
                   </span>
                 </div>
                 {!bmConnected && (
                   <div style={{ marginTop: 14, padding: '11px 13px', background: R.amberTint, borderRadius: 10, fontSize: 12.5, color: R.amberDeep }}>
-                    <strong>Pendiente:</strong> agrega las API keys de boomerangme.biz para activar la integración. Todo lo demás ya está listo.
+                    <strong>{t('Pendiente:', 'Pending:')}</strong> {t('agrega las API keys de boomerangme.biz para activar la integración. Todo lo demás ya está listo.', 'add the API keys from boomerangme.biz to activate the integration. Everything else is ready.')}
                   </div>
                 )}
               </Card>
 
               {/* Opciones de lealtad habilitadas */}
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink }}>Opciones de lealtad habilitadas</div>
-                <span style={{ fontSize: 12.5, fontWeight: 700, color: R.coralPress, background: R.coralTint, padding: '3px 10px', borderRadius: 999 }}>{bmOptions.filter(o => o.on).length} de {bmOptions.length}</span>
+                <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink }}>{t('Opciones de lealtad habilitadas', 'Enabled loyalty options')}</div>
+                <span style={{ fontSize: 12.5, fontWeight: 700, color: R.coralPress, background: R.coralTint, padding: '3px 10px', borderRadius: 999 }}>{bmOptions.filter(o => o.on).length} {en ? 'of' : 'de'} {bmOptions.length}</span>
               </div>
-              <div style={{ fontSize: 13, color: R.inkSoft, marginBottom: 14 }}>Los negocios solo verán y podrán usar las opciones que actives aquí.</div>
+              <div style={{ fontSize: 13, color: R.inkSoft, marginBottom: 14 }}>{t('Los negocios solo verán y podrán usar las opciones que actives aquí.', 'Businesses will only see and use the options you enable here.')}</div>
               <Card style={{ padding: 0, overflow: 'hidden', opacity: bmConnected ? 1 : .85 }}>
                 {bmOptions.map((o, i) => (
                   <div key={o.id} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 18px', borderTop: i ? `1px solid ${R.lineSoft}` : 'none' }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontWeight: 600, fontSize: 14.5, color: R.ink }}>{o.label}</div>
-                      <div style={{ fontSize: 12.5, color: R.inkSoft, marginTop: 1 }}>{o.desc}</div>
+                      <div style={{ fontWeight: 600, fontSize: 14.5, color: R.ink }}>{en ? (o.labelEn ?? o.label) : o.label}</div>
+                      <div style={{ fontSize: 12.5, color: R.inkSoft, marginTop: 1 }}>{en ? (o.descEn ?? o.desc) : o.desc}</div>
                     </div>
                     <button onClick={() => toggleBM(o.id)} aria-label={o.label} style={{ width: 38, height: 22, borderRadius: 999, border: 'none', cursor: 'pointer', background: o.on ? R.jade : R.inkFaint, position: 'relative', flexShrink: 0 }}>
                       <span style={{ position: 'absolute', top: 2, left: o.on ? 18 : 2, width: 18, height: 18, borderRadius: '50%', background: '#fff', transition: 'left .18s' }} />
@@ -2372,7 +2398,7 @@ export default function AdminPage() {
                   </div>
                 ))}
               </Card>
-              {!bmConnected && <div style={{ fontSize: 12.5, color: R.inkFaint, marginTop: 10 }}>Puedes preconfigurar qué opciones habilitar; se activarán para los negocios al conectar.</div>}
+              {!bmConnected && <div style={{ fontSize: 12.5, color: R.inkFaint, marginTop: 10 }}>{t('Puedes preconfigurar qué opciones habilitar; se activarán para los negocios al conectar.', 'You can pre-configure which options to enable; they activate for businesses once connected.')}</div>}
                 </>
               )}
 
@@ -2380,7 +2406,7 @@ export default function AdminPage() {
               {integ === 'stripe' && (
                 <>
                   <button onClick={() => setInteg(null)} style={{ display: 'inline-flex', alignItems: 'center', gap: 7, background: 'transparent', border: 'none', cursor: 'pointer', color: R.inkSoft, fontFamily: R.ui, fontWeight: 700, fontSize: 13.5, padding: 0, marginBottom: 18 }}>
-                    <Icon n="back" size={17} color={R.inkSoft} /> Integraciones
+                    <Icon n="back" size={17} color={R.inkSoft} /> {t('Integraciones', 'Integrations')}
                   </button>
                   {/* Conexión Stripe — gestionada por variables de entorno */}
                   <Card style={{ marginBottom: 22 }}>
@@ -2391,31 +2417,31 @@ export default function AdminPage() {
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                       <span style={{ fontFamily: R.display, fontWeight: 800, fontSize: 18, color: R.ink }}>Stripe</span>
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 700, color: '#16614c', background: R.jadeTint, padding: '3px 10px', borderRadius: 999 }}><span style={{ width: 7, height: 7, borderRadius: '50%', background: R.jade }} /> Conectado</span>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 700, color: '#16614c', background: R.jadeTint, padding: '3px 10px', borderRadius: 999 }}><span style={{ width: 7, height: 7, borderRadius: '50%', background: R.jade }} /> {t('Conectado', 'Connected')}</span>
                     </div>
-                    <div style={{ fontSize: 13.5, color: R.inkSoft, marginTop: 4 }}>Pagos y cobros de la plataforma: depósitos de reserva y campañas de Destacados. La conexión es a nivel plataforma.</div>
+                    <div style={{ fontSize: 13.5, color: R.inkSoft, marginTop: 4 }}>{t('Pagos y cobros de la plataforma: depósitos de reserva y campañas de Destacados. La conexión es a nivel plataforma.', 'Platform payments and charges: booking deposits and Featured campaigns. The connection is platform-level.')}</div>
                   </div>
                 </div>
                 <div style={{ padding: '12px 14px', background: R.bgAlt, borderRadius: 12, fontSize: 12.5, color: R.inkSoft, lineHeight: 1.5 }}>
                   <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: R.ink, fontWeight: 700, marginBottom: 4 }}>
-                    <Icon n="shield" size={14} color={R.jade} /> Llaves gestionadas en el entorno
+                    <Icon n="shield" size={14} color={R.jade} /> {t('Llaves gestionadas en el entorno', 'Keys managed in the environment')}
                   </div>
-                  Las llaves de Stripe (publicable, secreta y firma del webhook) viven en las variables de entorno de la plataforma y no se editan aquí. Endpoint del webhook: <code style={{ background: R.surface, padding: '2px 6px', borderRadius: 6, fontSize: 12, color: R.ink }}>/api/stripe/webhook</code>
+                  {en ? <>Stripe’s keys (publishable, secret and webhook signature) live in the platform’s environment variables and are not edited here. Webhook endpoint: </> : <>Las llaves de Stripe (publicable, secreta y firma del webhook) viven en las variables de entorno de la plataforma y no se editan aquí. Endpoint del webhook: </>}<code style={{ background: R.surface, padding: '2px 6px', borderRadius: 6, fontSize: 12, color: R.ink }}>/api/stripe/webhook</code>
                 </div>
               </Card>
 
               {/* Cobros habilitados */}
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink }}>Cobros habilitados</div>
-                <span style={{ fontSize: 12.5, fontWeight: 700, color: R.coralPress, background: R.coralTint, padding: '3px 10px', borderRadius: 999 }}>{stOptions.filter(o => o.on).length} de {stOptions.length}</span>
+                <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink }}>{t('Cobros habilitados', 'Enabled charges')}</div>
+                <span style={{ fontSize: 12.5, fontWeight: 700, color: R.coralPress, background: R.coralTint, padding: '3px 10px', borderRadius: 999 }}>{stOptions.filter(o => o.on).length} {en ? 'of' : 'de'} {stOptions.length}</span>
               </div>
-              <div style={{ fontSize: 13, color: R.inkSoft, marginBottom: 14 }}>Define qué cobros realiza Reva a través de Stripe.</div>
+              <div style={{ fontSize: 13, color: R.inkSoft, marginBottom: 14 }}>{t('Define qué cobros realiza Reva a través de Stripe.', 'Define which charges Reva makes through Stripe.')}</div>
               <Card style={{ padding: 0, overflow: 'hidden' }}>
                 {stOptions.map((o, i) => (
                   <div key={o.id} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 18px', borderTop: i ? `1px solid ${R.lineSoft}` : 'none' }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontWeight: 600, fontSize: 14.5, color: R.ink }}>{o.label}</div>
-                      <div style={{ fontSize: 12.5, color: R.inkSoft, marginTop: 1 }}>{o.desc}</div>
+                      <div style={{ fontWeight: 600, fontSize: 14.5, color: R.ink }}>{en ? (o.labelEn ?? o.label) : o.label}</div>
+                      <div style={{ fontSize: 12.5, color: R.inkSoft, marginTop: 1 }}>{en ? (o.descEn ?? o.desc) : o.desc}</div>
                     </div>
                     <button onClick={() => toggleStripe(o.id)} aria-label={o.label} style={{ width: 38, height: 22, borderRadius: 999, border: 'none', cursor: 'pointer', background: o.on ? R.jade : R.inkFaint, position: 'relative', flexShrink: 0 }}>
                       <span style={{ position: 'absolute', top: 2, left: o.on ? 18 : 2, width: 18, height: 18, borderRadius: '50%', background: '#fff', transition: 'left .18s' }} />
@@ -2434,9 +2460,9 @@ export default function AdminPage() {
               <div style={{ background: R.surface, border: `1px solid ${R.line}`, borderRadius: 16, padding: '18px 20px', marginBottom: 20 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
                   <Icon n="users" size={17} color={R.coral} />
-                  <span style={{ fontFamily: R.display, fontWeight: 700, fontSize: 15, color: R.ink }}>Equipo Reva</span>
+                  <span style={{ fontFamily: R.display, fontWeight: 700, fontSize: 15, color: R.ink }}>{t('Equipo Reva', 'Reva team')}</span>
                 </div>
-                <div style={{ fontSize: 13, color: R.inkSoft, marginBottom: 16 }}>Acceso al panel de super administrador.</div>
+                <div style={{ fontSize: 13, color: R.inkSoft, marginBottom: 16 }}>{t('Acceso al panel de super administrador.', 'Access to the super admin panel.')}</div>
 
                 {/* member list */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
@@ -2459,7 +2485,7 @@ export default function AdminPage() {
                       {/* invited badge */}
                       {m.status === 'invitado' && (
                         <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 999, whiteSpace: 'nowrap', background: resentStaffIds.includes(m.id) ? R.jadeTint : R.amberTint, color: resentStaffIds.includes(m.id) ? R.jade : R.amberDeep }}>
-                          {resentStaffIds.includes(m.id) ? 'Reenviado ✓' : 'Pendiente'}
+                          {resentStaffIds.includes(m.id) ? t('Reenviado ✓', 'Resent ✓') : t('Pendiente', 'Pending')}
                         </span>
                       )}
                       {m.status === 'invitado' && adminRole === 'super_admin' && (
@@ -2480,7 +2506,7 @@ export default function AdminPage() {
                 {/* invite form — solo el super admin gestiona el equipo */}
                 {adminRole === 'super_admin' && (
                 <div style={{ borderTop: `1px solid ${R.line}`, paddingTop: 14 }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase', color: R.inkSoft, marginBottom: 9 }}>Invitar al equipo</div>
+                  <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase', color: R.inkSoft, marginBottom: 9 }}>{t('Invitar al equipo', 'Invite the team')}</div>
                   <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
                     <div style={{ position: 'relative', flex: 1 }}>
                       <div style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}>
@@ -2495,18 +2521,18 @@ export default function AdminPage() {
                       />
                     </div>
                     <select value={staffRole} onChange={e => setStaffRole(e.target.value as 'Operador' | 'Analista')} style={{ border: `1px solid ${R.line}`, borderRadius: 10, padding: '10px 10px', fontSize: 13.5, color: R.ink, background: R.bg, fontFamily: R.ui, cursor: 'pointer', outline: 'none' }}>
-                      <option value="Operador">Operador</option>
-                      <option value="Analista">Analista</option>
+                      <option value="Operador">{t('Operador', 'Operator')}</option>
+                      <option value="Analista">{t('Analista', 'Analyst')}</option>
                     </select>
                   </div>
                   {staffError && <div style={{ fontSize: 12, color: R.coral, marginBottom: 6 }}>{staffError}</div>}
                   {staffNote && <div style={{ fontSize: 12, color: R.jade, marginBottom: 6 }}>{staffNote}</div>}
                   <button onClick={sendStaffInvite} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '10px 16px', border: 'none', borderRadius: 10, background: R.ink, color: '#fff', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5 }}>
                     <Icon n="send" size={14} color="#fff" />
-                    Enviar invitación
+                    {t('Enviar invitación', 'Send invitation')}
                   </button>
                   <div style={{ fontSize: 11.5, color: R.inkFaint, marginTop: 8 }}>
-                    Operador: soporte, moderación y reservas. Analista: solo lectura de métricas.
+                    {t('Operador: soporte, moderación y reservas. Analista: solo lectura de métricas.', 'Operator: support, moderation and bookings. Analyst: read-only metrics.')}
                   </div>
                 </div>
                 )}
@@ -2515,11 +2541,11 @@ export default function AdminPage() {
               {/* ── Ajustes generales ─────────────────────── */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {[
-                  { id: 'plataforma', label: 'Plataforma', sub: 'Nombre, logo e idioma por defecto', icon: 'globe' },
-                  { id: 'categorias', label: 'Categorías de negocio', sub: 'Agrega o quita categorías para dar de alta negocios', icon: 'grid' },
-                  { id: 'notificaciones', label: 'Notificaciones', sub: 'Alertas por correo al equipo Reva', icon: 'bell' },
-                  { id: 'seguridad', label: 'Seguridad', sub: 'Autenticación de dos factores, sesiones activas', icon: 'shield' },
-                  { id: 'facturacion', label: 'Facturación', sub: 'Plan de la plataforma y método de pago', icon: 'credit' },
+                  { id: 'plataforma', label: t('Plataforma', 'Platform'), sub: t('Nombre, logo e idioma por defecto', 'Name, logo and default language'), icon: 'globe' },
+                  { id: 'categorias', label: t('Categorías de negocio', 'Business categories'), sub: t('Agrega o quita categorías para dar de alta negocios', 'Add or remove categories for registering businesses'), icon: 'grid' },
+                  { id: 'notificaciones', label: t('Notificaciones', 'Notifications'), sub: t('Alertas por correo al equipo Reva', 'Email alerts to the Reva team'), icon: 'bell' },
+                  { id: 'seguridad', label: t('Seguridad', 'Security'), sub: t('Autenticación de dos factores, sesiones activas', 'Two-factor authentication, active sessions'), icon: 'shield' },
+                  { id: 'facturacion', label: t('Facturación', 'Billing'), sub: t('Plan de la plataforma y método de pago', 'Platform plan and payment method'), icon: 'credit' },
                 ].map(row => (
                   <button key={row.id} onClick={() => setSettingsPanel(row.id)} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '15px 18px', background: R.surface, border: `1px solid ${R.line}`, borderRadius: 14, cursor: 'pointer', fontFamily: R.ui, textAlign: 'left', width: '100%' }}>
                     <div style={{ width: 36, height: 36, borderRadius: 10, background: R.bgAlt, display: 'grid', placeItems: 'center', flexShrink: 0 }}>
@@ -2545,32 +2571,32 @@ export default function AdminPage() {
             {/* header */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
               <span style={{ fontFamily: R.display, fontWeight: 800, fontSize: 19, color: R.ink }}>{panelTitles[settingsPanel]}</span>
-              <button onClick={() => setSettingsPanel(null)} aria-label="Cerrar" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: R.inkFaint, fontSize: 22, lineHeight: 1, padding: 0 }}>×</button>
+              <button onClick={() => setSettingsPanel(null)} aria-label={t('Cerrar', 'Close')} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: R.inkFaint, fontSize: 22, lineHeight: 1, padding: 0 }}>×</button>
             </div>
 
             {/* ── Plataforma ── */}
             {settingsPanel === 'plataforma' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                 <label>
-                  <span style={lblStyle}>Nombre de la plataforma</span>
+                  <span style={lblStyle}>{t('Nombre de la plataforma', 'Platform name')}</span>
                   <input value={platName} onChange={e => setPlatName(e.target.value)} style={fldStyle} />
                 </label>
                 <label>
-                  <span style={lblStyle}>URL pública</span>
+                  <span style={lblStyle}>{t('URL pública', 'Public URL')}</span>
                   <div style={{ position: 'relative' }}>
                     <span style={{ position: 'absolute', left: 13, top: '50%', transform: 'translateY(-50%)', fontSize: 13.5, color: R.inkFaint }}>https://</span>
                     <input value={platUrl} onChange={e => setPlatUrl(e.target.value)} style={{ ...fldStyle, paddingLeft: 70 }} />
                   </div>
                 </label>
                 <label>
-                  <span style={lblStyle}>Idioma por defecto</span>
+                  <span style={lblStyle}>{t('Idioma por defecto', 'Default language')}</span>
                   <select value={platLang} onChange={e => setPlatLang(e.target.value)} style={{ ...fldStyle, cursor: 'pointer' }}>
                     <option value="es">Español</option>
                     <option value="en">English</option>
                   </select>
                 </label>
                 <label>
-                  <span style={lblStyle}>Zona horaria</span>
+                  <span style={lblStyle}>{t('Zona horaria', 'Time zone')}</span>
                   <select value={platTz} onChange={e => setPlatTz(e.target.value)} style={{ ...fldStyle, cursor: 'pointer' }}>
                     <option value="America/Mazatlan">América/Mazatlán (GMT-7)</option>
                     <option value="America/Mexico_City">América/Ciudad de México (GMT-6)</option>
@@ -2579,9 +2605,9 @@ export default function AdminPage() {
                   </select>
                 </label>
                 <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  <span style={lblStyle}>Logo de la plataforma</span>
+                  <span style={lblStyle}>{t('Logo de la plataforma', 'Platform logo')}</span>
                   <div style={{ height: 90, borderRadius: 12, border: `1.5px dashed ${R.line}`, background: R.surface, display: 'grid', placeItems: 'center', cursor: 'pointer', color: R.inkSoft, fontSize: 13 }}>
-                    <Icon n="plus" size={18} color={R.inkFaint} /> Subir imagen
+                    <Icon n="plus" size={18} color={R.inkFaint} /> {t('Subir imagen', 'Upload image')}
                   </div>
                   <input type="file" accept="image/*" style={{ display: 'none' }} />
                 </label>
@@ -2591,11 +2617,11 @@ export default function AdminPage() {
             {/* ── Categorías de negocio ── */}
             {settingsPanel === 'categorias' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                <div style={{ fontSize: 13, color: R.inkSoft, marginBottom: 2 }}>Estas categorías aparecen al dar de alta un negocio desde Negocios → Agregar negocio.</div>
+                <div style={{ fontSize: 13, color: R.inkSoft, marginBottom: 2 }}>{t('Estas categorías aparecen al dar de alta un negocio desde Negocios → Agregar negocio.', 'These categories appear when registering a business from Businesses → Add business.')}</div>
 
                 {bizCategories.length === 0 && (
                   <div style={{ padding: '18px', textAlign: 'center', border: `1px dashed ${R.line}`, borderRadius: 12, color: R.inkFaint, fontSize: 13 }}>
-                    Sin categorías. Agrega al menos una.
+                    {t('Sin categorías. Agrega al menos una.', 'No categories. Add at least one.')}
                   </div>
                 )}
                 {bizCategories.map(c => {
@@ -2605,9 +2631,9 @@ export default function AdminPage() {
                       <span style={{ fontSize: 19 }}>{c.emoji}</span>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <p style={{ fontWeight: 700, fontSize: 13.5, color: R.ink, margin: 0 }}>{c.label}</p>
-                        <p style={{ fontSize: 11.5, color: R.inkFaint, margin: '1px 0 0' }}>{enUso > 0 ? `${enUso} negocio${enUso === 1 ? '' : 's'} usando esta categoría` : 'Sin negocios todavía'}</p>
+                        <p style={{ fontSize: 11.5, color: R.inkFaint, margin: '1px 0 0' }}>{enUso > 0 ? (en ? `${enUso} business${enUso === 1 ? '' : 'es'} using this category` : `${enUso} negocio${enUso === 1 ? '' : 's'} usando esta categoría`) : t('Sin negocios todavía', 'No businesses yet')}</p>
                       </div>
-                      <button onClick={() => removeCategory(c.label)} title="Eliminar categoría" aria-label="Eliminar categoría"
+                      <button onClick={() => removeCategory(c.label)} title={t('Eliminar categoría', 'Delete category')} aria-label={t('Eliminar categoría', 'Delete category')}
                         style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 4, color: R.inkFaint, display: 'grid', placeItems: 'center' }}>
                         <Icon n="trash" size={15} color={R.inkFaint} />
                       </button>
@@ -2617,7 +2643,7 @@ export default function AdminPage() {
 
                 {/* add new category */}
                 <div style={{ borderTop: `1px solid ${R.line}`, marginTop: 8, paddingTop: 14 }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', color: R.inkSoft, marginBottom: 9 }}>Nueva categoría</div>
+                  <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', color: R.inkSoft, marginBottom: 9 }}>{t('Nueva categoría', 'New category')}</div>
                   <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
                     <input
                       value={catEmoji}
@@ -2630,16 +2656,16 @@ export default function AdminPage() {
                       value={catLabel}
                       onChange={e => { setCatLabel(e.target.value); setCatError('') }}
                       onKeyDown={e => e.key === 'Enter' && addCategory()}
-                      placeholder="Ej. Veterinaria"
+                      placeholder={t('Ej. Veterinaria', 'e.g. Veterinary')}
                       style={{ flex: 1, boxSizing: 'border-box', border: `1px solid ${catError ? R.coral : R.line}`, borderRadius: 10, padding: '10px 12px', fontSize: 13.5, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.surface }}
                     />
                   </div>
                   {catError && <div style={{ fontSize: 12, color: R.coral, marginBottom: 6 }}>{catError}</div>}
                   <button onClick={addCategory} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '10px 16px', border: 'none', borderRadius: 10, background: R.ink, color: '#fff', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5 }}>
-                    <Icon n="plus" size={14} color="#fff" /> Agregar categoría
+                    <Icon n="plus" size={14} color="#fff" /> {t('Agregar categoría', 'Add category')}
                   </button>
                   <div style={{ fontSize: 11.5, color: R.inkFaint, marginTop: 8 }}>
-                    El emoji es opcional — si lo dejas vacío se usa 🏷️ por defecto.
+                    {t('El emoji es opcional — si lo dejas vacío se usa 🏷️ por defecto.', 'The emoji is optional — if left empty, 🏷️ is used by default.')}
                   </div>
                 </div>
               </div>
@@ -2649,18 +2675,18 @@ export default function AdminPage() {
             {settingsPanel === 'notificaciones' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
                 <label>
-                  <span style={lblStyle}>Correos receptores</span>
+                  <span style={lblStyle}>{t('Correos receptores', 'Recipient emails')}</span>
                   <input value={notifEmail} onChange={e => setNotifEmail(e.target.value)} placeholder="correo1@reva.mx, correo2@reva.mx" style={fldStyle} />
-                  <span style={{ fontSize: 11.5, color: R.inkFaint, marginTop: 4, display: 'block' }}>Separa múltiples correos con coma.</span>
+                  <span style={{ fontSize: 11.5, color: R.inkFaint, marginTop: 4, display: 'block' }}>{t('Separa múltiples correos con coma.', 'Separate multiple emails with a comma.')}</span>
                 </label>
                 <div style={{ height: 1, background: R.line }} />
-                <span style={lblStyle}>Eventos que generan alerta</span>
+                <span style={lblStyle}>{t('Eventos que generan alerta', 'Events that trigger an alert')}</span>
                 {([
-                  { key: 'nuevaReserva', label: 'Nueva reserva confirmada' },
-                  { key: 'nuevoDestacado', label: 'Nuevo destacado comprado' },
-                  { key: 'nuevoNegocio', label: 'Nuevo negocio registrado' },
-                  { key: 'reporteDiario', label: 'Reporte diario de resumen' },
-                  { key: 'soporteUrgente', label: 'Ticket de soporte urgente' },
+                  { key: 'nuevaReserva', label: t('Nueva reserva confirmada', 'New confirmed booking') },
+                  { key: 'nuevoDestacado', label: t('Nuevo destacado comprado', 'New featured purchase') },
+                  { key: 'nuevoNegocio', label: t('Nuevo negocio registrado', 'New business registered') },
+                  { key: 'reporteDiario', label: t('Reporte diario de resumen', 'Daily summary report') },
+                  { key: 'soporteUrgente', label: t('Ticket de soporte urgente', 'Urgent support ticket') },
                 ] as { key: keyof typeof notifs; label: string }[]).map(n => (
                   <button key={n.key} onClick={() => setNotifs(prev => ({ ...prev, [n.key]: !prev[n.key] }))}
                     style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', border: `1px solid ${R.line}`, borderRadius: 12, background: R.surface, cursor: 'pointer', fontFamily: R.ui, width: '100%', marginTop: -6 }}>
@@ -2678,24 +2704,24 @@ export default function AdminPage() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                 <button onClick={() => setTwoFa(v => !v)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', border: `1px solid ${R.line}`, borderRadius: 12, background: R.surface, cursor: 'pointer', fontFamily: R.ui }}>
                   <div style={{ textAlign: 'left' }}>
-                    <p style={{ fontWeight: 700, fontSize: 14, color: R.ink, margin: 0 }}>Autenticación de dos factores</p>
-                    <p style={{ fontSize: 12.5, color: R.inkSoft, margin: '3px 0 0' }}>Protege el acceso con un código extra.</p>
+                    <p style={{ fontWeight: 700, fontSize: 14, color: R.ink, margin: 0 }}>{t('Autenticación de dos factores', 'Two-factor authentication')}</p>
+                    <p style={{ fontSize: 12.5, color: R.inkSoft, margin: '3px 0 0' }}>{t('Protege el acceso con un código extra.', 'Protect access with an extra code.')}</p>
                   </div>
                   <span style={{ width: 42, height: 25, borderRadius: 999, background: twoFa ? R.jade : R.line, position: 'relative', flexShrink: 0, transition: 'background .2s' }}>
                     <span style={{ position: 'absolute', top: 3, left: twoFa ? 20 : 3, width: 19, height: 19, borderRadius: '50%', background: '#fff', transition: 'left .18s', boxShadow: '0 1px 3px rgba(0,0,0,.2)' }} />
                   </span>
                 </button>
                 <label>
-                  <span style={lblStyle}>Expiración de sesión</span>
+                  <span style={lblStyle}>{t('Expiración de sesión', 'Session expiration')}</span>
                   <select value={sessExpiry} onChange={e => setSessExpiry(e.target.value)} style={{ ...fldStyle, cursor: 'pointer' }}>
-                    <option value="24h">24 horas</option>
-                    <option value="7d">7 días</option>
-                    <option value="30d">30 días</option>
-                    <option value="never">No expirar</option>
+                    <option value="24h">{t('24 horas', '24 hours')}</option>
+                    <option value="7d">{t('7 días', '7 days')}</option>
+                    <option value="30d">{t('30 días', '30 days')}</option>
+                    <option value="never">{t('No expirar', 'Never expire')}</option>
                   </select>
                 </label>
                 <div>
-                  <span style={lblStyle}>Sesiones activas</span>
+                  <span style={lblStyle}>{t('Sesiones activas', 'Active sessions')}</span>
                   {[
                     { device: 'Chrome · macOS', loc: 'Los Cabos, BCS', time: 'Ahora', current: true },
                     { device: 'Safari · iPhone', loc: 'Los Cabos, BCS', time: 'Hace 2h', current: false },
@@ -2710,13 +2736,13 @@ export default function AdminPage() {
                         <p style={{ fontSize: 12, color: R.inkFaint, margin: '2px 0 0' }}>{s.loc} · {s.time}</p>
                       </div>
                       {s.current
-                        ? <span style={{ fontSize: 11, fontWeight: 700, color: R.jade, background: R.jadeTint, padding: '3px 9px', borderRadius: 999 }}>Actual</span>
-                        : <button style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600, color: R.coral }}>Cerrar</button>}
+                        ? <span style={{ fontSize: 11, fontWeight: 700, color: R.jade, background: R.jadeTint, padding: '3px 9px', borderRadius: 999 }}>{t('Actual', 'Current')}</span>
+                        : <button style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600, color: R.coral }}>{t('Cerrar', 'Close')}</button>}
                     </div>
                   ))}
                 </div>
                 <div style={{ fontSize: 12, color: R.inkFaint, background: R.bgAlt, borderRadius: 10, padding: '10px 12px' }}>
-                  Historial: último acceso hoy a las 09:14 desde Los Cabos, BCS.
+                  {t('Historial: último acceso hoy a las 09:14 desde Los Cabos, BCS.', 'History: last access today at 09:14 from Los Cabos, BCS.')}
                 </div>
               </div>
             )}
@@ -2725,16 +2751,16 @@ export default function AdminPage() {
             {settingsPanel === 'facturacion' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                 <div>
-                  <span style={lblStyle}>Plan de suscripción</span>
+                  <span style={lblStyle}>{t('Plan de suscripción', 'Subscription plan')}</span>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', padding: '13px 14px', marginTop: 8, border: `1px solid ${R.coral}`, background: R.coralTint, borderRadius: 14, fontFamily: R.ui, textAlign: 'left' }}>
                     <span style={{ flex: 1 }}>
                       <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <span style={{ fontWeight: 700, fontSize: 14, color: R.coralPress }}>Plan Reva</span>
-                        <span style={{ fontSize: 10.5, fontWeight: 700, background: R.jade, color: '#fff', padding: '2px 8px', borderRadius: 999 }}>15 días gratis</span>
-                        <span style={{ fontFamily: R.display, fontWeight: 800, fontSize: 14, color: R.ink, marginLeft: 'auto' }}>$300/mes</span>
+                        <span style={{ fontWeight: 700, fontSize: 14, color: R.coralPress }}>{t('Plan Reva', 'Reva plan')}</span>
+                        <span style={{ fontSize: 10.5, fontWeight: 700, background: R.jade, color: '#fff', padding: '2px 8px', borderRadius: 999 }}>{t('15 días gratis', '15 days free')}</span>
+                        <span style={{ fontFamily: R.display, fontWeight: 800, fontSize: 14, color: R.ink, marginLeft: 'auto' }}>{t('$300/mes', '$300/mo')}</span>
                       </span>
-                      <span style={{ display: 'block', fontSize: 12, fontWeight: 600, color: R.coralPress, marginTop: 2 }}>+ 2% por procesamiento de pagos</span>
-                      <span style={{ display: 'block', fontSize: 12, color: R.inkFaint, marginTop: 2 }}>Agente de IA · agenda · panel · mensajes · reportes completos · soporte prioritario</span>
+                      <span style={{ display: 'block', fontSize: 12, fontWeight: 600, color: R.coralPress, marginTop: 2 }}>{t('+ 2% por procesamiento de pagos', '+ 2% for payment processing')}</span>
+                      <span style={{ display: 'block', fontSize: 12, color: R.inkFaint, marginTop: 2 }}>{t('Agente de IA · agenda · panel · mensajes · reportes completos · soporte prioritario', 'AI agent · scheduling · dashboard · messages · full reports · priority support')}</span>
                     </span>
                   </div>
                 </div>
@@ -2742,34 +2768,34 @@ export default function AdminPage() {
                 <div style={{ border: `1px solid ${R.amberTint}`, borderRadius: 14, padding: '13px 14px', background: R.amberTint }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                     <div>
-                      <p style={{ fontWeight: 700, fontSize: 14, color: R.amberDeep, margin: 0 }}>✦ Destacado — add-on</p>
-                      <p style={{ fontSize: 12, color: R.amberDeep, margin: '3px 0 0', opacity: .85 }}>Sin comisión adicional · compatible con cualquier plan</p>
+                      <p style={{ fontWeight: 700, fontSize: 14, color: R.amberDeep, margin: 0 }}>{t('✦ Destacado — add-on', '✦ Featured — add-on')}</p>
+                      <p style={{ fontSize: 12, color: R.amberDeep, margin: '3px 0 0', opacity: .85 }}>{t('Sin comisión adicional · compatible con cualquier plan', 'No extra commission · works with any plan')}</p>
                     </div>
-                    <span style={{ fontFamily: R.display, fontWeight: 800, fontSize: 14, color: R.amberDeep, whiteSpace: 'nowrap' }}>Desde $2,500/sem</span>
+                    <span style={{ fontFamily: R.display, fontWeight: 800, fontSize: 14, color: R.amberDeep, whiteSpace: 'nowrap' }}>{t('Desde $2,500/sem', 'From $2,500/wk')}</span>
                   </div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
-                    {['Aparición al tope de búsquedas', 'Banner en Discovery', 'Estadísticas de visibilidad'].map(f => (
+                    {(en ? ['Top of search results', 'Discovery banner', 'Visibility stats'] : ['Aparición al tope de búsquedas', 'Banner en Discovery', 'Estadísticas de visibilidad']).map(f => (
                       <span key={f} style={{ fontSize: 11.5, fontWeight: 600, background: 'rgba(154,108,28,.12)', color: R.amberDeep, padding: '3px 9px', borderRadius: 999 }}>{f}</span>
                     ))}
                   </div>
                 </div>
                 <div style={{ height: 1, background: R.line }} />
                 <div>
-                  <span style={lblStyle}>Método de pago</span>
+                  <span style={lblStyle}>{t('Método de pago', 'Payment method')}</span>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', border: `1px solid ${R.line}`, borderRadius: 12, background: R.surface, marginTop: 6 }}>
                     <div style={{ width: 42, height: 28, borderRadius: 6, background: R.dusk, display: 'grid', placeItems: 'center' }}>
                       <Icon n="credit" size={16} color="#fff" />
                     </div>
                     <div style={{ flex: 1 }}>
                       <p style={{ fontWeight: 600, fontSize: 13.5, color: R.ink, margin: 0 }}>Visa •••• 4242</p>
-                      <p style={{ fontSize: 12, color: R.inkFaint, margin: '2px 0 0' }}>Vence 12/27</p>
+                      <p style={{ fontSize: 12, color: R.inkFaint, margin: '2px 0 0' }}>{t('Vence 12/27', 'Expires 12/27')}</p>
                     </div>
-                    <button style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: R.coral }}>Cambiar</button>
+                    <button style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: R.coral }}>{t('Cambiar', 'Change')}</button>
                   </div>
                 </div>
                 <div style={{ background: R.bgAlt, borderRadius: 12, padding: '12px 14px' }}>
-                  <p style={{ fontSize: 13, fontWeight: 600, color: R.ink, margin: 0 }}>Próximo cobro</p>
-                  <p style={{ fontSize: 12.5, color: R.inkSoft, margin: '3px 0 0' }}>$300 MXN · 1 de agosto 2026</p>
+                  <p style={{ fontSize: 13, fontWeight: 600, color: R.ink, margin: 0 }}>{t('Próximo cobro', 'Next charge')}</p>
+                  <p style={{ fontSize: 12.5, color: R.inkSoft, margin: '3px 0 0' }}>{t('$300 MXN · 1 de agosto 2026', '$300 MXN · August 1, 2026')}</p>
                 </div>
               </div>
             )}
@@ -2778,11 +2804,11 @@ export default function AdminPage() {
             {settingsPanel === 'categorias' || settingsPanel === 'facturacion' ? (
               // Categorías y Facturación se gestionan con sus propios controles.
               <button onClick={() => setSettingsPanel(null)} style={{ width: '100%', marginTop: 22, padding: '13px', border: 'none', borderRadius: 14, background: R.ink, color: '#fff', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14.5 }}>
-                Listo
+                {t('Listo', 'Done')}
               </button>
             ) : (
               <button onClick={saveSettings} disabled={settingsSaving} style={{ width: '100%', marginTop: 22, padding: '13px', border: 'none', borderRadius: 14, background: R.ink, color: '#fff', cursor: settingsSaving ? 'default' : 'pointer', opacity: settingsSaving ? 0.7 : 1, fontFamily: R.ui, fontWeight: 700, fontSize: 14.5 }}>
-                {settingsSaving ? 'Guardando…' : 'Guardar cambios'}
+                {settingsSaving ? t('Guardando…', 'Saving…') : t('Guardar cambios', 'Save changes')}
               </button>
             )}
           </div>
@@ -2794,24 +2820,24 @@ export default function AdminPage() {
         <div onClick={() => setAddBizOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(34,28,25,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60, padding: 20 }}>
           <div onClick={e => e.stopPropagation()} style={{ width: '100%', maxWidth: 480, maxHeight: '88vh', overflowY: 'auto', background: R.bg, borderRadius: 20, padding: 24, boxShadow: '0 30px 80px rgba(0,0,0,.4)' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
-              <span style={{ fontFamily: R.display, fontWeight: 800, fontSize: 19, color: R.ink }}>Agregar negocio</span>
-              <button onClick={() => setAddBizOpen(false)} aria-label="Cerrar" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: R.inkFaint, fontSize: 22, lineHeight: 1, padding: 0 }}>×</button>
+              <span style={{ fontFamily: R.display, fontWeight: 800, fontSize: 19, color: R.ink }}>{t('Agregar negocio', 'Add business')}</span>
+              <button onClick={() => setAddBizOpen(false)} aria-label={t('Cerrar', 'Close')} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: R.inkFaint, fontSize: 22, lineHeight: 1, padding: 0 }}>×</button>
             </div>
-            <div style={{ fontSize: 13, color: R.inkSoft, marginBottom: 18 }}>Da de alta un negocio y envíale una invitación por correo para que complete su registro.</div>
+            <div style={{ fontSize: 13, color: R.inkSoft, marginBottom: 18 }}>{t('Da de alta un negocio y envíale una invitación por correo para que complete su registro.', 'Register a business and send it an email invitation to complete its registration.')}</div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               <label>
-                <span style={{ display: 'block', fontSize: 11, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase', color: R.inkSoft, marginBottom: 6 }}>Nombre del negocio</span>
+                <span style={{ display: 'block', fontSize: 11, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase', color: R.inkSoft, marginBottom: 6 }}>{t('Nombre del negocio', 'Business name')}</span>
                 <input
                   value={newBizName}
                   onChange={e => { setNewBizName(e.target.value); setNewBizError('') }}
-                  placeholder="Ej. Cabo Real Estate"
+                  placeholder={t('Ej. Cabo Real Estate', 'e.g. Cabo Real Estate')}
                   style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${newBizError ? R.coral : R.line}`, borderRadius: 10, padding: '11px 13px', fontSize: 14, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.surface }}
                 />
               </label>
 
               <label>
-                <span style={{ display: 'block', fontSize: 11, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase', color: R.inkSoft, marginBottom: 6 }}>Correo del negocio</span>
+                <span style={{ display: 'block', fontSize: 11, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase', color: R.inkSoft, marginBottom: 6 }}>{t('Correo del negocio', 'Business email')}</span>
                 <input
                   type="email"
                   value={newBizEmail}
@@ -2820,11 +2846,11 @@ export default function AdminPage() {
                   style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${newBizEmailError ? R.coral : R.line}`, borderRadius: 10, padding: '11px 13px', fontSize: 14, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.surface }}
                 />
                 {newBizEmailError && <span style={{ fontSize: 12, color: R.coral, marginTop: 4, display: 'block' }}>{newBizEmailError}</span>}
-                <span style={{ fontSize: 12, color: R.inkFaint, marginTop: 5, display: 'block' }}>Se enviará una invitación a este correo para que el negocio complete su registro.</span>
+                <span style={{ fontSize: 12, color: R.inkFaint, marginTop: 5, display: 'block' }}>{t('Se enviará una invitación a este correo para que el negocio complete su registro.', 'An invitation will be sent to this email so the business can complete its registration.')}</span>
               </label>
 
               <div>
-                <span style={{ display: 'block', fontSize: 11, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase', color: R.inkSoft, marginBottom: 8 }}>Categoría</span>
+                <span style={{ display: 'block', fontSize: 11, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase', color: R.inkSoft, marginBottom: 8 }}>{t('Categoría', 'Category')}</span>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                   {bizCategories.map(c => {
                     const on = newBizCat === c.label
@@ -2840,23 +2866,23 @@ export default function AdminPage() {
               </div>
 
               <label>
-                <span style={{ display: 'block', fontSize: 11, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase', color: R.inkSoft, marginBottom: 6 }}>Estado</span>
+                <span style={{ display: 'block', fontSize: 11, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase', color: R.inkSoft, marginBottom: 6 }}>{t('Estado', 'State')}</span>
                 <select value={newBizState} onChange={e => selectBizState(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 10, padding: '11px 13px', fontSize: 14, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.surface, cursor: 'pointer' }}>
                   {STATES_DATA.map(s => <option key={s.abbr} value={s.name}>{s.name}</option>)}
                 </select>
               </label>
 
               <label>
-                <span style={{ display: 'block', fontSize: 11, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase', color: R.inkSoft, marginBottom: 6 }}>Municipio <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0, color: R.inkFaint }}>· {newBizState}</span></span>
+                <span style={{ display: 'block', fontSize: 11, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase', color: R.inkSoft, marginBottom: 6 }}>{t('Municipio', 'Municipality')} <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0, color: R.inkFaint }}>· {newBizState}</span></span>
                 <select value={newBizMun} onChange={e => setNewBizMun(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 10, padding: '11px 13px', fontSize: 14, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.surface, cursor: 'pointer' }}>
                   {newBizMunicipios.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
               </label>
 
               <div>
-                <span style={{ display: 'block', fontSize: 11, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase', color: R.inkSoft, marginBottom: 8 }}>Plan inicial</span>
+                <span style={{ display: 'block', fontSize: 11, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase', color: R.inkSoft, marginBottom: 8 }}>{t('Plan inicial', 'Initial plan')}</span>
                 <div style={{ padding: '11px', borderRadius: 12, border: `1px solid ${R.coral}`, background: R.coralTint, fontFamily: R.ui, fontWeight: 700, fontSize: 13.5, color: R.coralPress, textAlign: 'center' }}>
-                  Plan Reva · $300/mes · 15 días gratis
+                  {t('Plan Reva · $300/mes · 15 días gratis', 'Reva plan · $300/mo · 15 days free')}
                 </div>
               </div>
 
@@ -2864,7 +2890,7 @@ export default function AdminPage() {
 
               <button onClick={addBusiness} disabled={addBizLoading} style={{ width: '100%', marginTop: 4, padding: '13px', border: 'none', borderRadius: 14, background: R.ink, color: '#fff', cursor: addBizLoading ? 'default' : 'pointer', opacity: addBizLoading ? .7 : 1, fontFamily: R.ui, fontWeight: 700, fontSize: 14.5, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
                 <Icon n="send" size={16} color="#fff" />
-                {addBizLoading ? 'Enviando invitación…' : 'Agregar negocio y enviar invitación'}
+                {addBizLoading ? t('Enviando invitación…', 'Sending invitation…') : t('Agregar negocio y enviar invitación', 'Add business and send invitation')}
               </button>
             </div>
           </div>
@@ -2881,18 +2907,18 @@ export default function AdminPage() {
                 <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 19, color: R.ink }}>{detail.name}</div>
                 <div style={{ fontSize: 13, color: R.inkSoft }}>{detail.cat} · {detail.mun}</div>
               </div>
-              <button onClick={() => setSelBiz(null)} aria-label="Cerrar" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: R.inkFaint, fontSize: 22, lineHeight: 1, padding: 0 }}>×</button>
+              <button onClick={() => setSelBiz(null)} aria-label={t('Cerrar', 'Close')} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: R.inkFaint, fontSize: 22, lineHeight: 1, padding: 0 }}>×</button>
             </div>
             <div style={{ background: R.surface, border: `1px solid ${R.line}`, borderRadius: 12, overflow: 'hidden', marginBottom: 16 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '11px 14px' }}><span style={{ fontSize: 13, color: R.inkSoft }}>Plan</span><span style={{ fontSize: 13.5, fontWeight: 600, color: R.ink }}>{detail.plan}</span></div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '11px 14px', borderTop: `1px solid ${R.lineSoft}` }}><span style={{ fontSize: 13, color: R.inkSoft }}>Destacado</span><span style={{ fontSize: 13.5, fontWeight: 600, color: R.ink }}>{detail.dest === '—' ? 'No' : detail.dest}</span></div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '11px 14px', borderTop: `1px solid ${R.lineSoft}` }}><span style={{ fontSize: 13, color: R.inkSoft }}>Reservas</span><span style={{ fontSize: 13.5, fontWeight: 600, color: R.ink }}>{bizReservas(detail)}</span></div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '11px 14px', borderTop: `1px solid ${R.lineSoft}` }}><span style={{ fontSize: 13, color: R.inkSoft }}>Estado</span><span style={{ fontSize: 13.5, fontWeight: 700, color: detail.estado === 'Activo' ? R.jade : R.inkFaint }}>{detail.estado}</span></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '11px 14px' }}><span style={{ fontSize: 13, color: R.inkSoft }}>{t('Plan', 'Plan')}</span><span style={{ fontSize: 13.5, fontWeight: 600, color: R.ink }}>{detail.plan}</span></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '11px 14px', borderTop: `1px solid ${R.lineSoft}` }}><span style={{ fontSize: 13, color: R.inkSoft }}>{t('Destacado', 'Featured')}</span><span style={{ fontSize: 13.5, fontWeight: 600, color: R.ink }}>{detail.dest === '—' ? 'No' : detail.dest}</span></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '11px 14px', borderTop: `1px solid ${R.lineSoft}` }}><span style={{ fontSize: 13, color: R.inkSoft }}>{t('Reservas', 'Bookings')}</span><span style={{ fontSize: 13.5, fontWeight: 600, color: R.ink }}>{bizReservas(detail)}</span></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '11px 14px', borderTop: `1px solid ${R.lineSoft}` }}><span style={{ fontSize: 13, color: R.inkSoft }}>{t('Estado', 'Status')}</span><span style={{ fontSize: 13.5, fontWeight: 700, color: detail.estado === 'Activo' ? R.jade : R.inkFaint }}>{en ? (detail.estado === 'Activo' ? 'Active' : 'Paused') : detail.estado}</span></div>
             </div>
             {detail.invitePending && detail.email && canWriteUI('businesses') && (
               <button onClick={() => resendInvite(detail)} disabled={resendLoading} style={{ width: '100%', padding: '12px', border: `1px solid ${R.line}`, borderRadius: 12, background: R.surface, color: R.ink, cursor: resendLoading ? 'default' : 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14, marginBottom: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, opacity: resendLoading ? .6 : 1 }}>
                 <Icon n="mail" size={16} color={R.ink} />
-                {resendLoading ? 'Reenviando…' : 'Reenviar invitación'}
+                {resendLoading ? t('Reenviando…', 'Resending…') : t('Reenviar invitación', 'Resend invitation')}
               </button>
             )}
             {canWriteUI('businesses') && (
@@ -2908,9 +2934,10 @@ export default function AdminPage() {
       {inviteSent && (
         <div style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', background: R.jade, color: '#fff', padding: '13px 22px', borderRadius: 14, boxShadow: '0 12px 40px rgba(0,0,0,.3)', zIndex: 70, fontSize: 14, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 10, whiteSpace: 'nowrap' }}>
           <Icon n="mail" size={17} color="#fff" />
-          Invitación enviada a {inviteSent}
+          {t('Invitación enviada a', 'Invitation sent to')} {inviteSent}
         </div>
       )}
     </div>
+    </LangContext.Provider>
   )
 }

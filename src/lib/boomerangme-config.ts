@@ -4,17 +4,17 @@
 // en producción esto vendría del backend. Las API keys reales viven en variables
 // de entorno (BOOMERANGME_API_KEY) y las usa el cliente en ./boomerangme.ts.
 
-export type BMOption = { id: string; label: string; desc: string; on: boolean }
+export type BMOption = { id: string; label: string; labelEn?: string; desc: string; descEn?: string; on: boolean }
 
 export const BM_OPTIONS_DEFAULT: BMOption[] = [
-  { id: 'stamps', label: 'Tarjeta de sellos', desc: 'Sella visitas y entrega una recompensa al completar', on: true },
-  { id: 'cashback', label: 'Cashback', desc: 'Devuelve un % de cada compra como saldo', on: true },
-  { id: 'coupons', label: 'Cupones', desc: 'Ofertas canjeables por tiempo limitado', on: true },
-  { id: 'discount', label: 'Descuentos', desc: 'Descuento fijo o por nivel de cliente', on: false },
-  { id: 'membership', label: 'Membresía', desc: 'Niveles VIP con beneficios recurrentes', on: false },
-  { id: 'multipass', label: 'Multipase', desc: 'Paquetes prepagados (ej. 10 clases)', on: false },
-  { id: 'referral', label: 'Referidos', desc: 'Recompensa a quien invita y al invitado', on: true },
-  { id: 'giftcard', label: 'Tarjeta de regalo', desc: 'Saldo regalable entre clientes', on: false },
+  { id: 'stamps', label: 'Tarjeta de sellos', labelEn: 'Stamp card', desc: 'Sella visitas y entrega una recompensa al completar', descEn: 'Stamp visits and give a reward on completion', on: true },
+  { id: 'cashback', label: 'Cashback', labelEn: 'Cashback', desc: 'Devuelve un % de cada compra como saldo', descEn: 'Return a % of each purchase as balance', on: true },
+  { id: 'coupons', label: 'Cupones', labelEn: 'Coupons', desc: 'Ofertas canjeables por tiempo limitado', descEn: 'Time-limited redeemable offers', on: true },
+  { id: 'discount', label: 'Descuentos', labelEn: 'Discounts', desc: 'Descuento fijo o por nivel de cliente', descEn: 'Flat discount or by customer tier', on: false },
+  { id: 'membership', label: 'Membresía', labelEn: 'Membership', desc: 'Niveles VIP con beneficios recurrentes', descEn: 'VIP tiers with recurring perks', on: false },
+  { id: 'multipass', label: 'Multipase', labelEn: 'Multi-pass', desc: 'Paquetes prepagados (ej. 10 clases)', descEn: 'Prepaid packages (e.g. 10 classes)', on: false },
+  { id: 'referral', label: 'Referidos', labelEn: 'Referrals', desc: 'Recompensa a quien invita y al invitado', descEn: 'Reward the referrer and the invitee', on: true },
+  { id: 'giftcard', label: 'Tarjeta de regalo', labelEn: 'Gift card', desc: 'Saldo regalable entre clientes', descEn: 'Giftable balance between customers', on: false },
 ]
 
 export type BMConfig = { connected: boolean; options: BMOption[] }

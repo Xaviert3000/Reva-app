@@ -5,14 +5,14 @@
 // (NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY, STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET)
 // y las usa el cliente en ./stripe.ts.
 
-export type StripeOption = { id: string; label: string; desc: string; on: boolean }
+export type StripeOption = { id: string; label: string; labelEn?: string; desc: string; descEn?: string; on: boolean }
 
 export const STRIPE_OPTIONS_DEFAULT: StripeOption[] = [
-  { id: 'deposits', label: 'Depósitos de reserva', desc: 'Cobra un depósito para asegurar la reserva', on: true },
-  { id: 'featured', label: 'Pagos de Destacados', desc: 'Cobra las campañas Premium y Destacado', on: true },
-  { id: 'refunds', label: 'Reembolsos automáticos', desc: 'Devuelve el depósito al confirmar la visita', on: true },
-  { id: 'noshow', label: 'Cargo por no-show', desc: 'Retén y cobra si el cliente no se presenta', on: false },
-  { id: 'connect', label: 'Pagos a negocios (Connect)', desc: 'Transfiere automáticamente a cada negocio', on: false },
+  { id: 'deposits', label: 'Depósitos de reserva', labelEn: 'Booking deposits', desc: 'Cobra un depósito para asegurar la reserva', descEn: 'Charge a deposit to secure the booking', on: true },
+  { id: 'featured', label: 'Pagos de Destacados', labelEn: 'Featured payments', desc: 'Cobra las campañas Premium y Destacado', descEn: 'Charge Premium and Featured campaigns', on: true },
+  { id: 'refunds', label: 'Reembolsos automáticos', labelEn: 'Automatic refunds', desc: 'Devuelve el depósito al confirmar la visita', descEn: 'Return the deposit when the visit is confirmed', on: true },
+  { id: 'noshow', label: 'Cargo por no-show', labelEn: 'No-show charge', desc: 'Retén y cobra si el cliente no se presenta', descEn: 'Hold and charge if the customer doesn’t show', on: false },
+  { id: 'connect', label: 'Pagos a negocios (Connect)', labelEn: 'Payouts to businesses (Connect)', desc: 'Transfiere automáticamente a cada negocio', descEn: 'Automatically transfers to each business', on: false },
 ]
 
 export type StripeConfig = { connected: boolean; options: StripeOption[] }

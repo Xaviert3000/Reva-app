@@ -7,13 +7,13 @@
 
 import { DEFAULT_PROMPTS, type PromptId } from './ai-prompts'
 
-export type OROption = { id: string; label: string; desc: string; on: boolean }
+export type OROption = { id: string; label: string; labelEn?: string; desc: string; descEn?: string; on: boolean }
 
 export const OR_OPTIONS_DEFAULT: OROption[] = [
-  { id: 'concierge', label: 'Conserje IA', desc: 'Chat que recomienda y reserva por el cliente', on: true },
-  { id: 'negotiation', label: 'Negociación agente-a-agente', desc: 'Los agentes acuerdan disponibilidad y precio', on: true },
-  { id: 'bizagent', label: 'Agente del negocio', desc: 'Responde mensajes por cada negocio automáticamente', on: true },
-  { id: 'translation', label: 'Traducción ES / EN', desc: 'Traduce la conversación entre cliente y negocio', on: false },
+  { id: 'concierge', label: 'Conserje IA', labelEn: 'AI concierge', desc: 'Chat que recomienda y reserva por el cliente', descEn: 'Chat that recommends and books for the customer', on: true },
+  { id: 'negotiation', label: 'Negociación agente-a-agente', labelEn: 'Agent-to-agent negotiation', desc: 'Los agentes acuerdan disponibilidad y precio', descEn: 'Agents agree on availability and price', on: true },
+  { id: 'bizagent', label: 'Agente del negocio', labelEn: 'Business agent', desc: 'Responde mensajes por cada negocio automáticamente', descEn: 'Answers messages for each business automatically', on: true },
+  { id: 'translation', label: 'Traducción ES / EN', labelEn: 'ES / EN translation', desc: 'Traduce la conversación entre cliente y negocio', descEn: 'Translates the conversation between customer and business', on: false },
 ]
 
 export const OR_DEFAULT_MODEL = 'openai/gpt-4o-mini'

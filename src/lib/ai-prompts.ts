@@ -168,18 +168,20 @@ export type PromptId =
 export interface PromptDef {
   id: PromptId
   label: string
+  labelEn?: string
   user: 'cliente' | 'negocio'
   description: string
+  descriptionEn?: string
   placeholders: string[]
   template: string
 }
 
 export const PROMPT_DEFS: PromptDef[] = [
-  { id: 'concierge-explorer', label: 'Conserje · Explorer (turista)', user: 'cliente', description: 'Chat del cliente turista. Habla en inglés y recomienda negocios.', placeholders: ['{{BIZ_CONTEXT}}'], template: T_CONCIERGE_EXPLORER },
-  { id: 'concierge-vecino', label: 'Conserje · Vecino (local)', user: 'cliente', description: 'Chat del cliente local. Habla en español, de tú.', placeholders: ['{{BIZ_CONTEXT}}'], template: T_CONCIERGE_VECINO },
-  { id: 'negotiation', label: 'Agente de reservas de Reva', user: 'cliente', description: 'Negocia la reserva con el negocio. Devuelve JSON.', placeholders: [], template: T_NEGOTIATION },
-  { id: 'biz-agent', label: 'Agente del negocio · decisiones', user: 'negocio', description: 'Decide aprobar / contraofertar / rechazar reservas. Devuelve JSON.', placeholders: ['{{bizName}}', '{{bizType}}'], template: T_BIZ_AGENT },
-  { id: 'biz-chat', label: 'Agente del negocio · mensajes', user: 'negocio', description: 'Responde dudas del cliente en la voz del negocio.', placeholders: ['{{bizName}}', '{{bizType}}', '{{greeting}}', '{{tone}}', '{{services}}', '{{hours}}', '{{deposit}}', '{{instructions}}', '{{maxDiscount}}', '{{lang}}'], template: T_BIZ_CHAT },
+  { id: 'concierge-explorer', label: 'Conserje · Explorer (turista)', labelEn: 'Concierge · Explorer (tourist)', user: 'cliente', description: 'Chat del cliente turista. Habla en inglés y recomienda negocios.', descriptionEn: 'Tourist customer chat. Speaks English and recommends businesses.', placeholders: ['{{BIZ_CONTEXT}}'], template: T_CONCIERGE_EXPLORER },
+  { id: 'concierge-vecino', label: 'Conserje · Vecino (local)', labelEn: 'Concierge · Local', user: 'cliente', description: 'Chat del cliente local. Habla en español, de tú.', descriptionEn: 'Local customer chat. Speaks Spanish, informal.', placeholders: ['{{BIZ_CONTEXT}}'], template: T_CONCIERGE_VECINO },
+  { id: 'negotiation', label: 'Agente de reservas de Reva', labelEn: 'Reva booking agent', user: 'cliente', description: 'Negocia la reserva con el negocio. Devuelve JSON.', descriptionEn: 'Negotiates the booking with the business. Returns JSON.', placeholders: [], template: T_NEGOTIATION },
+  { id: 'biz-agent', label: 'Agente del negocio · decisiones', labelEn: 'Business agent · decisions', user: 'negocio', description: 'Decide aprobar / contraofertar / rechazar reservas. Devuelve JSON.', descriptionEn: 'Decides to approve / counter / reject bookings. Returns JSON.', placeholders: ['{{bizName}}', '{{bizType}}'], template: T_BIZ_AGENT },
+  { id: 'biz-chat', label: 'Agente del negocio · mensajes', labelEn: 'Business agent · messages', user: 'negocio', description: 'Responde dudas del cliente en la voz del negocio.', descriptionEn: 'Answers customer questions in the business’s voice.', placeholders: ['{{bizName}}', '{{bizType}}', '{{greeting}}', '{{tone}}', '{{services}}', '{{hours}}', '{{deposit}}', '{{instructions}}', '{{maxDiscount}}', '{{lang}}'], template: T_BIZ_CHAT },
 ]
 
 export const DEFAULT_PROMPTS = PROMPT_DEFS.reduce((acc, d) => {

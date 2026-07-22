@@ -12,6 +12,29 @@ import { fetchPromotions, createPromotion, updatePromotion, setPromotionActive, 
 import { loadAgentConfig, saveAgentConfig, parseAgentConfig, DEFAULT_AGENT_CONFIG, type BizAgentConfig } from '@/lib/biz-agent-config'
 import { loadOwnerSession, type OwnerBusiness } from '@/lib/biz-session'
 import type { Service as CatalogService } from '@/lib/data'
+import { LangContext, useT, useEn, type Lang } from '@/lib/i18n'
+
+// Etiquetas de navegación e inglés (el español vive en NAV/VIEW_TITLES)
+const NAV_EN: Record<string, string> = {
+  requests: 'Requests', agenda: 'Agenda', messages: 'Messages', metrics: 'Metrics',
+  reports: 'Reports', destacado: 'Featured', catalog: 'Catalog', inventory: 'Inventory',
+  pos: 'Point of sale', sales: 'Sales', promos: 'Promotions', scanner: 'Scanner', settings: 'Settings',
+}
+const VIEW_TITLES_EN: Record<string, [string, string]> = {
+  requests: ['Live requests', 'What Reva is bringing to your door'],
+  agenda: ['Agenda', 'Your day, table by table'],
+  messages: ['Messages', 'Conversations with your customers, via Reva'],
+  metrics: ['Metrics', 'How Reva moves your business'],
+  reports: ['Reports', 'Your full business pulse, module by module'],
+  destacado: ['Featured', 'Appear first — always marked as such'],
+  catalog: ['Catalog', 'What Reva can offer and book'],
+  inventory: ['Inventory', 'Availability of your products and services'],
+  pos: ['Point of sale', 'Charge instantly from your catalog'],
+  sales: ['Sales', 'Ticket history — review, void or refund'],
+  promos: ['Promotions', 'Loyalty and offers'],
+  scanner: ['Scanner', 'Stamp, add points and redeem on the spot'],
+  settings: ['Settings', 'Your business, your agent and how it charges'],
+}
 
 // ── Design tokens ──────────────────────────────────────────
 const R = {
@@ -304,8 +327,17 @@ const TAG_COLORS: Record<string, [string, string]> = {
   'Zarpó': [R.inkSoft, R.bgAlt],
   'En abordaje': ['#16614c', R.jadeTint],
 }
+const TAG_EN: Record<string, string> = {
+  'Confirmada': 'Confirmed', 'Sentados': 'Seated', 'En curso': 'In progress',
+  'Por confirmar': 'To confirm', 'Zarpó': 'Departed', 'En abordaje': 'Boarding',
+}
 
 // ── Onboarding ─────────────────────────────────────────────
+const BIZ_TYPE_EN: Record<string, string> = {
+  restaurante: 'Restaurant', bar: 'Bar / Nightlife', spa: 'Spa & Wellness', medico: 'Doctor / Clinic',
+  dentista: 'Dentist', legal: 'Law firm', inmobiliaria: 'Real estate', salon: 'Salon / Barber',
+  tours: 'Tours & Experiences', gym: 'Gym / Studio',
+}
 const BIZ_TYPES = [
   { id: 'restaurante', label: 'Restaurante', icon: '🍽️', name: 'La Lupita Taco & Mezcal',
     services: ['Mesa estándar (2–4 personas)', 'Mesa terraza (vista)', 'Mezcal flight', 'Evento privado'],
@@ -357,6 +389,8 @@ function matchBizType(type: string | null | undefined): string {
 }
 
 function BizOnboarding({ biz, onDone }: { biz: OwnerBusiness | null; onDone: () => void }) {
+  const t = useT()
+  const en = useEn()
   const initialType = matchBizType(biz?.type)
   const initialBt = BIZ_TYPES.find(t => t.id === initialType) ?? BIZ_TYPES[0]
   const [step, setStep] = useState(0)
@@ -375,8 +409,8 @@ function BizOnboarding({ biz, onDone }: { biz: OwnerBusiness | null; onDone: () 
   const [payMode, setPayMode] = useState<'none' | 'deposit'>('none')
   const [activating, setActivating] = useState(false)
 
-  const bt = BIZ_TYPES.find(t => t.id === bizType) ?? BIZ_TYPES[0]
-  const steps = ['Negocio', 'Servicios', 'Horarios', 'Agente IA', 'Pagos']
+  const bt = BIZ_TYPES.find(x => x.id === bizType) ?? BIZ_TYPES[0]
+  const steps = en ? ['Business', 'Services', 'Hours', 'AI agent', 'Payments'] : ['Negocio', 'Servicios', 'Horarios', 'Agente IA', 'Pagos']
 
   // Reset service list when the business type changes
   useEffect(() => {
@@ -455,12 +489,12 @@ function BizOnboarding({ biz, onDone }: { biz: OwnerBusiness | null; onDone: () 
             <div style={{ width: 38, height: 38, borderRadius: 11, background: R.coral, display: 'grid', placeItems: 'center' }}>
               <svg width="22" height="22" viewBox="0 0 24 24"><path d="M5 17c0-4.4 3.2-8 7-8s7 3.6 7 8" fill="none" stroke="#fff" strokeWidth="2.6" strokeLinecap="round"/><circle cx="12" cy="17" r="2.2" fill="#fff"/></svg>
             </div>
-            <span style={{ fontFamily: R.display, fontWeight: 800, fontSize: 18 }}>Panel del Negocio</span>
+            <span style={{ fontFamily: R.display, fontWeight: 800, fontSize: 18 }}>{t('Panel del Negocio', 'Business Panel')}</span>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             {steps.map((_, i) => <div key={i} style={{ flex: 1, height: 6, borderRadius: 999, background: i <= step ? R.coral : 'rgba(255,255,255,.2)' }} />)}
           </div>
-          <p style={{ fontSize: 12, color: 'rgba(255,255,255,.6)', marginTop: 8 }}>Paso {step + 1} de {steps.length}: {steps[step]}</p>
+          <p style={{ fontSize: 12, color: 'rgba(255,255,255,.6)', marginTop: 8 }}>{t('Paso', 'Step')} {step + 1} {t('de', 'of')} {steps.length}: {steps[step]}</p>
         </div>
 
         <div style={{ padding: 24 }}>
@@ -469,54 +503,54 @@ function BizOnboarding({ biz, onDone }: { biz: OwnerBusiness | null; onDone: () 
               <div style={{ width: 64, height: 64, borderRadius: '50%', background: R.coralTint, display: 'grid', placeItems: 'center', margin: '0 auto 16px', animation: 'pulse 1.4s infinite' }}>
                 <svg width="36" height="36" viewBox="0 0 24 24"><path d="M5 17c0-4.4 3.2-8 7-8s7 3.6 7 8" fill="none" stroke={R.coral} strokeWidth="2.6" strokeLinecap="round"/><circle cx="12" cy="17" r="2.2" fill={R.coral}/></svg>
               </div>
-              <p style={{ fontFamily: R.display, fontWeight: 800, fontSize: 18, color: R.ink, marginBottom: 4 }}>Activando tu agente…</p>
-              <p style={{ fontSize: 13.5, color: R.inkSoft }}>Entrenando con tus datos, ya casi.</p>
+              <p style={{ fontFamily: R.display, fontWeight: 800, fontSize: 18, color: R.ink, marginBottom: 4 }}>{t('Activando tu agente…', 'Activating your agent…')}</p>
+              <p style={{ fontSize: 13.5, color: R.inkSoft }}>{t('Entrenando con tus datos, ya casi.', 'Training with your data, almost there.')}</p>
             </div>
           ) : step === 0 ? (
             <>
-              <h2 style={{ fontFamily: R.display, fontWeight: 800, fontSize: 20, color: R.ink, marginBottom: 18 }}>Cuéntanos de tu negocio</h2>
+              <h2 style={{ fontFamily: R.display, fontWeight: 800, fontSize: 20, color: R.ink, marginBottom: 18 }}>{t('Cuéntanos de tu negocio', 'Tell us about your business')}</h2>
               <div style={{ marginBottom: 16 }}>
-                <label style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', display: 'block', marginBottom: 8 }}>Nombre del negocio</label>
+                <label style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', display: 'block', marginBottom: 8 }}>{t('Nombre del negocio', 'Business name')}</label>
                 <input value={name} onChange={e => { setName(e.target.value); setNameEdited(true) }} style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 12, padding: '12px 14px', fontSize: 14.5, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.surface }} />
               </div>
               <div style={{ marginBottom: 16 }}>
-                <label style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', display: 'block', marginBottom: 8 }}>Tipo de negocio</label>
+                <label style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', display: 'block', marginBottom: 8 }}>{t('Tipo de negocio', 'Business type')}</label>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                  {BIZ_TYPES.map(t => (
-                    <button key={t.id} onClick={() => pickType(t)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 12, borderRadius: 12, border: `1px solid ${bizType === t.id ? R.coral : R.line}`, background: bizType === t.id ? R.coralTint : R.surface, cursor: 'pointer', fontFamily: R.ui, textAlign: 'left' }}>
-                      <span style={{ fontSize: 20 }}>{t.icon}</span>
-                      <span style={{ fontSize: 13, fontWeight: 600, color: bizType === t.id ? R.coralPress : R.ink }}>{t.label}</span>
+                  {BIZ_TYPES.map(bx => (
+                    <button key={bx.id} onClick={() => pickType(bx)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 12, borderRadius: 12, border: `1px solid ${bizType === bx.id ? R.coral : R.line}`, background: bizType === bx.id ? R.coralTint : R.surface, cursor: 'pointer', fontFamily: R.ui, textAlign: 'left' }}>
+                      <span style={{ fontSize: 20 }}>{bx.icon}</span>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: bizType === bx.id ? R.coralPress : R.ink }}>{en ? (BIZ_TYPE_EN[bx.id] ?? bx.label) : bx.label}</span>
                     </button>
                   ))}
                 </div>
               </div>
               <div style={{ marginBottom: 16 }}>
-                <label style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', display: 'block', marginBottom: 8 }}>Municipio de operación</label>
-                <input value={municipio} onChange={e => setMunicipio(e.target.value)} placeholder="Ej. Loreto" list="municipios-bcs-onb"
+                <label style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', display: 'block', marginBottom: 8 }}>{t('Municipio de operación', 'Operating municipality')}</label>
+                <input value={municipio} onChange={e => setMunicipio(e.target.value)} placeholder={t('Ej. Loreto', 'e.g. Loreto')} list="municipios-bcs-onb"
                   style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 12, padding: '12px 14px', fontSize: 14.5, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.surface }} />
                 <datalist id="municipios-bcs-onb">
                   {CITIES.map(c => <option key={c} value={c} />)}
                 </datalist>
-                <p style={{ fontSize: 12, color: R.inkFaint, marginTop: 6 }}>Es la ciudad donde los clientes te encontrarán en Discover.</p>
+                <p style={{ fontSize: 12, color: R.inkFaint, marginTop: 6 }}>{t('Es la ciudad donde los clientes te encontrarán en Discover.', 'This is the city where customers will find you on Discover.')}</p>
               </div>
-              <button onClick={() => setStep(1)} style={primaryBtn}>Continuar →</button>
+              <button onClick={() => setStep(1)} style={primaryBtn}>{t('Continuar →', 'Continue →')}</button>
             </>
           ) : step === 1 ? (
             <>
-              <h2 style={{ fontFamily: R.display, fontWeight: 800, fontSize: 20, color: R.ink, marginBottom: 4 }}>Tus servicios</h2>
-              <p style={{ fontSize: 13.5, color: R.inkSoft, marginBottom: 16 }}>Toca para activar o desactivar. Agrega los tuyos abajo con precio e impuestos.</p>
+              <h2 style={{ fontFamily: R.display, fontWeight: 800, fontSize: 20, color: R.ink, marginBottom: 4 }}>{t('Tus servicios', 'Your services')}</h2>
+              <p style={{ fontSize: 13.5, color: R.inkSoft, marginBottom: 16 }}>{t('Toca para activar o desactivar. Agrega los tuyos abajo con precio e impuestos.', 'Tap to enable or disable. Add your own below with price and taxes.')}</p>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14 }}>
                 {services.map((s, i) => (
                   <div key={i} style={{ display: 'flex', alignItems: editIdx === i ? 'stretch' : 'center', gap: 12, padding: 14, border: `1px solid ${s.on ? R.coral : R.line}`, borderRadius: 12, background: s.on ? R.coralTint : R.surface }}>
                     {editIdx === i ? (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%' }}>
-                        <input value={s.name} onChange={e => updateService(i, { name: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') setEditIdx(null) }} placeholder="Título del servicio" style={fieldStyle} />
-                        <input value={s.desc} onChange={e => updateService(i, { desc: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') setEditIdx(null) }} placeholder="Descripción (ej. 80 min · vista al mar)" style={fieldStyle} />
+                        <input value={s.name} onChange={e => updateService(i, { name: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') setEditIdx(null) }} placeholder={t('Título del servicio', 'Service title')} style={fieldStyle} />
+                        <input value={s.desc} onChange={e => updateService(i, { desc: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') setEditIdx(null) }} placeholder={t('Descripción (ej. 80 min · vista al mar)', 'Description (e.g. 80 min · ocean view)')} style={fieldStyle} />
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                          <input value={s.price} onChange={e => updateService(i, { price: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') setEditIdx(null) }} placeholder="Precio (ej. $2,400)" style={fieldStyle} />
-                          <input value={s.tax} onChange={e => updateService(i, { tax: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') setEditIdx(null) }} placeholder="Impuestos (ej. IVA 16%)" style={fieldStyle} />
+                          <input value={s.price} onChange={e => updateService(i, { price: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') setEditIdx(null) }} placeholder={t('Precio (ej. $2,400)', 'Price (e.g. $2,400)')} style={fieldStyle} />
+                          <input value={s.tax} onChange={e => updateService(i, { tax: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') setEditIdx(null) }} placeholder={t('Impuestos (ej. IVA 16%)', 'Taxes (e.g. 16% VAT)')} style={fieldStyle} />
                         </div>
-                        <button onClick={() => setEditIdx(null)} style={{ alignSelf: 'flex-end', border: 'none', borderRadius: 10, padding: '9px 18px', background: R.coral, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5, color: '#fff' }}>Listo</button>
+                        <button onClick={() => setEditIdx(null)} style={{ alignSelf: 'flex-end', border: 'none', borderRadius: 10, padding: '9px 18px', background: R.coral, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5, color: '#fff' }}>{t('Listo', 'Done')}</button>
                       </div>
                     ) : (
                       <>
@@ -532,37 +566,37 @@ function BizOnboarding({ biz, onDone }: { biz: OwnerBusiness | null; onDone: () 
                             {(s.desc || s.tax) && <span style={{ fontSize: 12, color: R.inkSoft }}>{[s.desc, s.tax].filter(Boolean).join(' · ')}</span>}
                           </span>
                         </button>
-                        <button onClick={() => setEditIdx(i)} aria-label="Editar servicio" style={{ border: 'none', background: 'transparent', cursor: 'pointer', display: 'grid', placeItems: 'center', padding: 4, flexShrink: 0 }}>
+                        <button onClick={() => setEditIdx(i)} aria-label={t('Editar servicio', 'Edit service')} style={{ border: 'none', background: 'transparent', cursor: 'pointer', display: 'grid', placeItems: 'center', padding: 4, flexShrink: 0 }}>
                           <Icon n="edit" size={16} color={R.inkSoft} />
                         </button>
-                        <button onClick={() => removeService(i)} aria-label="Eliminar servicio" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: R.inkFaint, fontSize: 20, lineHeight: 1, padding: '0 4px', flexShrink: 0 }}>×</button>
+                        <button onClick={() => removeService(i)} aria-label={t('Eliminar servicio', 'Delete service')} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: R.inkFaint, fontSize: 20, lineHeight: 1, padding: '0 4px', flexShrink: 0 }}>×</button>
                       </>
                     )}
                   </div>
                 ))}
               </div>
               <div style={{ border: `1px dashed ${R.line}`, borderRadius: 14, padding: 14, marginBottom: 24, background: R.bgAlt }}>
-                <p style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 10 }}>Nuevo servicio</p>
+                <p style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 10 }}>{t('Nuevo servicio', 'New service')}</p>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  <input value={draft.name} onChange={e => setDraft({ ...draft, name: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') addService() }} placeholder="Título del servicio" style={fieldStyle} />
-                  <input value={draft.desc} onChange={e => setDraft({ ...draft, desc: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') addService() }} placeholder="Descripción (ej. 80 min · vista al mar)" style={fieldStyle} />
+                  <input value={draft.name} onChange={e => setDraft({ ...draft, name: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') addService() }} placeholder={t('Título del servicio', 'Service title')} style={fieldStyle} />
+                  <input value={draft.desc} onChange={e => setDraft({ ...draft, desc: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') addService() }} placeholder={t('Descripción (ej. 80 min · vista al mar)', 'Description (e.g. 80 min · ocean view)')} style={fieldStyle} />
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                    <input value={draft.price} onChange={e => setDraft({ ...draft, price: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') addService() }} placeholder="Precio (ej. $2,400)" style={fieldStyle} />
-                    <input value={draft.tax} onChange={e => setDraft({ ...draft, tax: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') addService() }} placeholder="Impuestos (ej. IVA 16%)" style={fieldStyle} />
+                    <input value={draft.price} onChange={e => setDraft({ ...draft, price: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') addService() }} placeholder={t('Precio (ej. $2,400)', 'Price (e.g. $2,400)')} style={fieldStyle} />
+                    <input value={draft.tax} onChange={e => setDraft({ ...draft, tax: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') addService() }} placeholder={t('Impuestos (ej. IVA 16%)', 'Taxes (e.g. 16% VAT)')} style={fieldStyle} />
                   </div>
-                  <button onClick={addService} disabled={!draft.name.trim()} style={{ border: `1px solid ${R.coral}`, borderRadius: 10, padding: '11px 14px', background: draft.name.trim() ? R.coral : R.coralTint, cursor: draft.name.trim() ? 'pointer' : 'not-allowed', fontFamily: R.ui, fontWeight: 700, fontSize: 14, color: draft.name.trim() ? '#fff' : R.coralPress }}>+ Agregar servicio</button>
+                  <button onClick={addService} disabled={!draft.name.trim()} style={{ border: `1px solid ${R.coral}`, borderRadius: 10, padding: '11px 14px', background: draft.name.trim() ? R.coral : R.coralTint, cursor: draft.name.trim() ? 'pointer' : 'not-allowed', fontFamily: R.ui, fontWeight: 700, fontSize: 14, color: draft.name.trim() ? '#fff' : R.coralPress }}>{t('+ Agregar servicio', '+ Add service')}</button>
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 10 }}>
-                <button onClick={() => setStep(0)} style={ghostBtn}>← Atrás</button>
-                <button onClick={() => setStep(2)} style={{ ...primaryBtn, flex: 1 }}>Continuar →</button>
+                <button onClick={() => setStep(0)} style={ghostBtn}>{t('← Atrás', '← Back')}</button>
+                <button onClick={() => setStep(2)} style={{ ...primaryBtn, flex: 1 }}>{t('Continuar →', 'Continue →')}</button>
               </div>
             </>
           ) : step === 2 ? (
             <>
-              <h2 style={{ fontFamily: R.display, fontWeight: 800, fontSize: 20, color: R.ink, marginBottom: 16 }}>Horarios</h2>
+              <h2 style={{ fontFamily: R.display, fontWeight: 800, fontSize: 20, color: R.ink, marginBottom: 16 }}>{t('Horarios', 'Hours')}</h2>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 20 }}>
-                {([['Apertura', hoursOpen, setHoursOpen], ['Cierre', hoursClose, setHoursClose]] as const).map(([lbl, val, set]) => (
+                {([[t('Apertura', 'Opening'), hoursOpen, setHoursOpen], [t('Cierre', 'Closing'), hoursClose, setHoursClose]] as const).map(([lbl, val, set]) => (
                   <div key={lbl}>
                     <label style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', display: 'block', marginBottom: 8 }}>{lbl}</label>
                     <input type="time" value={val} onChange={e => set(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 12, padding: '12px 14px', fontSize: 14.5, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.surface }} />
@@ -570,14 +604,14 @@ function BizOnboarding({ biz, onDone }: { biz: OwnerBusiness | null; onDone: () 
                 ))}
               </div>
               <div style={{ display: 'flex', gap: 10 }}>
-                <button onClick={() => setStep(1)} style={ghostBtn}>← Atrás</button>
-                <button onClick={() => setStep(3)} style={{ ...primaryBtn, flex: 1 }}>Continuar →</button>
+                <button onClick={() => setStep(1)} style={ghostBtn}>{t('← Atrás', '← Back')}</button>
+                <button onClick={() => setStep(3)} style={{ ...primaryBtn, flex: 1 }}>{t('Continuar →', 'Continue →')}</button>
               </div>
             </>
           ) : step === 3 ? (
             <>
-              <h2 style={{ fontFamily: R.display, fontWeight: 800, fontSize: 20, color: R.ink, marginBottom: 6 }}>Tu agente de IA</h2>
-              <p style={{ fontSize: 13.5, color: R.inkSoft, marginBottom: 16 }}>Reva va a negociar reservas en tiempo real por ti. Edita el saludo a tu manera.</p>
+              <h2 style={{ fontFamily: R.display, fontWeight: 800, fontSize: 20, color: R.ink, marginBottom: 6 }}>{t('Tu agente de IA', 'Your AI agent')}</h2>
+              <p style={{ fontSize: 13.5, color: R.inkSoft, marginBottom: 16 }}>{t('Reva va a negociar reservas en tiempo real por ti. Edita el saludo a tu manera.', 'Reva will negotiate bookings in real time for you. Edit the greeting your way.')}</p>
               <div style={{ background: R.surface, border: `1px solid ${R.line}`, borderRadius: 16, padding: 16, marginBottom: 10 }}>
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
                   <div style={{ width: 28, height: 28, borderRadius: 8, background: R.coral, display: 'grid', placeItems: 'center', flexShrink: 0 }}>
@@ -587,22 +621,22 @@ function BizOnboarding({ biz, onDone }: { biz: OwnerBusiness | null; onDone: () 
                 </div>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                <span style={{ fontSize: 12, color: R.inkFaint }}>Toma el nombre de tu negocio automáticamente.</span>
-                {agentEdited && <button onClick={resetAgentMsg} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: R.coralPress, fontFamily: R.ui, fontWeight: 700, fontSize: 12.5, padding: 0 }}>↺ Restablecer</button>}
+                <span style={{ fontSize: 12, color: R.inkFaint }}>{t('Toma el nombre de tu negocio automáticamente.', 'It picks up your business name automatically.')}</span>
+                {agentEdited && <button onClick={resetAgentMsg} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: R.coralPress, fontFamily: R.ui, fontWeight: 700, fontSize: 12.5, padding: 0 }}>↺ {t('Restablecer', 'Reset')}</button>}
               </div>
               <div style={{ display: 'flex', gap: 10 }}>
-                <button onClick={() => setStep(2)} style={ghostBtn}>← Atrás</button>
-                <button onClick={() => setStep(4)} style={{ ...primaryBtn, flex: 1 }}>Continuar →</button>
+                <button onClick={() => setStep(2)} style={ghostBtn}>{t('← Atrás', '← Back')}</button>
+                <button onClick={() => setStep(4)} style={{ ...primaryBtn, flex: 1 }}>{t('Continuar →', 'Continue →')}</button>
               </div>
             </>
           ) : (
             <>
-              <h2 style={{ fontFamily: R.display, fontWeight: 800, fontSize: 20, color: R.ink, marginBottom: 6 }}>Pagos y cobros</h2>
-              <p style={{ fontSize: 13.5, color: R.inkSoft, marginBottom: 16 }}>Define si cobras depósito al reservar.</p>
+              <h2 style={{ fontFamily: R.display, fontWeight: 800, fontSize: 20, color: R.ink, marginBottom: 6 }}>{t('Pagos y cobros', 'Payments')}</h2>
+              <p style={{ fontSize: 13.5, color: R.inkSoft, marginBottom: 16 }}>{t('Define si cobras depósito al reservar.', 'Choose whether you charge a deposit on booking.')}</p>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20 }}>
                 {[
-                  { id: 'none' as const, label: 'Sin depósito (confirmación inmediata)', sub: 'Recomendado para reservas rápidas' },
-                  { id: 'deposit' as const, label: 'Depósito por reserva', sub: 'El huésped paga al confirmar' },
+                  { id: 'none' as const, label: t('Sin depósito (confirmación inmediata)', 'No deposit (instant confirmation)'), sub: t('Recomendado para reservas rápidas', 'Recommended for quick bookings') },
+                  { id: 'deposit' as const, label: t('Depósito por reserva', 'Deposit per booking'), sub: t('El huésped paga al confirmar', 'The guest pays on confirmation') },
                 ].map(o => {
                   const active = payMode === o.id
                   return (
@@ -619,8 +653,8 @@ function BizOnboarding({ biz, onDone }: { biz: OwnerBusiness | null; onDone: () 
                 })}
               </div>
               <div style={{ display: 'flex', gap: 10 }}>
-                <button onClick={() => setStep(3)} style={ghostBtn}>← Atrás</button>
-                <button onClick={activate} style={{ ...primaryBtn, flex: 1, background: R.jade }}>Activar agente y entrar</button>
+                <button onClick={() => setStep(3)} style={ghostBtn}>{t('← Atrás', '← Back')}</button>
+                <button onClick={activate} style={{ ...primaryBtn, flex: 1, background: R.jade }}>{t('Activar agente y entrar', 'Activate agent and enter')}</button>
               </div>
             </>
           )}
@@ -668,11 +702,12 @@ function ViaChip({ via }: { via: string }) {
 }
 
 function StateChip({ state }: { state: string }) {
+  const t = useT()
   const cfg = state === 'negotiating'
-    ? { label: 'Reva negociando', bg: R.amberTint, color: R.amberDeep }
+    ? { label: t('Reva negociando', 'Reva negotiating'), bg: R.amberTint, color: R.amberDeep }
     : state === 'auto'
-    ? { label: 'Auto-confirmable', bg: R.jadeTint, color: '#16614c' }
-    : { label: 'Acción requerida', bg: R.coralTint, color: R.coralPress }
+    ? { label: t('Auto-confirmable', 'Auto-confirmable'), bg: R.jadeTint, color: '#16614c' }
+    : { label: t('Acción requerida', 'Action required'), bg: R.coralTint, color: R.coralPress }
   return (
     <span style={{ fontSize: 12, fontWeight: 700, padding: '4px 11px', borderRadius: 999, background: cfg.bg, color: cfg.color, whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 5 }}>
       <span style={{ width: 7, height: 7, borderRadius: '50%', background: cfg.color, flexShrink: 0 }} />
@@ -689,14 +724,16 @@ function GuestAvatar({ name }: { name: string }) {
 }
 
 function TagBadge({ tag }: { tag: string }) {
+  const t = useT()
   const [color, bg] = TAG_COLORS[tag] ?? [R.inkSoft, R.bgAlt]
   return (
-    <span style={{ fontSize: 11, fontWeight: 700, color, background: bg, padding: '3px 9px', borderRadius: 999, whiteSpace: 'nowrap' }}>{tag}</span>
+    <span style={{ fontSize: 11, fontWeight: 700, color, background: bg, padding: '3px 9px', borderRadius: 999, whiteSpace: 'nowrap' }}>{t(tag, TAG_EN[tag] ?? tag)}</span>
   )
 }
 
 // ── Views ──────────────────────────────────────────────────
 function RequestsView({ vert, onGo, requests, agenda, onResolve }: { vert: Vert; onGo: (v: string) => void; requests: PanelRequest[]; agenda: AgItem[]; onResolve: (id: string, status: 'confirmed' | 'cancelled') => void }) {
+  const t = useT()
   const m = vert.metrics
   const reqs = requests
 
@@ -705,15 +742,15 @@ function RequestsView({ vert, onGo, requests, agenda, onResolve }: { vert: Vert;
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
         {/* 3 metrics */}
         <div style={{ display: 'flex', gap: 14, marginBottom: 24, flexShrink: 0 }}>
-          <BMetric label="Reservas hoy" value={m.reservasHoy} delta="22%" up tint={R.coralTint} icon={<Icon n="cal" size={20} color={R.coral} />} />
-          <BMetric label="Ingreso atribuido" value={m.ingreso} delta="11%" up tint={R.jadeTint} icon={<Icon n="bolt" size={20} color={R.jade} />} />
-          <BMetric label="Vía Reva" value={`${m.viaReva}%`} tint={R.amberTint} icon={<Icon n="spark" size={20} color={R.amber} />} />
+          <BMetric label={t('Reservas hoy', 'Bookings today')} value={m.reservasHoy} delta="22%" up tint={R.coralTint} icon={<Icon n="cal" size={20} color={R.coral} />} />
+          <BMetric label={t('Ingreso atribuido', 'Attributed revenue')} value={m.ingreso} delta="11%" up tint={R.jadeTint} icon={<Icon n="bolt" size={20} color={R.jade} />} />
+          <BMetric label={t('Vía Reva', 'Via Reva')} value={`${m.viaReva}%`} tint={R.amberTint} icon={<Icon n="spark" size={20} color={R.amber} />} />
         </div>
 
         {/* Requests */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexShrink: 0 }}>
-          <span style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink }}>Entrantes</span>
-          <span style={{ fontSize: 12.5, fontWeight: 700, color: R.coralPress, background: R.coralTint, padding: '3px 9px', borderRadius: 999 }}>{reqs.length} nuevas</span>
+          <span style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink }}>{t('Entrantes', 'Incoming')}</span>
+          <span style={{ fontSize: 12.5, fontWeight: 700, color: R.coralPress, background: R.coralTint, padding: '3px 9px', borderRadius: 999 }}>{reqs.length} {t('nuevas', 'new')}</span>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12, flex: 1, minHeight: 0, overflowY: 'auto', paddingRight: 4 }}>
           {reqs.map(r => (
@@ -732,14 +769,14 @@ function RequestsView({ vert, onGo, requests, agenda, onResolve }: { vert: Vert;
                 <StateChip state={r.state} />
               </div>
               <div style={{ display: 'flex', gap: 9, marginTop: 14, paddingLeft: 50, alignItems: 'center' }}>
-                <button onClick={() => onResolve(r.id, 'confirmed')} style={{ padding: '9px 18px', background: R.coral, color: '#fff', border: 'none', borderRadius: 999, fontFamily: R.ui, fontWeight: 700, fontSize: 13.5, cursor: 'pointer' }}>Confirmar</button>
-                <button onClick={() => onResolve(r.id, 'cancelled')} style={{ padding: '9px 18px', background: R.bgAlt, color: R.ink, border: 'none', borderRadius: 999, fontFamily: R.ui, fontWeight: 700, fontSize: 13.5, cursor: 'pointer' }}>Rechazar</button>
+                <button onClick={() => onResolve(r.id, 'confirmed')} style={{ padding: '9px 18px', background: R.coral, color: '#fff', border: 'none', borderRadius: 999, fontFamily: R.ui, fontWeight: 700, fontSize: 13.5, cursor: 'pointer' }}>{t('Confirmar', 'Confirm')}</button>
+                <button onClick={() => onResolve(r.id, 'cancelled')} style={{ padding: '9px 18px', background: R.bgAlt, color: R.ink, border: 'none', borderRadius: 999, fontFamily: R.ui, fontWeight: 700, fontSize: 13.5, cursor: 'pointer' }}>{t('Rechazar', 'Reject')}</button>
               </div>
             </BCard>
           ))}
           {reqs.length === 0 && (
             <BCard style={{ textAlign: 'center', padding: '44px 0', color: R.inkSoft }}>
-              <Icon n="check" size={28} color={R.jade} stroke={2.4} /> Todo atendido. Reva sigue trabajando por ti.
+              <Icon n="check" size={28} color={R.jade} stroke={2.4} /> {t('Todo atendido. Reva sigue trabajando por ti.', 'All handled. Reva keeps working for you.')}
             </BCard>
           )}
         </div>
@@ -747,13 +784,13 @@ function RequestsView({ vert, onGo, requests, agenda, onResolve }: { vert: Vert;
         <div onClick={() => onGo('destacado')} style={{ cursor: 'pointer', flexShrink: 0, marginTop: 16, borderRadius: 18, background: `linear-gradient(120deg, ${R.dusk}, ${R.duskSoft})`, color: '#fff', display: 'flex', alignItems: 'center', gap: 20, padding: '18px 24px' }}>
           <div style={{ flex: 1 }}>
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 11.5, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', background: 'rgba(255,255,255,.14)', padding: '4px 10px', borderRadius: 999 }}>
-              <Icon n="spark" size={12} color="#fff" fill="#fff" /> Destacado
+              <Icon n="spark" size={12} color="#fff" fill="#fff" /> {t('Destacado', 'Featured')}
             </div>
-            <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 20, marginTop: 12 }}>Aparece primero esta semana</div>
-            <div style={{ fontSize: 13.5, opacity: .82, marginTop: 5 }}>Reva lo marca como Destacado — siempre honesto. Promedio +38% de solicitudes.</div>
+            <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 20, marginTop: 12 }}>{t('Aparece primero esta semana', 'Appear first this week')}</div>
+            <div style={{ fontSize: 13.5, opacity: .82, marginTop: 5 }}>{t('Reva lo marca como Destacado — siempre honesto. Promedio +38% de solicitudes.', 'Reva marks it as Featured — always honest. Average +38% requests.')}</div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, fontWeight: 700, fontSize: 14 }}>
-            Comprar slot <Icon n="arrowR" size={18} color="#fff" />
+            {t('Comprar slot', 'Buy slot')} <Icon n="arrowR" size={18} color="#fff" />
           </div>
         </div>
       </div>
@@ -762,15 +799,15 @@ function RequestsView({ vert, onGo, requests, agenda, onResolve }: { vert: Vert;
       <div style={{ width: 300, flexShrink: 0, overflowY: 'auto' }}>
         <BCard>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-            <span style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink }}>Agenda de hoy</span>
-            <button onClick={() => onGo('agenda')} style={{ background: 'none', border: 'none', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5, color: R.coral, cursor: 'pointer', padding: 0 }}>Ver todo</button>
+            <span style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink }}>{t('Agenda de hoy', "Today's agenda")}</span>
+            <button onClick={() => onGo('agenda')} style={{ background: 'none', border: 'none', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5, color: R.coral, cursor: 'pointer', padding: 0 }}>{t('Ver todo', 'View all')}</button>
           </div>
           {(() => {
             const hoy = agenda
               .filter(a => isSameDay(new Date(a.iso), new Date()))
               .sort((x, y) => x.iso.localeCompare(y.iso))
               .slice(0, 5)
-            if (hoy.length === 0) return <div style={{ fontSize: 13, color: R.inkSoft, paddingBottom: 8 }}>Sin reservas para hoy.</div>
+            if (hoy.length === 0) return <div style={{ fontSize: 13, color: R.inkSoft, paddingBottom: 8 }}>{t('Sin reservas para hoy.', 'No bookings for today.')}</div>
             return hoy.map((a, i, arr) => {
             const [tc] = TAG_COLORS[a.tag] ?? [R.inkSoft]
             return (
@@ -803,6 +840,10 @@ const MES_CORTO = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep'
 const MES_LARGO = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
 const DIA_CORTO = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb']
 const DIA_LARGO = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado']
+const MES_CORTO_EN = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+const MES_LARGO_EN = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+const DIA_CORTO_EN = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const DIA_LARGO_EN = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 function isSameDay(a: Date, b: Date): boolean {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
 }
@@ -814,21 +855,28 @@ function startOfWeekMon(d: Date): Date {
 }
 
 function AgendaView({ vert, dayAgenda }: { vert: Vert; dayAgenda: AgItem[] }) {
+  const t = useT()
+  const en = useEn()
+  const MES_C = en ? MES_CORTO_EN : MES_CORTO
+  const MES_L = en ? MES_LARGO_EN : MES_LARGO
+  const DIA_L = en ? DIA_LARGO_EN : DIA_LARGO
+  const ALL = t('Todas', 'All')
   const [mode, setMode] = useState<'dia' | 'semana' | 'mes'>('dia')
   const [agenda, setAgenda] = useState<AgItem[]>(dayAgenda)
   const [sel, setSel] = useState<SelRes | null>(null)
   const [query, setQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState('Todas')
-  const modes: [typeof mode, string][] = [['dia', 'Día'], ['semana', 'Semana'], ['mes', 'Mes']]
+  const modes: [typeof mode, string][] = [['dia', t('Día', 'Day')], ['semana', t('Semana', 'Week')], ['mes', t('Mes', 'Month')]]
   const now = new Date()
   const wkStart = startOfWeekMon(now)
   const wkEnd = new Date(wkStart.getFullYear(), wkStart.getMonth(), wkStart.getDate() + 6)
+  const thisWeek = t('Esta semana', 'This week')
   const weekTitle = wkStart.getMonth() === wkEnd.getMonth()
-    ? `${wkStart.getDate()} – ${wkEnd.getDate()} ${MES_CORTO[wkStart.getMonth()]} · Esta semana`
-    : `${wkStart.getDate()} ${MES_CORTO[wkStart.getMonth()]} – ${wkEnd.getDate()} ${MES_CORTO[wkEnd.getMonth()]} · Esta semana`
+    ? `${wkStart.getDate()} – ${wkEnd.getDate()} ${MES_C[wkStart.getMonth()]} · ${thisWeek}`
+    : `${wkStart.getDate()} ${MES_C[wkStart.getMonth()]} – ${wkEnd.getDate()} ${MES_C[wkEnd.getMonth()]} · ${thisWeek}`
   const title = mode === 'dia'
-    ? `Hoy · ${DIA_LARGO[now.getDay()]} ${now.getDate()} ${MES_CORTO[now.getMonth()]}`
-    : mode === 'semana' ? weekTitle : `${MES_LARGO[now.getMonth()]} ${now.getFullYear()}`
+    ? `${t('Hoy', 'Today')} · ${DIA_L[now.getDay()]} ${now.getDate()} ${MES_C[now.getMonth()]}`
+    : mode === 'semana' ? weekTitle : `${MES_L[now.getMonth()]} ${now.getFullYear()}`
 
   useEffect(() => { setAgenda(dayAgenda); setSel(null) }, [vert.id, dayAgenda])
 
@@ -867,19 +915,19 @@ function AgendaView({ vert, dayAgenda }: { vert: Vert; dayAgenda: AgItem[] }) {
         <div style={{ display: 'flex', gap: 10, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center', flexShrink: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: R.surface, border: `1px solid ${R.line}`, borderRadius: 12, padding: '9px 12px', flex: '1 1 240px', maxWidth: 320 }}>
             <Icon n="search" size={16} color={R.inkFaint} />
-            <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Buscar por nombre…" style={{ border: 'none', outline: 'none', background: 'transparent', fontFamily: R.ui, fontSize: 14, color: R.ink, width: '100%' }} />
-            {query && <button onClick={() => setQuery('')} aria-label="Limpiar" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: R.inkFaint, fontSize: 16, lineHeight: 1, padding: 0 }}>×</button>}
+            <input value={query} onChange={e => setQuery(e.target.value)} placeholder={t('Buscar por nombre…', 'Search by name…')} style={{ border: 'none', outline: 'none', background: 'transparent', fontFamily: R.ui, fontSize: 14, color: R.ink, width: '100%' }} />
+            {query && <button onClick={() => setQuery('')} aria-label={t('Limpiar', 'Clear')} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: R.inkFaint, fontSize: 16, lineHeight: 1, padding: 0 }}>×</button>}
           </div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {statuses.map(s => {
               const on = statusFilter === s
-              return <button key={s} onClick={() => setStatusFilter(s)} style={{ padding: '8px 14px', borderRadius: 999, border: `1px solid ${on ? R.coral : R.line}`, background: on ? R.coralTint : R.surface, color: on ? R.coralPress : R.inkSoft, fontFamily: R.ui, fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>{s}</button>
+              return <button key={s} onClick={() => setStatusFilter(s)} style={{ padding: '8px 14px', borderRadius: 999, border: `1px solid ${on ? R.coral : R.line}`, background: on ? R.coralTint : R.surface, color: on ? R.coralPress : R.inkSoft, fontFamily: R.ui, fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>{s === 'Todas' ? ALL : t(s, TAG_EN[s] ?? s)}</button>
             })}
           </div>
         </div>
       )}
       <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
-        {mode === 'dia' && <DayAgenda rows={rows} unit={vert.unit} empty={query.trim() || statusFilter !== 'Todas' ? 'No hay reservas que coincidan con tu búsqueda.' : 'No tienes reservas para hoy.'} onSelect={(a, i) => setSel({ ...a, idx: i })} />}
+        {mode === 'dia' && <DayAgenda rows={rows} unit={vert.unit} empty={query.trim() || statusFilter !== 'Todas' ? t('No hay reservas que coincidan con tu búsqueda.', 'No bookings match your search.') : t('No tienes reservas para hoy.', 'You have no bookings for today.')} onSelect={(a, i) => setSel({ ...a, idx: i })} />}
         {mode === 'semana' && <WeekAgenda agenda={agenda} now={now} onSelect={setSel} />}
         {mode === 'mes' && <MonthAgenda agenda={agenda} now={now} />}
       </div>
@@ -890,29 +938,29 @@ function AgendaView({ vert, dayAgenda }: { vert: Vert; dayAgenda: AgItem[] }) {
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 14 }}>
               <div>
                 <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 20, color: R.ink }}>{sel.who}</div>
-                <span style={{ display: 'inline-block', marginTop: 6, fontSize: 11.5, fontWeight: 700, color: stc, background: stb, padding: '4px 11px', borderRadius: 999 }}>{sel.tag}</span>
+                <span style={{ display: 'inline-block', marginTop: 6, fontSize: 11.5, fontWeight: 700, color: stc, background: stb, padding: '4px 11px', borderRadius: 999 }}>{t(sel.tag, TAG_EN[sel.tag] ?? sel.tag)}</span>
               </div>
-              <button onClick={() => setSel(null)} aria-label="Cerrar" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: R.inkFaint, fontSize: 22, lineHeight: 1, padding: 0 }}>×</button>
+              <button onClick={() => setSel(null)} aria-label={t('Cerrar', 'Close')} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: R.inkFaint, fontSize: 22, lineHeight: 1, padding: 0 }}>×</button>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 1, background: R.surface, border: `1px solid ${R.line}`, borderRadius: 12, overflow: 'hidden' }}>
-              {sel.service && <div style={{ display: 'flex', justifyContent: 'space-between', padding: '11px 14px' }}><span style={{ fontSize: 13, color: R.inkSoft }}>Servicio</span><span style={{ fontSize: 13.5, fontWeight: 700, color: R.ink }}>{sel.service}</span></div>}
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '11px 14px', borderTop: sel.service ? `1px solid ${R.lineSoft}` : 'none' }}><span style={{ fontSize: 13, color: R.inkSoft }}>Hora</span><span style={{ fontSize: 13.5, fontWeight: 600, color: R.ink }}>{sel.time}</span></div>
-              {!!sel.durationMin && <div style={{ display: 'flex', justifyContent: 'space-between', padding: '11px 14px', borderTop: `1px solid ${R.lineSoft}` }}><span style={{ fontSize: 13, color: R.inkSoft }}>Termina</span><span style={{ fontSize: 13.5, fontWeight: 600, color: R.ink }}>{endTime(sel.time, sel.durationMin)} · {sel.durationMin} min</span></div>}
-              {!!sel.party && <div style={{ display: 'flex', justifyContent: 'space-between', padding: '11px 14px', borderTop: `1px solid ${R.lineSoft}` }}><span style={{ fontSize: 13, color: R.inkSoft }}>Personas</span><span style={{ fontSize: 13.5, fontWeight: 600, color: R.ink }}>{sel.party}</span></div>}
-              {sel.resource && <div style={{ display: 'flex', justifyContent: 'space-between', padding: '11px 14px', borderTop: `1px solid ${R.lineSoft}` }}><span style={{ fontSize: 13, color: R.inkSoft }}>Zona</span><span style={{ fontSize: 13.5, fontWeight: 600, color: R.ink }}>{sel.resource}</span></div>}
-              {sel.note && <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, padding: '11px 14px', borderTop: `1px solid ${R.lineSoft}` }}><span style={{ fontSize: 13, color: R.inkSoft }}>Nota</span><span style={{ fontSize: 13.5, fontWeight: 600, color: R.ink, textAlign: 'right' }}>{sel.note}</span></div>}
+              {sel.service && <div style={{ display: 'flex', justifyContent: 'space-between', padding: '11px 14px' }}><span style={{ fontSize: 13, color: R.inkSoft }}>{t('Servicio', 'Service')}</span><span style={{ fontSize: 13.5, fontWeight: 700, color: R.ink }}>{sel.service}</span></div>}
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '11px 14px', borderTop: sel.service ? `1px solid ${R.lineSoft}` : 'none' }}><span style={{ fontSize: 13, color: R.inkSoft }}>{t('Hora', 'Time')}</span><span style={{ fontSize: 13.5, fontWeight: 600, color: R.ink }}>{sel.time}</span></div>
+              {!!sel.durationMin && <div style={{ display: 'flex', justifyContent: 'space-between', padding: '11px 14px', borderTop: `1px solid ${R.lineSoft}` }}><span style={{ fontSize: 13, color: R.inkSoft }}>{t('Termina', 'Ends')}</span><span style={{ fontSize: 13.5, fontWeight: 600, color: R.ink }}>{endTime(sel.time, sel.durationMin)} · {sel.durationMin} min</span></div>}
+              {!!sel.party && <div style={{ display: 'flex', justifyContent: 'space-between', padding: '11px 14px', borderTop: `1px solid ${R.lineSoft}` }}><span style={{ fontSize: 13, color: R.inkSoft }}>{t('Personas', 'People')}</span><span style={{ fontSize: 13.5, fontWeight: 600, color: R.ink }}>{sel.party}</span></div>}
+              {sel.resource && <div style={{ display: 'flex', justifyContent: 'space-between', padding: '11px 14px', borderTop: `1px solid ${R.lineSoft}` }}><span style={{ fontSize: 13, color: R.inkSoft }}>{t('Zona', 'Zone')}</span><span style={{ fontSize: 13.5, fontWeight: 600, color: R.ink }}>{sel.resource}</span></div>}
+              {sel.note && <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, padding: '11px 14px', borderTop: `1px solid ${R.lineSoft}` }}><span style={{ fontSize: 13, color: R.inkSoft }}>{t('Nota', 'Note')}</span><span style={{ fontSize: 13.5, fontWeight: 600, color: R.ink, textAlign: 'right' }}>{sel.note}</span></div>}
             </div>
             {sel.idx !== null ? (
               <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
                 {sel.tag === 'Confirmada' ? (
-                  <button onClick={() => setStatus('Sentados')} style={{ flex: 1, padding: '12px', border: 'none', borderRadius: 12, background: R.dusk, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14, color: '#fff' }}>Marcar sentados</button>
+                  <button onClick={() => setStatus('Sentados')} style={{ flex: 1, padding: '12px', border: 'none', borderRadius: 12, background: R.dusk, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14, color: '#fff' }}>{t('Marcar sentados', 'Mark seated')}</button>
                 ) : sel.tag !== 'Sentados' && (
-                  <button onClick={() => setStatus('Confirmada')} style={{ flex: 1, padding: '12px', border: 'none', borderRadius: 12, background: R.jade, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14, color: '#fff' }}>Confirmar</button>
+                  <button onClick={() => setStatus('Confirmada')} style={{ flex: 1, padding: '12px', border: 'none', borderRadius: 12, background: R.jade, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14, color: '#fff' }}>{t('Confirmar', 'Confirm')}</button>
                 )}
-                <button onClick={cancelRes} style={{ padding: '12px 16px', border: `1px solid ${R.line}`, borderRadius: 12, background: 'transparent', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14, color: R.coralPress }}>Cancelar reserva</button>
+                <button onClick={cancelRes} style={{ padding: '12px 16px', border: `1px solid ${R.line}`, borderRadius: 12, background: 'transparent', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14, color: R.coralPress }}>{t('Cancelar reserva', 'Cancel booking')}</button>
               </div>
             ) : (
-              <button onClick={() => setSel(null)} style={{ marginTop: 18, width: '100%', padding: '12px', border: 'none', borderRadius: 12, background: R.coral, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14.5, color: '#fff' }}>Cerrar</button>
+              <button onClick={() => setSel(null)} style={{ marginTop: 18, width: '100%', padding: '12px', border: 'none', borderRadius: 12, background: R.coral, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14.5, color: '#fff' }}>{t('Cerrar', 'Close')}</button>
             )}
           </div>
         </div>
@@ -922,6 +970,7 @@ function AgendaView({ vert, dayAgenda }: { vert: Vert; dayAgenda: AgItem[] }) {
 }
 
 function DayAgenda({ rows, unit, empty, onSelect }: { rows: { a: AgItem; idx: number }[]; unit: string; empty: string; onSelect: (a: AgItem, i: number) => void }) {
+  const t = useT()
   return (
     <BCard>
       {rows.length === 0 ? (
@@ -942,7 +991,7 @@ function DayAgenda({ rows, unit, empty, onSelect }: { rows: { a: AgItem; idx: nu
                   <div style={{ fontSize: 12.5, color: R.inkSoft, marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.service ? `${a.service}${a.resource ? ` · ${a.resource}` : ''}` : a.resource}</div>
                 </div>
                 <span style={{ fontSize: 13, color: R.inkSoft }}>{a.party} {unit}</span>
-                <span style={{ fontSize: 11.5, fontWeight: 700, color: tc, background: tb, padding: '4px 11px', borderRadius: 999, whiteSpace: 'nowrap' }}>{a.tag}</span>
+                <span style={{ fontSize: 11.5, fontWeight: 700, color: tc, background: tb, padding: '4px 11px', borderRadius: 999, whiteSpace: 'nowrap' }}>{t(a.tag, TAG_EN[a.tag] ?? a.tag)}</span>
               </div>
             )
           })}
@@ -953,6 +1002,9 @@ function DayAgenda({ rows, unit, empty, onSelect }: { rows: { a: AgItem; idx: nu
 }
 
 function WeekAgenda({ agenda, now, onSelect }: { agenda: AgItem[]; now: Date; onSelect: (s: SelRes) => void }) {
+  const t = useT()
+  const en = useEn()
+  const DIA_C = en ? DIA_CORTO_EN : DIA_CORTO
   const start = startOfWeekMon(now)
   const days = Array.from({ length: 7 }, (_, i) => {
     const date = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i)
@@ -961,7 +1013,7 @@ function WeekAgenda({ agenda, now, onSelect }: { agenda: AgItem[]; now: Date; on
       .filter(({ a }) => isSameDay(new Date(a.iso), date))
       .sort((x, y) => x.a.iso.localeCompare(y.a.iso))
       .map(({ a, idx }): SelRes => ({ time: a.time, who: a.who, party: a.party, tag: a.tag, resource: a.resource, service: a.service, durationMin: a.durationMin, note: a.note, idx }))
-    return { lbl: DIA_CORTO[date.getDay()], date: date.getDate(), today: isSameDay(date, now), items }
+    return { lbl: DIA_C[date.getDay()], date: date.getDate(), today: isSameDay(date, now), items }
   })
 
   return (
@@ -993,7 +1045,8 @@ function WeekAgenda({ agenda, now, onSelect }: { agenda: AgItem[]; now: Date; on
 }
 
 function MonthAgenda({ agenda, now }: { agenda: AgItem[]; now: Date }) {
-  const labels = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
+  const en = useEn()
+  const labels = en ? ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] : ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
   const y = now.getFullYear()
   const m = now.getMonth()
   const today = now.getDate()
@@ -1030,7 +1083,7 @@ function MonthAgenda({ agenda, now }: { agenda: AgItem[]; now: Date }) {
                       <span key={k} style={{ width: 5, height: 5, borderRadius: '50%', background: isToday ? R.coral : R.jade }} />
                     ))}
                   </div>
-                  <span style={{ fontSize: 10.5, fontWeight: 600, color: R.inkSoft }}>{count} {count === 1 ? 'reserva' : 'reservas'}</span>
+                  <span style={{ fontSize: 10.5, fontWeight: 600, color: R.inkSoft }}>{count} {en ? (count === 1 ? 'booking' : 'bookings') : (count === 1 ? 'reserva' : 'reservas')}</span>
                 </div>
               )}
             </div>
@@ -1059,6 +1112,7 @@ function mapBizThread(t: DbBizThread): UiThread {
 }
 
 function MessagesView({ vert, agentCfg }: { vert: Vert; agentCfg: BizAgentConfig }) {
+  const T = useT()
   const [active, setActive] = useState(0)
   const [reply, setReply] = useState('')
   const [sending, setSending] = useState(false)
@@ -1153,7 +1207,7 @@ function MessagesView({ vert, agentCfg }: { vert: Vert; agentCfg: BizAgentConfig
       }
       if (!acc) {
         setThreads(prev => prev.map((m, i) => i === active ? { ...m, thread: m.thread.slice(0, -1) } : m))
-        appendToActive({ from: 'biz', txt: 'No pude generar la respuesta — revisa la conexión de OpenRouter en Ajustes.' })
+        appendToActive({ from: 'biz', txt: T('No pude generar la respuesta — revisa la conexión de OpenRouter en Ajustes.', 'Could not generate a reply — check the OpenRouter connection in Settings.') })
       } else {
         // Persiste la respuesta del agente en la conversación real.
         fetch('/api/biz/messages', {
@@ -1163,7 +1217,7 @@ function MessagesView({ vert, agentCfg }: { vert: Vert; agentCfg: BizAgentConfig
         }).catch(() => {})
       }
     } catch {
-      appendToActive({ from: 'biz', txt: 'No pude generar la respuesta — revisa la conexión de OpenRouter en Ajustes.' })
+      appendToActive({ from: 'biz', txt: T('No pude generar la respuesta — revisa la conexión de OpenRouter en Ajustes.', 'Could not generate a reply — check the OpenRouter connection in Settings.') })
     } finally {
       setSending(false)
     }
@@ -1189,7 +1243,7 @@ function MessagesView({ vert, agentCfg }: { vert: Vert; agentCfg: BizAgentConfig
       <div style={{ display: 'flex', flex: 1, alignItems: 'center', justifyContent: 'center', height: '100%', color: R.inkSoft, fontFamily: R.ui, fontSize: 14, padding: 24, textAlign: 'center' }}>
         <div>
           <Icon n="chat" size={28} color={R.inkFaint} />
-          <div style={{ marginTop: 10 }}>Aún no tienes mensajes. Cuando un cliente te escriba, aparecerá aquí.</div>
+          <div style={{ marginTop: 10 }}>{T('Aún no tienes mensajes. Cuando un cliente te escriba, aparecerá aquí.', 'No messages yet. When a customer writes, it will show up here.')}</div>
         </div>
       </div>
     )
@@ -1200,7 +1254,7 @@ function MessagesView({ vert, agentCfg }: { vert: Vert; agentCfg: BizAgentConfig
       {/* thread list */}
       <div style={{ width: 240, borderRight: `1px solid ${R.line}`, overflow: 'auto', flexShrink: 0 }}>
         <div style={{ padding: '14px 16px', borderBottom: `1px solid ${R.line}` }}>
-          <p style={{ fontFamily: R.display, fontWeight: 700, fontSize: 14, color: R.ink }}>Mensajes</p>
+          <p style={{ fontFamily: R.display, fontWeight: 700, fontSize: 14, color: R.ink }}>{T('Mensajes', 'Messages')}</p>
         </div>
         {threads.map((m, i) => (
           <button key={i} onClick={() => setActive(i)} style={{ width: '100%', textAlign: 'left', padding: '14px 16px', borderBottom: `1px solid ${R.lineSoft}`, background: active === i ? R.coralTint : 'transparent', border: 'none', cursor: 'pointer', fontFamily: R.ui }}>
@@ -1217,27 +1271,27 @@ function MessagesView({ vert, agentCfg }: { vert: Vert; agentCfg: BizAgentConfig
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <div style={{ padding: '14px 20px', borderBottom: `1px solid ${R.line}` }}>
           <p style={{ fontFamily: R.display, fontWeight: 700, fontSize: 15, color: R.ink }}>{thread.who}</p>
-          <p style={{ fontSize: 12.5, color: R.inkSoft }}>vía Reva · {thread.via}</p>
+          <p style={{ fontSize: 12.5, color: R.inkSoft }}>{T('vía Reva', 'via Reva')} · {thread.via}</p>
         </div>
         <div ref={scrollRef} style={{ flex: 1, overflow: 'auto', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 12 }}>
           {thread.thread.map((t, i) => (
             <div key={i} style={{ alignSelf: t.from === 'biz' ? 'flex-end' : t.from === 'reva' ? 'center' : 'flex-start', maxWidth: '80%', background: t.from === 'biz' ? R.coral : t.from === 'reva' ? R.amberTint : R.surface, color: t.from === 'biz' ? '#fff' : t.from === 'reva' ? R.amberDeep : R.ink, border: t.from === 'guest' ? `1px solid ${R.line}` : 'none', borderRadius: 14, borderBottomRightRadius: t.from === 'biz' ? 4 : 14, borderBottomLeftRadius: t.from === 'guest' ? 4 : 14, padding: '10px 14px', fontSize: 13.5, lineHeight: 1.4 }}>
               {t.from === 'reva' && <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.04em', display: 'block', marginBottom: 3, color: R.amberDeep }}>REVA</span>}
-              {t.txt || <span style={{ opacity: .5 }}>escribiendo…</span>}
+              {t.txt || <span style={{ opacity: .5 }}>{T('escribiendo…', 'typing…')}</span>}
             </div>
           ))}
         </div>
         <div style={{ padding: '12px 16px', borderTop: `1px solid ${R.line}` }}>
           {agentCfg.on && agentCfg.autoReplyOffHours && !open && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 7, background: R.jadeTint, borderRadius: 10, padding: '8px 12px', marginBottom: 10, fontSize: 12.5, fontWeight: 600, color: '#16614c' }}>
-              <Icon n="spark" size={14} color="#16614c" /> Fuera de horario — el agente responde solo a los clientes.
+              <Icon n="spark" size={14} color="#16614c" /> {T('Fuera de horario — el agente responde solo a los clientes.', 'After hours — the agent replies to customers on its own.')}
             </div>
           )}
           <button onClick={replyWithAgent} disabled={sending || !agentCfg.on} style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, background: sending ? R.amberTint : R.bgAlt, border: `1px solid ${R.line}`, borderRadius: 12, padding: '10px 14px', cursor: !agentCfg.on ? 'not-allowed' : sending ? 'default' : 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13, color: !agentCfg.on ? R.inkFaint : sending ? R.amberDeep : R.ink, marginBottom: 10, opacity: !agentCfg.on ? 0.6 : 1 }}>
-            <Icon n="spark" size={15} color={!agentCfg.on ? R.inkFaint : sending ? R.amberDeep : R.coral} /> {!agentCfg.on ? 'Agente pausado — actívalo en Ajustes' : sending ? 'El agente está escribiendo…' : agentCfg.autoReplyOffHours && !open ? 'Responder ahora (regenerar)' : 'Responder con el agente'}
+            <Icon n="spark" size={15} color={!agentCfg.on ? R.inkFaint : sending ? R.amberDeep : R.coral} /> {!agentCfg.on ? T('Agente pausado — actívalo en Ajustes', 'Agent paused — enable it in Settings') : sending ? T('El agente está escribiendo…', 'The agent is typing…') : agentCfg.autoReplyOffHours && !open ? T('Responder ahora (regenerar)', 'Reply now (regenerate)') : T('Responder con el agente', 'Reply with the agent')}
           </button>
           <div style={{ display: 'flex', gap: 8 }}>
-            <input value={reply} onChange={e => setReply(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') sendManual() }} placeholder="Responder a mano…"
+            <input value={reply} onChange={e => setReply(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') sendManual() }} placeholder={T('Responder a mano…', 'Reply manually…')}
               style={{ flex: 1, background: R.bgAlt, border: `1px solid ${R.line}`, borderRadius: 999, padding: '10px 16px', fontSize: 13.5, color: R.ink, fontFamily: R.ui, outline: 'none' }} />
             <button onClick={sendManual} style={{ width: 40, height: 40, borderRadius: '50%', background: R.coral, border: 'none', cursor: 'pointer', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
               <Icon n="send" size={16} color="#fff" />
@@ -1261,6 +1315,8 @@ function MiniBar({ values, color, highlight }: { values: number[]; color: string
 }
 
 function MetricsView({ vert, metrics }: { vert: Vert; metrics?: BizMetrics | null }) {
+  const t = useT()
+  const en = useEn()
   const m = vert.metrics
   const [period, setPeriod] = useState<'7d' | '30d' | '90d'>('7d')
   const [hoveredBar, setHoveredBar] = useState<number | null>(null)
@@ -1297,7 +1353,7 @@ function MetricsView({ vert, metrics }: { vert: Vert; metrics?: BizMetrics | nul
     if (arr.length < win * 2) return '—'
     const cur = sumArr(arr.slice(-win))
     const prev = sumArr(arr.slice(-2 * win, -win))
-    if (prev <= 0) return cur > 0 ? '▲ nuevo' : '—'
+    if (prev <= 0) return cur > 0 ? (en ? '▲ new' : '▲ nuevo') : '—'
     const pct = Math.round((cur - prev) / prev * 100)
     return `${pct >= 0 ? '▲' : '▼'} ${Math.abs(pct)}%`
   }
@@ -1313,9 +1369,9 @@ function MetricsView({ vert, metrics }: { vert: Vert; metrics?: BizMetrics | nul
   const weekTotal = sumArr(base7)
   const peakLabel = m.trendLabels[base7.indexOf(Math.max(...base7))] ?? ''
   const insights = [
-    { icon: 'bolt', color: R.jade, tint: R.jadeTint, text: weekTotal > 0 ? `Tu día pico: ${peakLabel} — ${Math.max(...base7)} reservas esta semana` : 'Aún sin reservas esta semana' },
-    { icon: 'users', color: '#5A6FD6', tint: '#ECEFFE', text: `${viaReva}% de tus clientes llegan vía Reva` },
-    { icon: 'spark', color: R.amber, tint: R.amberTint, text: `${m.rove} boletos Reva+ activos · ${Math.round(m.rove * 0.12)} canjes este mes` },
+    { icon: 'bolt', color: R.jade, tint: R.jadeTint, text: weekTotal > 0 ? (en ? `Your peak day: ${peakLabel} — ${Math.max(...base7)} bookings this week` : `Tu día pico: ${peakLabel} — ${Math.max(...base7)} reservas esta semana`) : t('Aún sin reservas esta semana', 'No bookings yet this week') },
+    { icon: 'users', color: '#5A6FD6', tint: '#ECEFFE', text: en ? `${viaReva}% of your customers arrive via Reva` : `${viaReva}% de tus clientes llegan vía Reva` },
+    { icon: 'spark', color: R.amber, tint: R.amberTint, text: en ? `${m.rove} active Reva+ tickets · ${Math.round(m.rove * 0.12)} redemptions this month` : `${m.rove} boletos Reva+ activos · ${Math.round(m.rove * 0.12)} canjes este mes` },
   ]
 
   return (
@@ -1326,7 +1382,7 @@ function MetricsView({ vert, metrics }: { vert: Vert; metrics?: BizMetrics | nul
           <button key={p} onClick={() => setPeriod(p)} style={{
             padding: '6px 16px', borderRadius: 999, fontSize: 13, fontWeight: 600, cursor: 'pointer', border: 'none',
             background: period === p ? R.ink : R.bgAlt, color: period === p ? '#fff' : R.inkSoft,
-          }}>{p === '7d' ? 'Últimos 7 días' : p === '30d' ? 'Últimos 30 días' : 'Últimos 90 días'}</button>
+          }}>{p === '7d' ? t('Últimos 7 días', 'Last 7 days') : p === '30d' ? t('Últimos 30 días', 'Last 30 days') : t('Últimos 90 días', 'Last 90 days')}</button>
         ))}
       </div>
 
@@ -1338,7 +1394,7 @@ function MetricsView({ vert, metrics }: { vert: Vert; metrics?: BizMetrics | nul
             <span style={{ fontSize: 12, fontWeight: 700, color: '#16614c', background: R.jadeTint, padding: '3px 9px', borderRadius: 999 }}>{delta.res}</span>
           </div>
           <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 28, color: R.ink, lineHeight: 1 }}>{totalRes}</div>
-          <div style={{ fontSize: 12.5, color: R.inkSoft, marginTop: 4 }}>Reservas</div>
+          <div style={{ fontSize: 12.5, color: R.inkSoft, marginTop: 4 }}>{t('Reservas', 'Bookings')}</div>
           <div style={{ marginTop: 10 }}><MiniBar values={base7} color={R.coral} highlight={base7.indexOf(Math.max(...base7))} /></div>
         </div>
 
@@ -1348,7 +1404,7 @@ function MetricsView({ vert, metrics }: { vert: Vert; metrics?: BizMetrics | nul
             <span style={{ fontSize: 12, fontWeight: 700, color: '#16614c', background: R.jadeTint, padding: '3px 9px', borderRadius: 999 }}>{delta.rev}</span>
           </div>
           <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 28, color: R.ink, lineHeight: 1 }}>{fmtRev(totalRev)}</div>
-          <div style={{ fontSize: 12.5, color: R.inkSoft, marginTop: 4 }}>Ingreso atribuido</div>
+          <div style={{ fontSize: 12.5, color: R.inkSoft, marginTop: 4 }}>{t('Ingreso atribuido', 'Attributed revenue')}</div>
           <div style={{ marginTop: 10 }}><MiniBar values={rev7} color={R.jade} highlight={rev7.indexOf(Math.max(...rev7))} /></div>
         </div>
 
@@ -1358,14 +1414,14 @@ function MetricsView({ vert, metrics }: { vert: Vert; metrics?: BizMetrics | nul
             <span style={{ fontSize: 12, fontWeight: 700, color: '#16614c', background: R.jadeTint, padding: '3px 9px', borderRadius: 999 }}>▲ 6%</span>
           </div>
           <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 28, color: R.ink, lineHeight: 1 }}>{m.viaReva}%</div>
-          <div style={{ fontSize: 12.5, color: R.inkSoft, marginTop: 4 }}>Vía Reva</div>
+          <div style={{ fontSize: 12.5, color: R.inkSoft, marginTop: 4 }}>{t('Vía Reva', 'Via Reva')}</div>
           <div style={{ marginTop: 12, display: 'flex', gap: 4, height: 6 }}>
             <div style={{ flex: m.viaReva, background: R.amber, borderRadius: 999 }} />
             <div style={{ flex: 100 - m.viaReva, background: R.bgAlt, borderRadius: 999 }} />
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
             <span style={{ fontSize: 10.5, color: R.inkFaint }}>Reva</span>
-            <span style={{ fontSize: 10.5, color: R.inkFaint }}>Directo</span>
+            <span style={{ fontSize: 10.5, color: R.inkFaint }}>{t('Directo', 'Direct')}</span>
           </div>
         </div>
 
@@ -1374,8 +1430,8 @@ function MetricsView({ vert, metrics }: { vert: Vert; metrics?: BizMetrics | nul
             <div style={{ width: 38, height: 38, borderRadius: 11, background: R.bgAlt, display: 'grid', placeItems: 'center' }}><Icon n="ticket" size={20} color={R.amberDeep} /></div>
           </div>
           <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 28, color: R.ink, lineHeight: 1 }}>{m.rove}</div>
-          <div style={{ fontSize: 12.5, color: R.inkSoft, marginTop: 4 }}>Boletos Reva+ activos</div>
-          <div style={{ marginTop: 8, fontSize: 12, color: R.amberDeep, fontWeight: 600 }}>{Math.round(m.rove * 0.12)} canjes este mes</div>
+          <div style={{ fontSize: 12.5, color: R.inkSoft, marginTop: 4 }}>{t('Boletos Reva+ activos', 'Active Reva+ tickets')}</div>
+          <div style={{ marginTop: 8, fontSize: 12, color: R.amberDeep, fontWeight: 600 }}>{Math.round(m.rove * 0.12)} {t('canjes este mes', 'redemptions this month')}</div>
         </div>
       </div>
 
@@ -1383,8 +1439,8 @@ function MetricsView({ vert, metrics }: { vert: Vert; metrics?: BizMetrics | nul
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
         <BCard style={{ padding: '22px 24px' }}>
           <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 20 }}>
-            <span style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink }}>Reservas por día</span>
-            <span style={{ fontSize: 12, fontWeight: 700, color: R.coral, background: R.coralTint, padding: '3px 10px', borderRadius: 999 }}>{delta.res} vs ant.</span>
+            <span style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink }}>{t('Reservas por día', 'Bookings per day')}</span>
+            <span style={{ fontSize: 12, fontWeight: 700, color: R.coral, background: R.coralTint, padding: '3px 10px', borderRadius: 999 }}>{delta.res} {t('vs ant.', 'vs prev.')}</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'flex-end', gap: barGap, height: 160 }}>
             {periodData.map((v, i) => (
@@ -1401,8 +1457,8 @@ function MetricsView({ vert, metrics }: { vert: Vert; metrics?: BizMetrics | nul
 
         <BCard style={{ padding: '22px 24px' }}>
           <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 20 }}>
-            <span style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink }}>Ingreso por día</span>
-            <span style={{ fontSize: 12, fontWeight: 700, color: R.jade, background: R.jadeTint, padding: '3px 10px', borderRadius: 999 }}>{delta.rev} vs ant.</span>
+            <span style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink }}>{t('Ingreso por día', 'Revenue per day')}</span>
+            <span style={{ fontSize: 12, fontWeight: 700, color: R.jade, background: R.jadeTint, padding: '3px 10px', borderRadius: 999 }}>{delta.rev} {t('vs ant.', 'vs prev.')}</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'flex-end', gap: barGap, height: 160 }}>
             {revenueData.map((v, i) => (
@@ -1421,7 +1477,7 @@ function MetricsView({ vert, metrics }: { vert: Vert; metrics?: BizMetrics | nul
       {/* Canal + Insights */}
       <div style={{ display: 'grid', gridTemplateColumns: '300px 1fr', gap: 16 }}>
         <BCard style={{ padding: '22px 24px' }}>
-          <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink, marginBottom: 18 }}>Canal de reservas</div>
+          <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink, marginBottom: 18 }}>{t('Canal de reservas', 'Booking channel')}</div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
             <svg width={80} height={80} viewBox="0 0 80 80" style={{ flexShrink: 0 }}>
               <circle cx="40" cy="40" r="30" fill="none" stroke={R.bgAlt} strokeWidth="12" />
@@ -1433,23 +1489,23 @@ function MetricsView({ vert, metrics }: { vert: Vert; metrics?: BizMetrics | nul
             <div style={{ flex: 1 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
                 <div style={{ width: 10, height: 10, borderRadius: '50%', background: R.amber, flexShrink: 0 }} />
-                <span style={{ fontSize: 13, color: R.ink, fontWeight: 600, flex: 1 }}>Vía Reva</span>
+                <span style={{ fontSize: 13, color: R.ink, fontWeight: 600, flex: 1 }}>{t('Vía Reva', 'Via Reva')}</span>
                 <span style={{ fontSize: 13, fontWeight: 700, color: R.ink }}>{viaReva}%</span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
                 <div style={{ width: 10, height: 10, borderRadius: '50%', background: R.bgAlt, border: `2px solid ${R.line}`, flexShrink: 0 }} />
-                <span style={{ fontSize: 13, color: R.inkSoft, fontWeight: 600, flex: 1 }}>Directo</span>
+                <span style={{ fontSize: 13, color: R.inkSoft, fontWeight: 600, flex: 1 }}>{t('Directo', 'Direct')}</span>
                 <span style={{ fontSize: 13, fontWeight: 700, color: R.inkSoft }}>{direct}%</span>
               </div>
               <div style={{ paddingTop: 10, borderTop: `1px solid ${R.line}`, fontSize: 12, color: R.inkSoft }}>
-                {Math.round(totalRes * viaReva / 100)} de {totalRes} vía Reva
+                {Math.round(totalRes * viaReva / 100)} {t('de', 'of')} {totalRes} {t('vía Reva', 'via Reva')}
               </div>
             </div>
           </div>
         </BCard>
 
         <BCard style={{ padding: '22px 24px' }}>
-          <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink, marginBottom: 16 }}>Insights del período</div>
+          <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink, marginBottom: 16 }}>{t('Insights del período', 'Period insights')}</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {insights.map((ins, i) => (
               <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', background: ins.tint, borderRadius: 12 }}>
@@ -1501,6 +1557,8 @@ function isOpenNow(hoursStr: string, now: Date = new Date()): boolean {
 }
 
 function CatalogView({ vert, items, setItems }: { vert: Vert; items: CatItem[]; setItems: React.Dispatch<React.SetStateAction<CatItem[]>> }) {
+  const t = useT()
+  const en = useEn()
   const [editing, setEditing] = useState<number | 'new' | null>(null)
   const [vOpen, vClose] = splitHours(vert.hours)
   const [form, setForm] = useState({ name: '', sub: '', price: '', category: '', active: true, img: '', duration: '', scheduled: true, days: ALL_DAYS, open: vOpen, close: vClose, trackStock: false, stock: '' })
@@ -1617,11 +1675,11 @@ function CatalogView({ vert, items, setItems }: { vert: Vert; items: CatItem[]; 
     <div style={{ padding: '24px 28px' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
         <div>
-          <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 18, color: R.ink }}>Catálogo</div>
-          <div style={{ fontSize: 13.5, color: R.inkSoft }}>Lo que Reva puede ofrecer y reservar por ti</div>
+          <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 18, color: R.ink }}>{t('Catálogo', 'Catalog')}</div>
+          <div style={{ fontSize: 13.5, color: R.inkSoft }}>{t('Lo que Reva puede ofrecer y reservar por ti', 'What Reva can offer and book for you')}</div>
         </div>
         <button onClick={openNew} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '10px 18px', background: R.ink, color: '#fff', border: 'none', borderRadius: 999, fontFamily: R.ui, fontWeight: 700, fontSize: 13.5, cursor: 'pointer' }}>
-          <Icon n="plus" size={16} color="#fff" /> Agregar
+          <Icon n="plus" size={16} color="#fff" /> {t('Agregar', 'Add')}
         </button>
       </div>
 
@@ -1629,7 +1687,7 @@ function CatalogView({ vert, items, setItems }: { vert: Vert; items: CatItem[]; 
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
         <div style={{ position: 'relative', flex: 1 }}>
           <span style={{ position: 'absolute', left: 13, top: '50%', transform: 'translateY(-50%)' }}><Icon n="search" size={16} color={R.inkFaint} /></span>
-          <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Buscar en el catálogo…"
+          <input value={query} onChange={e => setQuery(e.target.value)} placeholder={t('Buscar en el catálogo…', 'Search the catalog…')}
             style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 999, padding: '11px 14px 11px 38px', fontSize: 14, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.surface }} />
         </div>
         <div style={{ display: 'flex', gap: 4, background: R.bgAlt, borderRadius: 999, padding: 4 }}>
@@ -1638,7 +1696,7 @@ function CatalogView({ vert, items, setItems }: { vert: Vert; items: CatItem[]; 
             return (
               <button key={s} onClick={() => setStatus(s)}
                 style={{ padding: '7px 14px', borderRadius: 999, border: 'none', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 12.5, background: on ? R.surface : 'transparent', color: on ? R.ink : R.inkSoft, boxShadow: on ? '0 1px 2px rgba(34,28,25,.08)' : 'none' }}>
-                {s}
+                {s === 'Todos' ? t('Todos', 'All') : s === 'Activos' ? t('Activos', 'Active') : t('Inactivos', 'Inactive')}
               </button>
             )
           })}
@@ -1652,7 +1710,7 @@ function CatalogView({ vert, items, setItems }: { vert: Vert; items: CatItem[]; 
             return (
               <button key={c} onClick={() => setCat(c)}
                 style={{ padding: '7px 14px', borderRadius: 999, border: `1px solid ${on ? R.coral : R.line}`, background: on ? R.coral : R.surface, color: on ? '#fff' : R.inkSoft, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13 }}>
-                {c}
+                {c === 'Todos' ? t('Todos', 'All') : c}
               </button>
             )
           })}
@@ -1662,9 +1720,9 @@ function CatalogView({ vert, items, setItems }: { vert: Vert; items: CatItem[]; 
       {filtered.length === 0 ? (
         <BCard style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', gap: 8, padding: '48px 0', color: R.inkSoft }}>
           <Icon n="search" size={26} color={R.inkFaint} />
-          <div>No hay resultados con esos filtros.</div>
+          <div>{t('No hay resultados con esos filtros.', 'No results with those filters.')}</div>
           {(query || cat !== 'Todos' || status !== 'Todos') && (
-            <button onClick={() => { setQuery(''); setCat('Todos'); setStatus('Todos') }} style={{ marginTop: 4, padding: '8px 16px', background: R.bgAlt, border: 'none', borderRadius: 999, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13, color: R.inkSoft }}>Limpiar filtros</button>
+            <button onClick={() => { setQuery(''); setCat('Todos'); setStatus('Todos') }} style={{ marginTop: 4, padding: '8px 16px', background: R.bgAlt, border: 'none', borderRadius: 999, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13, color: R.inkSoft }}>{t('Limpiar filtros', 'Clear filters')}</button>
           )}
         </BCard>
       ) : (
@@ -1680,15 +1738,15 @@ function CatalogView({ vert, items, setItems }: { vert: Vert; items: CatItem[]; 
                 {c.category && <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase', color: R.inkSoft, background: R.bgAlt, padding: '2px 8px', borderRadius: 999 }}>{c.category}</span>}
                 {typeof c.stock === 'number' && (
                   c.stock === 0
-                    ? <span style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: '.03em', textTransform: 'uppercase', color: R.coralPress, background: R.coralTint, padding: '2px 8px', borderRadius: 999 }}>Agotado</span>
-                    : <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase', color: c.stock <= 3 ? R.amberDeep : R.jade, background: c.stock <= 3 ? R.amberTint : R.jadeTint, padding: '2px 8px', borderRadius: 999 }}>{c.stock} disp.</span>
+                    ? <span style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: '.03em', textTransform: 'uppercase', color: R.coralPress, background: R.coralTint, padding: '2px 8px', borderRadius: 999 }}>{t('Agotado', 'Sold out')}</span>
+                    : <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase', color: c.stock <= 3 ? R.amberDeep : R.jade, background: c.stock <= 3 ? R.amberTint : R.jadeTint, padding: '2px 8px', borderRadius: 999 }}>{c.stock} {t('disp.', 'avail.')}</span>
                 )}
               </div>
               <div style={{ fontSize: 12.5, color: R.inkSoft, marginTop: 2 }}>{c.sub}</div>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 12 }}>
                 <span style={{ fontFamily: R.display, fontWeight: 700, fontSize: 14, color: R.ink }}>{c.price}</span>
                 <span style={{ fontSize: 11.5, fontWeight: 600, color: c.active ? R.jade : R.inkFaint, display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: c.active ? R.jade : R.inkFaint }} /> {c.active ? 'Activo' : 'Inactivo'}
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: c.active ? R.jade : R.inkFaint }} /> {c.active ? t('Activo', 'Active') : t('Inactivo', 'Inactive')}
                 </span>
               </div>
             </div>
@@ -1701,67 +1759,67 @@ function CatalogView({ vert, items, setItems }: { vert: Vert; items: CatItem[]; 
         <div onClick={() => setEditing(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(34,28,25,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 20 }}>
           <div onClick={e => e.stopPropagation()} style={{ width: '100%', maxWidth: 420, maxHeight: 'calc(100vh - 40px)', overflowY: 'auto', background: R.bg, borderRadius: 20, padding: 24, boxShadow: '0 30px 80px rgba(0,0,0,.4)' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-              <span style={{ fontFamily: R.display, fontWeight: 800, fontSize: 19, color: R.ink }}>{editing === 'new' ? 'Nuevo servicio' : 'Editar servicio'}</span>
-              <button onClick={() => setEditing(null)} aria-label="Cerrar" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: R.inkFaint, fontSize: 22, lineHeight: 1, padding: 0 }}>×</button>
+              <span style={{ fontFamily: R.display, fontWeight: 800, fontSize: 19, color: R.ink }}>{editing === 'new' ? t('Nuevo servicio', 'New service') : t('Editar servicio', 'Edit service')}</span>
+              <button onClick={() => setEditing(null)} aria-label={t('Cerrar', 'Close')} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: R.inkFaint, fontSize: 22, lineHeight: 1, padding: 0 }}>×</button>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               <label style={{ position: 'relative', height: 120, borderRadius: 12, border: `1px dashed ${R.line}`, background: form.img ? `center/cover no-repeat url(${form.img})` : R.surface, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
                 {!form.img && (
                   <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, color: R.inkSoft }}>
                     <Icon n="plus" size={22} color={R.inkSoft} />
-                    <span style={{ fontSize: 13, fontWeight: 600 }}>Subir imagen del servicio</span>
+                    <span style={{ fontSize: 13, fontWeight: 600 }}>{t('Subir imagen del servicio', 'Upload service image')}</span>
                   </span>
                 )}
                 {form.img && (
                   <span style={{ position: 'absolute', right: 8, bottom: 8, display: 'flex', gap: 6 }}>
-                    <span style={{ background: 'rgba(34,28,25,.7)', color: '#fff', fontSize: 11.5, fontWeight: 700, padding: '5px 10px', borderRadius: 999 }}>Cambiar</span>
-                    <button type="button" onClick={e => { e.preventDefault(); e.stopPropagation(); setImgFile(null); setForm({ ...form, img: '' }) }} style={{ background: 'rgba(34,28,25,.7)', color: '#fff', fontSize: 11.5, fontWeight: 700, padding: '5px 10px', borderRadius: 999, border: 'none', cursor: 'pointer' }}>Quitar</button>
+                    <span style={{ background: 'rgba(34,28,25,.7)', color: '#fff', fontSize: 11.5, fontWeight: 700, padding: '5px 10px', borderRadius: 999 }}>{t('Cambiar', 'Change')}</span>
+                    <button type="button" onClick={e => { e.preventDefault(); e.stopPropagation(); setImgFile(null); setForm({ ...form, img: '' }) }} style={{ background: 'rgba(34,28,25,.7)', color: '#fff', fontSize: 11.5, fontWeight: 700, padding: '5px 10px', borderRadius: 999, border: 'none', cursor: 'pointer' }}>{t('Quitar', 'Remove')}</button>
                   </span>
                 )}
                 <input type="file" accept="image/*" onChange={onPickImage} style={{ display: 'none' }} />
               </label>
-              <input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Nombre del servicio" style={fieldStyle} />
-              <input value={form.sub} onChange={e => setForm({ ...form, sub: e.target.value })} placeholder="Descripción (ej. 2–4 personas · Salón)" style={fieldStyle} />
-              <input value={form.price} onChange={e => setForm({ ...form, price: e.target.value })} placeholder="Precio (ej. $450 o Sin depósito)" style={fieldStyle} />
+              <input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder={t('Nombre del servicio', 'Service name')} style={fieldStyle} />
+              <input value={form.sub} onChange={e => setForm({ ...form, sub: e.target.value })} placeholder={t('Descripción (ej. 2–4 personas · Salón)', 'Description (e.g. 2–4 people · Dining room)')} style={fieldStyle} />
+              <input value={form.price} onChange={e => setForm({ ...form, price: e.target.value })} placeholder={t('Precio (ej. $450 o Sin depósito)', 'Price (e.g. $450 or No deposit)')} style={fieldStyle} />
 
               {/* Calendar toggle: does this service take date + time bookings? */}
               <button onClick={() => setForm({ ...form, scheduled: !form.scheduled })} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', border: `1px solid ${form.scheduled ? R.coral : R.line}`, borderRadius: 10, background: form.scheduled ? R.coralTint : R.surface, cursor: 'pointer', fontFamily: R.ui, textAlign: 'left' }}>
                 <span style={{ minWidth: 0, paddingRight: 12 }}>
-                  <span style={{ display: 'block', fontSize: 14, fontWeight: 700, color: R.ink }}>Maneja calendario y horarios</span>
-                  <span style={{ display: 'block', fontSize: 12, color: R.inkSoft, marginTop: 2 }}>El cliente elige fecha y hora. Apágalo para productos o cotizaciones.</span>
+                  <span style={{ display: 'block', fontSize: 14, fontWeight: 700, color: R.ink }}>{t('Maneja calendario y horarios', 'Handles calendar and hours')}</span>
+                  <span style={{ display: 'block', fontSize: 12, color: R.inkSoft, marginTop: 2 }}>{t('El cliente elige fecha y hora. Apágalo para productos o cotizaciones.', 'The customer picks date and time. Turn it off for products or quotes.')}</span>
                 </span>
                 <span style={{ width: 34, height: 20, borderRadius: 999, background: form.scheduled ? R.coral : R.inkFaint, position: 'relative', flexShrink: 0 }}>
                   <span style={{ position: 'absolute', top: 2, left: form.scheduled ? 16 : 2, width: 16, height: 16, borderRadius: '50%', background: '#fff', transition: 'left .18s' }} />
                 </span>
               </button>
               {form.scheduled && (<>
-                <input value={form.duration} onChange={e => setForm({ ...form, duration: e.target.value.replace(/\D/g, '') })} inputMode="numeric" placeholder="Duración en minutos (ej. 90) — define los turnos" style={fieldStyle} />
+                <input value={form.duration} onChange={e => setForm({ ...form, duration: e.target.value.replace(/\D/g, '') })} inputMode="numeric" placeholder={t('Duración en minutos (ej. 90) — define los turnos', 'Duration in minutes (e.g. 90) — sets the slots')} style={fieldStyle} />
 
                 {/* Availability: which weekdays + hours this service is offered */}
                 <div style={{ border: `1px solid ${R.line}`, borderRadius: 10, padding: '12px 13px', background: R.surface }}>
-                  <div style={{ fontSize: 12.5, fontWeight: 700, color: R.inkSoft, marginBottom: 8 }}>Días disponibles</div>
+                  <div style={{ fontSize: 12.5, fontWeight: 700, color: R.inkSoft, marginBottom: 8 }}>{t('Días disponibles', 'Available days')}</div>
                   <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
-                    {WEEKDAYS.map(({ i, l }) => {
+                    {WEEKDAYS.map(({ i, l }, di) => {
                       const on = form.days.includes(i)
                       return (
                         <button key={i} type="button" aria-pressed={on}
                           onClick={() => setForm({ ...form, days: on ? form.days.filter(d => d !== i) : [...form.days, i] })}
                           style={{ flex: 1, height: 34, borderRadius: 8, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13, border: on ? `1px solid ${R.coral}` : `1px solid ${R.line}`, background: on ? R.coral : '#fff', color: on ? '#fff' : R.inkFaint }}>
-                          {l}
+                          {en ? ['M', 'T', 'W', 'T', 'F', 'S', 'S'][di] : l}
                         </button>
                       )
                     })}
                   </div>
-                  <div style={{ fontSize: 12.5, fontWeight: 700, color: R.inkSoft, marginBottom: 8 }}>Horario del servicio</div>
+                  <div style={{ fontSize: 12.5, fontWeight: 700, color: R.inkSoft, marginBottom: 8 }}>{t('Horario del servicio', 'Service hours')}</div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <input value={form.open} onChange={e => setForm({ ...form, open: e.target.value })} placeholder="09:00" style={{ ...fieldStyle, textAlign: 'center' }} />
                     <span style={{ color: R.inkFaint }}>–</span>
                     <input value={form.close} onChange={e => setForm({ ...form, close: e.target.value })} placeholder="20:00" style={{ ...fieldStyle, textAlign: 'center' }} />
                   </div>
-                  <div style={{ fontSize: 11, color: R.inkFaint, marginTop: 8 }}>Por defecto, el horario del negocio ({vert.hours}). Cámbialo solo para este servicio.</div>
+                  <div style={{ fontSize: 11, color: R.inkFaint, marginTop: 8 }}>{en ? `By default, the business hours (${vert.hours}). Change it only for this service.` : `Por defecto, el horario del negocio (${vert.hours}). Cámbialo solo para este servicio.`}</div>
                 </div>
               </>)}
-              <input value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} placeholder="Categoría (ej. Bebidas, Mesas)" style={fieldStyle} />
+              <input value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} placeholder={t('Categoría (ej. Bebidas, Mesas)', 'Category (e.g. Drinks, Tables)')} style={fieldStyle} />
               {knownCats.length > 0 && (
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: -2 }}>
                   {knownCats.map(cat => {
@@ -1778,19 +1836,19 @@ function CatalogView({ vert, items, setItems }: { vert: Vert; items: CatItem[]; 
               {/* Inventario: unidades disponibles que bajan con cada venta */}
               <button onClick={() => setForm({ ...form, trackStock: !form.trackStock })} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', border: `1px solid ${form.trackStock ? R.amberDeep : R.line}`, borderRadius: 10, background: form.trackStock ? R.amberTint : R.surface, cursor: 'pointer', fontFamily: R.ui, textAlign: 'left' }}>
                 <span style={{ minWidth: 0, paddingRight: 12 }}>
-                  <span style={{ display: 'block', fontSize: 14, fontWeight: 700, color: R.ink }}>Controlar inventario</span>
-                  <span style={{ display: 'block', fontSize: 12, color: R.inkSoft, marginTop: 2 }}>Define cuántas unidades hay. Baja con cada venta y al llegar a 0 deja de ofrecerse.</span>
+                  <span style={{ display: 'block', fontSize: 14, fontWeight: 700, color: R.ink }}>{t('Controlar inventario', 'Track inventory')}</span>
+                  <span style={{ display: 'block', fontSize: 12, color: R.inkSoft, marginTop: 2 }}>{t('Define cuántas unidades hay. Baja con cada venta y al llegar a 0 deja de ofrecerse.', 'Set how many units there are. It drops with each sale and stops being offered at 0.')}</span>
                 </span>
                 <span style={{ width: 34, height: 20, borderRadius: 999, background: form.trackStock ? R.amberDeep : R.inkFaint, position: 'relative', flexShrink: 0 }}>
                   <span style={{ position: 'absolute', top: 2, left: form.trackStock ? 16 : 2, width: 16, height: 16, borderRadius: '50%', background: '#fff', transition: 'left .18s' }} />
                 </span>
               </button>
               {form.trackStock && (
-                <input value={form.stock} onChange={e => setForm({ ...form, stock: e.target.value.replace(/\D/g, '') })} inputMode="numeric" placeholder="Unidades disponibles (ej. 10)" style={fieldStyle} />
+                <input value={form.stock} onChange={e => setForm({ ...form, stock: e.target.value.replace(/\D/g, '') })} inputMode="numeric" placeholder={t('Unidades disponibles (ej. 10)', 'Available units (e.g. 10)')} style={fieldStyle} />
               )}
 
               <button onClick={() => setForm({ ...form, active: !form.active })} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', border: `1px solid ${R.line}`, borderRadius: 10, background: R.surface, cursor: 'pointer', fontFamily: R.ui }}>
-                <span style={{ fontSize: 14, fontWeight: 600, color: R.ink }}>Activo en el catálogo</span>
+                <span style={{ fontSize: 14, fontWeight: 600, color: R.ink }}>{t('Activo en el catálogo', 'Active in the catalog')}</span>
                 <span style={{ width: 34, height: 20, borderRadius: 999, background: form.active ? R.jade : R.inkFaint, position: 'relative', flexShrink: 0 }}>
                   <span style={{ position: 'absolute', top: 2, left: form.active ? 16 : 2, width: 16, height: 16, borderRadius: '50%', background: '#fff', transition: 'left .18s' }} />
                 </span>
@@ -1801,7 +1859,7 @@ function CatalogView({ vert, items, setItems }: { vert: Vert; items: CatItem[]; 
                 if (!form.scheduled) {
                   return (
                     <div style={{ border: `1px dashed ${R.line}`, borderRadius: 10, padding: '12px 13px', fontSize: 12.5, color: R.inkSoft, lineHeight: 1.5 }}>
-                      Sin calendario: el cliente lo <b>solicita o compra</b> sin elegir fecha ni hora — Reva coordina los detalles.
+                      {en ? <>No calendar: the customer <b>requests or buys</b> it without picking a date or time — Reva coordinates the details.</> : <>Sin calendario: el cliente lo <b>solicita o compra</b> sin elegir fecha ni hora — Reva coordina los detalles.</>}
                     </div>
                   )
                 }
@@ -1816,7 +1874,7 @@ function CatalogView({ vert, items, setItems }: { vert: Vert; items: CatItem[]; 
                 if (slots.length === 0) {
                   return (
                     <div style={{ border: `1px dashed ${R.line}`, borderRadius: 10, padding: '12px 13px', fontSize: 12.5, color: R.inkSoft, lineHeight: 1.5 }}>
-                      Agrega una <b>duración</b> y Reva genera los turnos desde tu horario (<b>{svcHours}</b>).
+                      {en ? <>Add a <b>duration</b> and Reva generates the slots from your hours (<b>{svcHours}</b>).</> : <>Agrega una <b>duración</b> y Reva genera los turnos desde tu horario (<b>{svcHours}</b>).</>}
                     </div>
                   )
                 }
@@ -1825,8 +1883,8 @@ function CatalogView({ vert, items, setItems }: { vert: Vert; items: CatItem[]; 
                 return (
                   <div style={{ border: `1px solid ${R.line}`, borderRadius: 10, padding: '12px 13px', background: R.surface }}>
                     <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 9 }}>
-                      <span style={{ fontSize: 12.5, fontWeight: 700, color: R.inkSoft }}>Vista del cliente · hoy</span>
-                      <span style={{ fontSize: 11.5, color: R.inkFaint }}>{svcHours}{valid ? ` · ${dur} min` : ''}{offeredToday ? ` · ${free} libres` : ''}</span>
+                      <span style={{ fontSize: 12.5, fontWeight: 700, color: R.inkSoft }}>{t('Vista del cliente · hoy', 'Customer view · today')}</span>
+                      <span style={{ fontSize: 11.5, color: R.inkFaint }}>{svcHours}{valid ? ` · ${dur} min` : ''}{offeredToday ? ` · ${free} ${t('libres', 'free')}` : ''}</span>
                     </div>
                     {offeredToday ? (
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
@@ -1835,12 +1893,12 @@ function CatalogView({ vert, items, setItems }: { vert: Vert; items: CatItem[]; 
                         ))}
                       </div>
                     ) : (
-                      <div style={{ fontSize: 12.5, color: R.amberDeep, background: R.amberTint, borderRadius: 8, padding: '9px 11px' }}>Hoy no se ofrece — revisa <b>Días disponibles</b> arriba.</div>
+                      <div style={{ fontSize: 12.5, color: R.amberDeep, background: R.amberTint, borderRadius: 8, padding: '9px 11px' }}>{en ? <>Not offered today — check <b>Available days</b> above.</> : <>Hoy no se ofrece — revisa <b>Días disponibles</b> arriba.</>}</div>
                     )}
                     <div style={{ fontSize: 11, color: R.inkFaint, marginTop: 9, lineHeight: 1.45 }}>
                       {valid
-                        ? 'Tachado = ocupado en tu Agenda. Así lo ve el cliente al reservar.'
-                        : 'Horarios por defecto · agrega una duración para generarlos automáticamente. Tachado = ocupado.'}
+                        ? t('Tachado = ocupado en tu Agenda. Así lo ve el cliente al reservar.', 'Struck through = booked in your Agenda. This is what the customer sees when booking.')
+                        : t('Horarios por defecto · agrega una duración para generarlos automáticamente. Tachado = ocupado.', 'Default hours · add a duration to generate them automatically. Struck through = booked.')}
                     </div>
                   </div>
                 )
@@ -1848,9 +1906,9 @@ function CatalogView({ vert, items, setItems }: { vert: Vert; items: CatItem[]; 
             </div>
             <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
               {typeof editing === 'number' && (
-                <button onClick={remove} style={{ padding: '12px 16px', border: `1px solid ${R.line}`, borderRadius: 12, background: 'transparent', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14, color: R.coralPress }}>Eliminar</button>
+                <button onClick={remove} style={{ padding: '12px 16px', border: `1px solid ${R.line}`, borderRadius: 12, background: 'transparent', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14, color: R.coralPress }}>{t('Eliminar', 'Delete')}</button>
               )}
-              <button onClick={save} disabled={!form.name.trim() || saving} style={{ flex: 1, padding: '12px', border: 'none', borderRadius: 12, background: form.name.trim() && !saving ? R.coral : R.coralTint, cursor: form.name.trim() && !saving ? 'pointer' : 'not-allowed', fontFamily: R.ui, fontWeight: 700, fontSize: 14.5, color: form.name.trim() && !saving ? '#fff' : R.coralPress }}>{saving ? 'Guardando…' : editing === 'new' ? 'Agregar al catálogo' : 'Guardar cambios'}</button>
+              <button onClick={save} disabled={!form.name.trim() || saving} style={{ flex: 1, padding: '12px', border: 'none', borderRadius: 12, background: form.name.trim() && !saving ? R.coral : R.coralTint, cursor: form.name.trim() && !saving ? 'pointer' : 'not-allowed', fontFamily: R.ui, fontWeight: 700, fontSize: 14.5, color: form.name.trim() && !saving ? '#fff' : R.coralPress }}>{saving ? t('Guardando…', 'Saving…') : editing === 'new' ? t('Agregar al catálogo', 'Add to catalog') : t('Guardar cambios', 'Save changes')}</button>
             </div>
           </div>
         </div>
@@ -1863,6 +1921,8 @@ function CatalogView({ vert, items, setItems }: { vert: Vert; items: CatItem[]; 
 // Seguimiento de disponibilidad de productos/servicios. La fuente es el mismo
 // catálogo (setItems); un `stock` numérico = con seguimiento, undefined = ilimitado.
 function InventoryView({ vert, items, setItems, onGo }: { vert: Vert; items: CatItem[]; setItems: React.Dispatch<React.SetStateAction<CatItem[]>>; onGo: (v: string) => void }) {
+  const t = useT()
+  const en = useEn()
   const [query, setQuery] = useState('')
   useEffect(() => { setQuery('') }, [vert.id])
 
@@ -1917,23 +1977,23 @@ function InventoryView({ vert, items, setItems, onGo }: { vert: Vert; items: Cat
         <div style={{ width: 40, height: 40, borderRadius: 10, flexShrink: 0, background: c.img ? `center/cover no-repeat url(${c.img})` : `linear-gradient(140deg, ${c.grad[0]}, ${c.grad[1]})` }} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 700, fontSize: 14, color: R.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</div>
-          <div style={{ fontSize: 12, color: R.inkSoft, marginTop: 1 }}>{c.category || c.sub}{!c.active && ' · Inactivo'}</div>
+          <div style={{ fontSize: 12, color: R.inkSoft, marginTop: 1 }}>{c.category || c.sub}{!c.active && ` · ${t('Inactivo', 'Inactive')}`}</div>
         </div>
         {(low || out) && (
-          <span style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: '.03em', textTransform: 'uppercase', color: out ? R.coralPress : R.amberDeep, background: out ? R.coralTint : R.amberTint, padding: '3px 9px', borderRadius: 999, whiteSpace: 'nowrap' }}>{out ? 'Agotado' : 'Quedan pocas'}</span>
+          <span style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: '.03em', textTransform: 'uppercase', color: out ? R.coralPress : R.amberDeep, background: out ? R.coralTint : R.amberTint, padding: '3px 9px', borderRadius: 999, whiteSpace: 'nowrap' }}>{out ? t('Agotado', 'Sold out') : t('Quedan pocas', 'Low stock')}</span>
         )}
         {/* Control de unidades: −/+ para ajustar, o escribe la cantidad exacta. */}
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, flexShrink: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <button onClick={() => adjust(idx, -1)} disabled={out} style={{ ...stepBtn, opacity: out ? .4 : 1, cursor: out ? 'not-allowed' : 'pointer' }} aria-label="Restar una unidad">−</button>
-            <input value={s} onChange={e => setStock(idx, parseInt(e.target.value.replace(/\D/g, ''), 10) || 0)} inputMode="numeric" aria-label={`Unidades de ${c.name}`}
+            <button onClick={() => adjust(idx, -1)} disabled={out} style={{ ...stepBtn, opacity: out ? .4 : 1, cursor: out ? 'not-allowed' : 'pointer' }} aria-label={t('Restar una unidad', 'Subtract one unit')}>−</button>
+            <input value={s} onChange={e => setStock(idx, parseInt(e.target.value.replace(/\D/g, ''), 10) || 0)} inputMode="numeric" aria-label={`${t('Unidades de', 'Units of')} ${c.name}`}
               style={{ width: 52, textAlign: 'center', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 8, padding: '6px 4px', fontSize: 14, fontWeight: 700, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.bg }} />
-            <button onClick={() => adjust(idx, 1)} style={stepBtn} aria-label="Sumar una unidad">+</button>
+            <button onClick={() => adjust(idx, 1)} style={stepBtn} aria-label={t('Sumar una unidad', 'Add one unit')}>+</button>
           </div>
-          <span style={{ fontSize: 10.5, color: R.inkFaint, fontWeight: 600 }}>unidades</span>
+          <span style={{ fontSize: 10.5, color: R.inkFaint, fontWeight: 600 }}>{t('unidades', 'units')}</span>
         </div>
         {/* Vuelve el producto a disponibilidad ilimitada (deja de contarlo). */}
-        <button onClick={() => setStock(idx, null)} title="Dejar de llevar inventario: vuelve a disponibilidad ilimitada" style={{ background: 'none', border: `1px solid ${R.line}`, borderRadius: 999, padding: '6px 11px', cursor: 'pointer', fontFamily: R.ui, fontWeight: 600, fontSize: 12, color: R.inkSoft, whiteSpace: 'nowrap', flexShrink: 0 }}>Dejar de controlar</button>
+        <button onClick={() => setStock(idx, null)} title={t('Dejar de llevar inventario: vuelve a disponibilidad ilimitada', 'Stop tracking inventory: back to unlimited availability')} style={{ background: 'none', border: `1px solid ${R.line}`, borderRadius: 999, padding: '6px 11px', cursor: 'pointer', fontFamily: R.ui, fontWeight: 600, fontSize: 12, color: R.inkSoft, whiteSpace: 'nowrap', flexShrink: 0 }}>{t('Dejar de controlar', 'Stop tracking')}</button>
       </div>
     )
   }
@@ -1942,39 +2002,39 @@ function InventoryView({ vert, items, setItems, onGo }: { vert: Vert; items: Cat
     <div style={{ padding: '24px 28px' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
         <div>
-          <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 18, color: R.ink }}>Inventario</div>
-          <div style={{ fontSize: 13.5, color: R.inkSoft }}>Controla cuántas unidades quedan de cada producto o servicio</div>
+          <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 18, color: R.ink }}>{t('Inventario', 'Inventory')}</div>
+          <div style={{ fontSize: 13.5, color: R.inkSoft }}>{t('Controla cuántas unidades quedan de cada producto o servicio', 'Track how many units are left of each product or service')}</div>
         </div>
         <button onClick={() => onGo('catalog')} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '10px 16px', background: R.bgAlt, color: R.inkSoft, border: 'none', borderRadius: 999, fontFamily: R.ui, fontWeight: 700, fontSize: 13.5, cursor: 'pointer' }}>
-          <Icon n="grid" size={15} color={R.inkSoft} /> Ir al Catálogo
+          <Icon n="grid" size={15} color={R.inkSoft} /> {t('Ir al Catálogo', 'Go to Catalog')}
         </button>
       </div>
 
       <div style={{ display: 'flex', gap: 12, marginBottom: 18 }}>
-        {kpi('Con seguimiento', allTracked.length, R.ink)}
-        {kpi('Unidades en total', totalUnits, R.jade)}
-        {kpi('Stock bajo', lowCount, lowCount ? R.amberDeep : R.ink)}
-        {kpi('Agotados', outCount, outCount ? R.coralPress : R.ink)}
+        {kpi(t('Con seguimiento', 'Tracked'), allTracked.length, R.ink)}
+        {kpi(t('Unidades en total', 'Total units'), totalUnits, R.jade)}
+        {kpi(t('Stock bajo', 'Low stock'), lowCount, lowCount ? R.amberDeep : R.ink)}
+        {kpi(t('Agotados', 'Sold out'), outCount, outCount ? R.coralPress : R.ink)}
       </div>
 
       <div style={{ position: 'relative', marginBottom: 14 }}>
         <span style={{ position: 'absolute', left: 13, top: '50%', transform: 'translateY(-50%)' }}><Icon n="search" size={16} color={R.inkFaint} /></span>
-        <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Buscar en el inventario…"
+        <input value={query} onChange={e => setQuery(e.target.value)} placeholder={t('Buscar en el inventario…', 'Search inventory…')}
           style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 999, padding: '11px 14px 11px 38px', fontSize: 14, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.surface }} />
       </div>
 
       {allTracked.length === 0 && !q && (
         <BCard style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: 8, padding: '32px 20px', color: R.inkSoft, marginBottom: 16 }}>
           <Icon n="box" size={28} color={R.inkFaint} />
-          <div style={{ maxWidth: 340 }}>Aún no controlas inventario de ningún producto. Actívalo aquí abajo o desde el <b>Catálogo</b> al crear o editar un servicio.</div>
+          <div style={{ maxWidth: 340 }}>{en ? <>You’re not tracking inventory for any product yet. Enable it below or from the <b>Catalog</b> when creating or editing a service.</> : <>Aún no controlas inventario de ningún producto. Actívalo aquí abajo o desde el <b>Catálogo</b> al crear o editar un servicio.</>}</div>
         </BCard>
       )}
 
       {tracked.length > 0 && (
         <>
           <div style={{ margin: '4px 2px 8px' }}>
-            <div style={{ fontSize: 12.5, fontWeight: 700, color: R.inkSoft, textTransform: 'uppercase', letterSpacing: '.03em' }}>Con seguimiento</div>
-            <div style={{ fontSize: 12, color: R.inkFaint, marginTop: 2 }}>Ajusta las unidades con − y + o escribe la cantidad. La etiqueta de color aparece sola cuando quedan pocas (ámbar) o se agota (rojo); cada venta descuenta una unidad.</div>
+            <div style={{ fontSize: 12.5, fontWeight: 700, color: R.inkSoft, textTransform: 'uppercase', letterSpacing: '.03em' }}>{t('Con seguimiento', 'Tracked')}</div>
+            <div style={{ fontSize: 12, color: R.inkFaint, marginTop: 2 }}>{t('Ajusta las unidades con − y + o escribe la cantidad. La etiqueta de color aparece sola cuando quedan pocas (ámbar) o se agota (rojo); cada venta descuenta una unidad.', 'Adjust units with − and + or type the amount. The color label appears on its own when stock is low (amber) or sold out (red); each sale subtracts one unit.')}</div>
           </div>
           <BCard style={{ padding: 0, overflow: 'hidden', marginBottom: 20 }}>
             {tracked.map(({ c, idx }) => <StockRow key={idx} c={c} idx={idx} />)}
@@ -1985,8 +2045,8 @@ function InventoryView({ vert, items, setItems, onGo }: { vert: Vert; items: Cat
       {untracked.length > 0 && (
         <>
           <div style={{ margin: '4px 2px 8px' }}>
-            <div style={{ fontSize: 12.5, fontWeight: 700, color: R.inkSoft, textTransform: 'uppercase', letterSpacing: '.03em' }}>Sin seguimiento de inventario</div>
-            <div style={{ fontSize: 12, color: R.inkFaint, marginTop: 2 }}>Estos productos no llevan conteo — siempre están disponibles. Toca <b>Controlar</b> para empezar a contar unidades.</div>
+            <div style={{ fontSize: 12.5, fontWeight: 700, color: R.inkSoft, textTransform: 'uppercase', letterSpacing: '.03em' }}>{t('Sin seguimiento de inventario', 'No inventory tracking')}</div>
+            <div style={{ fontSize: 12, color: R.inkFaint, marginTop: 2 }}>{en ? <>These products aren’t counted — they’re always available. Tap <b>Track</b> to start counting units.</> : <>Estos productos no llevan conteo — siempre están disponibles. Toca <b>Controlar</b> para empezar a contar unidades.</>}</div>
           </div>
           <BCard style={{ padding: 0, overflow: 'hidden' }}>
             {untracked.map(({ c, idx }) => (
@@ -1994,11 +2054,11 @@ function InventoryView({ vert, items, setItems, onGo }: { vert: Vert; items: Cat
                 <div style={{ width: 40, height: 40, borderRadius: 10, flexShrink: 0, background: c.img ? `center/cover no-repeat url(${c.img})` : `linear-gradient(140deg, ${c.grad[0]}, ${c.grad[1]})` }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontWeight: 700, fontSize: 14, color: R.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</div>
-                  <div style={{ fontSize: 12, color: R.inkSoft, marginTop: 1 }}>{c.category || c.sub}{!c.active && ' · Inactivo'}</div>
+                  <div style={{ fontSize: 12, color: R.inkSoft, marginTop: 1 }}>{c.category || c.sub}{!c.active && ` · ${t('Inactivo', 'Inactive')}`}</div>
                 </div>
-                <span style={{ fontSize: 12.5, color: R.inkFaint, whiteSpace: 'nowrap' }}>Disponibilidad ilimitada</span>
-                <button onClick={() => setStock(idx, 10)} title="Empezar a llevar el conteo de unidades de este producto" style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 13px', background: R.ink, color: '#fff', border: 'none', borderRadius: 999, fontFamily: R.ui, fontWeight: 700, fontSize: 12.5, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 }}>
-                  <Icon n="box" size={14} color="#fff" /> Controlar
+                <span style={{ fontSize: 12.5, color: R.inkFaint, whiteSpace: 'nowrap' }}>{t('Disponibilidad ilimitada', 'Unlimited availability')}</span>
+                <button onClick={() => setStock(idx, 10)} title={t('Empezar a llevar el conteo de unidades de este producto', 'Start counting units for this product')} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 13px', background: R.ink, color: '#fff', border: 'none', borderRadius: 999, fontFamily: R.ui, fontWeight: 700, fontSize: 12.5, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 }}>
+                  <Icon n="box" size={14} color="#fff" /> {t('Controlar', 'Track')}
                 </button>
               </div>
             ))}
@@ -2007,7 +2067,7 @@ function InventoryView({ vert, items, setItems, onGo }: { vert: Vert; items: Cat
       )}
 
       {rows.length === 0 && (
-        <div style={{ textAlign: 'center', color: R.inkFaint, fontSize: 13, padding: '28px 0' }}>Sin resultados para “{query}”.</div>
+        <div style={{ textAlign: 'center', color: R.inkFaint, fontSize: 13, padding: '28px 0' }}>{en ? `No results for “${query}”.` : `Sin resultados para “${query}”.`}</div>
       )}
     </div>
   )
@@ -2035,15 +2095,16 @@ function printTicketHTML(o: {
   rows: { name: string; qty: number; lineTotal: number }[]
   added: boolean; base: number; iva: number; total: number
   method: string; cardLast4?: string; authCode?: string; reference?: string
-  voidLabel?: string
+  voidLabel?: string; en?: boolean
 }) {
+  const en = !!o.en
   const esc = (s: string) => (s || '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c] as string))
   const rows = o.rows.map(it =>
     `<tr><td class="q">${it.qty}×</td><td>${esc(it.name)}</td><td class="r">${money(it.lineTotal)}</td></tr>`).join('')
   const totals = o.added
-    ? `<div class="row"><span>Subtotal</span><span>${money(o.base)}</span></div>
-       <div class="row"><span>IVA (16%)</span><span>+${money(o.iva)}</span></div>`
-    : `<div class="row"><span>IVA incluido (16%)</span><span>${money(o.iva)}</span></div>`
+    ? `<div class="row"><span>${en ? 'Subtotal' : 'Subtotal'}</span><span>${money(o.base)}</span></div>
+       <div class="row"><span>${en ? 'Tax (16%)' : 'IVA (16%)'}</span><span>+${money(o.iva)}</span></div>`
+    : `<div class="row"><span>${en ? 'Tax included (16%)' : 'IVA incluido (16%)'}</span><span>${money(o.iva)}</span></div>`
   const html = `<!doctype html><html><head><meta charset="utf-8"><title>Ticket ${esc(o.folio)}</title>
     <style>
       *{margin:0;padding:0;box-sizing:border-box}
@@ -2065,20 +2126,20 @@ function printTicketHTML(o: {
     </style></head><body>
     <h1>${esc(o.bizName)}</h1>
     <div class="sub">${esc(o.address)}</div>
-    <div class="sub">Tel. ${esc(o.phone)}</div>
+    <div class="sub">${en ? 'Tel.' : 'Tel.'} ${esc(o.phone)}</div>
     <div class="sub">RFC: ${esc(o.rfc)}</div>
     ${o.voidLabel ? `<div class="void">${esc(o.voidLabel)}</div>` : ''}
     <div class="hr"></div>
-    <div class="meta"><span>${esc(o.when)}</span><span>Folio ${esc(o.folio)}</span></div>
+    <div class="meta"><span>${esc(o.when)}</span><span>${en ? 'No.' : 'Folio'} ${esc(o.folio)}</span></div>
     <table>${rows}</table>
     <div class="hr"></div>
     ${totals}
     <div class="total"><span>TOTAL</span><span>${money(o.total)}</span></div>
     <div class="hr"></div>
-    <div class="pay">Pago: ${esc(o.method)}${o.cardLast4 ? ` ····${esc(o.cardLast4)}` : ''}</div>
-    ${o.authCode ? `<div class="pay">Autorización: ${esc(o.authCode)}</div>` : ''}
-    ${o.reference ? `<div class="pay">Referencia: ${esc(o.reference)}</div>` : ''}
-    <div class="thanks">¡Gracias por tu compra! 🌮<br>Vía Reva</div>
+    <div class="pay">${en ? 'Payment' : 'Pago'}: ${esc(o.method)}${o.cardLast4 ? ` ····${esc(o.cardLast4)}` : ''}</div>
+    ${o.authCode ? `<div class="pay">${en ? 'Authorization' : 'Autorización'}: ${esc(o.authCode)}</div>` : ''}
+    ${o.reference ? `<div class="pay">${en ? 'Reference' : 'Referencia'}: ${esc(o.reference)}</div>` : ''}
+    <div class="thanks">${en ? 'Thank you for your purchase! 🌮' : '¡Gracias por tu compra! 🌮'}<br>${en ? 'Via Reva' : 'Vía Reva'}</div>
     </body></html>`
   const frame = document.createElement('iframe')
   frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0'
@@ -2090,12 +2151,14 @@ function printTicketHTML(o: {
   setTimeout(() => { try { w?.focus(); w?.print() } catch {} setTimeout(() => frame.remove(), 800) }, 150)
 }
 const PAY_METHODS = [
-  { id: 'efectivo', label: 'Efectivo', icon: 'cash' },
-  { id: 'tarjeta', label: 'Tarjeta', icon: 'card' },
-  { id: 'transferencia', label: 'Transferencia', icon: 'bolt' },
+  { id: 'efectivo', label: 'Efectivo', labelEn: 'Cash', icon: 'cash' },
+  { id: 'tarjeta', label: 'Tarjeta', labelEn: 'Card', icon: 'card' },
+  { id: 'transferencia', label: 'Transferencia', labelEn: 'Transfer', icon: 'bolt' },
 ]
 
 function PosView({ vert, items, setItems, onGo, taxMode, bizInfo }: { vert: Vert; items: CatItem[]; setItems: React.Dispatch<React.SetStateAction<CatItem[]>>; onGo: (v: string) => void; taxMode: TaxMode; bizInfo: BizInfo }) {
+  const t = useT()
+  const en = useEn()
   const [lines, setLines] = useState<PosLine[]>([])
   const [query, setQuery] = useState('')
   const [cat, setCat] = useState('Todos')
@@ -2185,10 +2248,10 @@ function PosView({ vert, items, setItems, onGo, taxMode, bizInfo }: { vert: Vert
       bizName: vert.full || vert.name,
       address: bizInfo.address, phone: bizInfo.phone, rfc: bizInfo.rfc,
       folio: sale.folio || String(sale.at).slice(-6),
-      when: new Date(sale.at).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' }),
+      when: new Date(sale.at).toLocaleString(en ? 'en-US' : 'es-MX', { dateStyle: 'short', timeStyle: 'short' }),
       rows: sale.items.map(it => ({ name: it.name, qty: it.qty, lineTotal: it.unit * it.qty })),
       added: sale.added, base: sale.base, iva: sale.iva, total: sale.total,
-      method: sale.method, cardLast4: sale.cardLast4, authCode: sale.authCode, reference: sale.reference,
+      method: sale.method, cardLast4: sale.cardLast4, authCode: sale.authCode, reference: sale.reference, en,
     })
   }
 
@@ -2205,14 +2268,14 @@ function PosView({ vert, items, setItems, onGo, taxMode, bizInfo }: { vert: Vert
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
           <div style={{ position: 'relative', flex: 1 }}>
             <span style={{ position: 'absolute', left: 13, top: '50%', transform: 'translateY(-50%)' }}><Icon n="search" size={16} color={R.inkFaint} /></span>
-            <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Buscar producto o servicio…"
+            <input value={query} onChange={e => setQuery(e.target.value)} placeholder={t('Buscar producto o servicio…', 'Search product or service…')}
               style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 999, padding: '11px 14px 11px 38px', fontSize: 14, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.surface }} />
           </div>
           <button onClick={() => onGo('sales')} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 14px', background: R.bgAlt, border: 'none', borderRadius: 999, cursor: 'pointer', fontFamily: R.ui, fontWeight: 600, fontSize: 13, color: R.inkSoft, whiteSpace: 'nowrap' }}>
-            <Icon n="ticket" size={15} color={R.inkSoft} /> Ventas
+            <Icon n="ticket" size={15} color={R.inkSoft} /> {t('Ventas', 'Sales')}
           </button>
           <button onClick={() => onGo('catalog')} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 14px', background: R.bgAlt, border: 'none', borderRadius: 999, cursor: 'pointer', fontFamily: R.ui, fontWeight: 600, fontSize: 13, color: R.inkSoft, whiteSpace: 'nowrap' }}>
-            <Icon n="grid" size={15} color={R.inkSoft} /> Catálogo
+            <Icon n="grid" size={15} color={R.inkSoft} /> {t('Catálogo', 'Catalog')}
           </button>
         </div>
 
@@ -2223,7 +2286,7 @@ function PosView({ vert, items, setItems, onGo, taxMode, bizInfo }: { vert: Vert
               return (
                 <button key={c} onClick={() => setCat(c)}
                   style={{ padding: '7px 14px', borderRadius: 999, border: `1px solid ${on ? R.coral : R.line}`, background: on ? R.coral : R.surface, color: on ? '#fff' : R.inkSoft, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13 }}>
-                  {c}
+                  {c === 'Todos' ? t('Todos', 'All') : c}
                 </button>
               )
             })}
@@ -2233,8 +2296,8 @@ function PosView({ vert, items, setItems, onGo, taxMode, bizInfo }: { vert: Vert
         {active.length === 0 ? (
           <BCard style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', gap: 12, color: R.inkSoft }}>
             <Icon n="grid" size={30} color={R.inkFaint} />
-            <div style={{ maxWidth: 280 }}>No hay productos activos en tu catálogo. Agrégalos para empezar a cobrar.</div>
-            <button onClick={() => onGo('catalog')} style={{ padding: '10px 18px', background: R.ink, color: '#fff', border: 'none', borderRadius: 999, fontFamily: R.ui, fontWeight: 700, fontSize: 13.5, cursor: 'pointer' }}>Ir al Catálogo</button>
+            <div style={{ maxWidth: 280 }}>{t('No hay productos activos en tu catálogo. Agrégalos para empezar a cobrar.', 'No active products in your catalog. Add them to start charging.')}</div>
+            <button onClick={() => onGo('catalog')} style={{ padding: '10px 18px', background: R.ink, color: '#fff', border: 'none', borderRadius: 999, fontFamily: R.ui, fontWeight: 700, fontSize: 13.5, cursor: 'pointer' }}>{t('Ir al Catálogo', 'Go to Catalog')}</button>
           </BCard>
         ) : (
           <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', paddingRight: 4 }}>
@@ -2251,18 +2314,18 @@ function PosView({ vert, items, setItems, onGo, taxMode, bizInfo }: { vert: Vert
                       {!c.img && <div style={{ position: 'absolute', right: -2, bottom: -10, fontFamily: R.display, fontWeight: 800, fontSize: 46, color: 'rgba(255,255,255,.2)' }}>{vert.mono}</div>}
                       {!sold && <span style={{ position: 'absolute', top: 7, right: 7, width: 22, height: 22, borderRadius: '50%', background: 'rgba(255,255,255,.92)', display: 'grid', placeItems: 'center' }}><Icon n="plus" size={14} color={R.ink} /></span>}
                       {tracked && (
-                        <span style={{ position: 'absolute', top: 7, left: 7, fontSize: 10.5, fontWeight: 800, letterSpacing: '.02em', color: '#fff', background: sold ? 'rgba(181,71,47,.92)' : (left <= 3 ? 'rgba(199,124,44,.92)' : 'rgba(34,28,25,.7)'), padding: '2px 8px', borderRadius: 999 }}>{sold ? 'Agotado' : `${left} disp.`}</span>
+                        <span style={{ position: 'absolute', top: 7, left: 7, fontSize: 10.5, fontWeight: 800, letterSpacing: '.02em', color: '#fff', background: sold ? 'rgba(181,71,47,.92)' : (left <= 3 ? 'rgba(199,124,44,.92)' : 'rgba(34,28,25,.7)'), padding: '2px 8px', borderRadius: 999 }}>{sold ? t('Agotado', 'Sold out') : `${left} ${t('disp.', 'avail.')}`}</span>
                       )}
                     </div>
                     <div style={{ padding: '10px 12px 12px' }}>
                       <div style={{ fontWeight: 700, fontSize: 13.5, color: R.ink, lineHeight: 1.25 }}>{c.name}</div>
                       <div style={{ fontSize: 11.5, color: R.inkSoft, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.sub}</div>
-                      <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 14, color: n > 0 ? R.ink : R.inkFaint, marginTop: 8 }}>{n > 0 ? money(n) : 'Precio variable'}</div>
+                      <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 14, color: n > 0 ? R.ink : R.inkFaint, marginTop: 8 }}>{n > 0 ? money(n) : t('Precio variable', 'Variable price')}</div>
                     </div>
                   </button>
                 )
               })}
-              {shown.length === 0 && <div style={{ gridColumn: '1 / -1', textAlign: 'center', color: R.inkFaint, fontSize: 13, padding: '32px 0' }}>Sin resultados para “{query}”.</div>}
+              {shown.length === 0 && <div style={{ gridColumn: '1 / -1', textAlign: 'center', color: R.inkFaint, fontSize: 13, padding: '32px 0' }}>{en ? `No results for “${query}”.` : `Sin resultados para “${query}”.`}</div>}
             </div>
           </div>
         )}
@@ -2273,16 +2336,16 @@ function PosView({ vert, items, setItems, onGo, taxMode, bizInfo }: { vert: Vert
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 18px', borderBottom: `1px solid ${R.lineSoft}` }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
             <Icon n="card" size={18} color={R.coral} />
-            <span style={{ fontFamily: R.display, fontWeight: 800, fontSize: 16, color: R.ink }}>Ticket</span>
+            <span style={{ fontFamily: R.display, fontWeight: 800, fontSize: 16, color: R.ink }}>{t('Ticket', 'Ticket')}</span>
             {count > 0 && <span style={{ fontSize: 11.5, fontWeight: 700, color: '#fff', background: R.coral, borderRadius: 999, padding: '1px 8px' }}>{count}</span>}
           </div>
-          {lines.length > 0 && <button onClick={() => setLines([])} style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', cursor: 'pointer', fontFamily: R.ui, fontWeight: 600, fontSize: 12.5, color: R.inkSoft }}><Icon n="trash" size={14} color={R.inkSoft} /> Vaciar</button>}
+          {lines.length > 0 && <button onClick={() => setLines([])} style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', cursor: 'pointer', fontFamily: R.ui, fontWeight: 600, fontSize: 12.5, color: R.inkSoft }}><Icon n="trash" size={14} color={R.inkSoft} /> {t('Vaciar', 'Clear')}</button>}
         </div>
 
         {lines.length === 0 ? (
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', gap: 10, color: R.inkSoft, padding: 24 }}>
             <Icon n="inbox" size={28} color={R.inkFaint} />
-            <div style={{ fontSize: 13.5, maxWidth: 220 }}>Toca un producto para empezar el ticket.</div>
+            <div style={{ fontSize: 13.5, maxWidth: 220 }}>{t('Toca un producto para empezar el ticket.', 'Tap a product to start the ticket.')}</div>
           </div>
         ) : (
           <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
@@ -2292,20 +2355,20 @@ function PosView({ vert, items, setItems, onGo, taxMode, bizInfo }: { vert: Vert
                   <div style={{ fontWeight: 700, fontSize: 13.5, color: R.ink }}>{l.name}</div>
                   {l.variable ? (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 5 }}>
-                      <span style={{ fontSize: 12, color: R.inkSoft }}>Precio</span>
+                      <span style={{ fontSize: 12, color: R.inkSoft }}>{t('Precio', 'Price')}</span>
                       <input inputMode="numeric" value={l.unit ? String(l.unit) : ''} onChange={e => setUnit(l.key, e.target.value)} placeholder="0"
                         style={{ width: 80, boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 8, padding: '5px 8px', fontSize: 12.5, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.bg }} />
                     </div>
                   ) : (
-                    <div style={{ fontSize: 12, color: R.inkSoft, marginTop: 2 }}>{money(l.unit)} c/u</div>
+                    <div style={{ fontSize: 12, color: R.inkSoft, marginTop: 2 }}>{money(l.unit)} {t('c/u', 'ea.')}</div>
                   )}
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
                   <span style={{ fontFamily: R.display, fontWeight: 800, fontSize: 13.5, color: R.ink }}>{money(l.unit * l.qty)}</span>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: R.bgAlt, borderRadius: 999, padding: '3px 5px' }}>
-                    <button onClick={() => changeQty(l.key, -1)} aria-label="Quitar uno" style={{ width: 22, height: 22, borderRadius: '50%', border: 'none', background: R.surface, cursor: 'pointer', display: 'grid', placeItems: 'center', color: R.ink, fontWeight: 800, fontSize: 16, lineHeight: 1 }}>−</button>
+                    <button onClick={() => changeQty(l.key, -1)} aria-label={t('Quitar uno', 'Remove one')} style={{ width: 22, height: 22, borderRadius: '50%', border: 'none', background: R.surface, cursor: 'pointer', display: 'grid', placeItems: 'center', color: R.ink, fontWeight: 800, fontSize: 16, lineHeight: 1 }}>−</button>
                     <span style={{ minWidth: 16, textAlign: 'center', fontWeight: 700, fontSize: 13, color: R.ink }}>{l.qty}</span>
-                    <button onClick={() => changeQty(l.key, 1)} aria-label="Agregar uno" style={{ width: 22, height: 22, borderRadius: '50%', border: 'none', background: R.surface, cursor: 'pointer', display: 'grid', placeItems: 'center', color: R.ink, fontWeight: 800, fontSize: 14, lineHeight: 1 }}>+</button>
+                    <button onClick={() => changeQty(l.key, 1)} aria-label={t('Agregar uno', 'Add one')} style={{ width: 22, height: 22, borderRadius: '50%', border: 'none', background: R.surface, cursor: 'pointer', display: 'grid', placeItems: 'center', color: R.ink, fontWeight: 800, fontSize: 14, lineHeight: 1 }}>+</button>
                   </div>
                 </div>
               </div>
@@ -2317,24 +2380,24 @@ function PosView({ vert, items, setItems, onGo, taxMode, bizInfo }: { vert: Vert
           {added ? (
             <>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, color: R.inkSoft, marginBottom: 4 }}>
-                <span>Subtotal</span><span>{money(base)}</span>
+                <span>{t('Subtotal', 'Subtotal')}</span><span>{money(base)}</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, color: R.inkSoft, marginBottom: 4 }}>
-                <span>IVA (16%)</span><span>+{money(iva)}</span>
+                <span>{t('IVA (16%)', 'Tax (16%)')}</span><span>+{money(iva)}</span>
               </div>
             </>
           ) : (
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, color: R.inkSoft, marginBottom: 4 }}>
-              <span>IVA incluido (16%)</span><span>{money(iva)}</span>
+              <span>{t('IVA incluido (16%)', 'Tax included (16%)')}</span><span>{money(iva)}</span>
             </div>
           )}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
-            <span style={{ fontWeight: 700, fontSize: 14, color: R.ink }}>Total</span>
+            <span style={{ fontWeight: 700, fontSize: 14, color: R.ink }}>{t('Total', 'Total')}</span>
             <span style={{ fontFamily: R.display, fontWeight: 800, fontSize: 24, color: R.ink, letterSpacing: '-.02em' }}>{money(total)}</span>
           </div>
           <button onClick={() => setPay('choose')} disabled={lines.length === 0 || total <= 0}
             style={{ width: '100%', padding: '14px', border: 'none', borderRadius: 14, background: lines.length && total > 0 ? R.coral : R.coralTint, color: lines.length && total > 0 ? '#fff' : R.coralPress, cursor: lines.length && total > 0 ? 'pointer' : 'not-allowed', fontFamily: R.ui, fontWeight: 800, fontSize: 15 }}>
-            Cobrar {money(total)}
+            {t('Cobrar', 'Charge')} {money(total)}
           </button>
         </div>
       </div>
@@ -2346,27 +2409,27 @@ function PosView({ vert, items, setItems, onGo, taxMode, bizInfo }: { vert: Vert
             {pending ? (
               <>
                 <div style={{ textAlign: 'center', marginBottom: 18 }}>
-                  <div style={{ fontSize: 13, color: R.inkSoft }}>{pending.label} · Total a cobrar</div>
+                  <div style={{ fontSize: 13, color: R.inkSoft }}>{pending.label} · {t('Total a cobrar', 'Total to charge')}</div>
                   <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 32, color: R.ink, letterSpacing: '-.02em' }}>{money(total)}</div>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                   {pending.id === 'tarjeta' ? (
                     <>
                       <label style={{ display: 'block' }}>
-                        <span style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: R.inkSoft, marginBottom: 6 }}>Código de autorización</span>
-                        <input value={payFields.authCode} onChange={e => setPayFields(f => ({ ...f, authCode: e.target.value }))} placeholder="Ej. 123456" autoFocus
+                        <span style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: R.inkSoft, marginBottom: 6 }}>{t('Código de autorización', 'Authorization code')}</span>
+                        <input value={payFields.authCode} onChange={e => setPayFields(f => ({ ...f, authCode: e.target.value }))} placeholder={t('Ej. 123456', 'e.g. 123456')} autoFocus
                           style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 10, padding: '11px 12px', fontSize: 14, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.surface }} />
                       </label>
                       <label style={{ display: 'block' }}>
-                        <span style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: R.inkSoft, marginBottom: 6 }}>Últimos 4 dígitos de la tarjeta</span>
+                        <span style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: R.inkSoft, marginBottom: 6 }}>{t('Últimos 4 dígitos de la tarjeta', 'Last 4 digits of the card')}</span>
                         <input value={payFields.cardLast4} onChange={e => setPayFields(f => ({ ...f, cardLast4: e.target.value.replace(/\D/g, '').slice(0, 4) }))} inputMode="numeric" placeholder="0000" maxLength={4}
                           style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 10, padding: '11px 12px', fontSize: 14, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.surface, letterSpacing: '.1em' }} />
                       </label>
                     </>
                   ) : (
                     <label style={{ display: 'block' }}>
-                      <span style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: R.inkSoft, marginBottom: 6 }}>Referencia o comprobante</span>
-                      <input value={payFields.reference} onChange={e => setPayFields(f => ({ ...f, reference: e.target.value }))} placeholder="Ej. folio de la transferencia" autoFocus
+                      <span style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: R.inkSoft, marginBottom: 6 }}>{t('Referencia o comprobante', 'Reference or receipt')}</span>
+                      <input value={payFields.reference} onChange={e => setPayFields(f => ({ ...f, reference: e.target.value }))} placeholder={t('Ej. folio de la transferencia', 'e.g. transfer reference number')} autoFocus
                         style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 10, padding: '11px 12px', fontSize: 14, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.surface }} />
                     </label>
                   )}
@@ -2376,43 +2439,43 @@ function PosView({ vert, items, setItems, onGo, taxMode, bizInfo }: { vert: Vert
                     ? { authCode: payFields.authCode.trim() || undefined, cardLast4: payFields.cardLast4.trim() || undefined }
                     : { reference: payFields.reference.trim() || undefined })}
                   style={{ width: '100%', marginTop: 18, padding: '14px', border: 'none', borderRadius: 14, background: R.coral, color: '#fff', cursor: 'pointer', fontFamily: R.ui, fontWeight: 800, fontSize: 15 }}>
-                  Confirmar cobro {money(total)}
+                  {t('Confirmar cobro', 'Confirm charge')} {money(total)}
                 </button>
-                <button onClick={() => { setPending(null); setPayFields({ authCode: '', cardLast4: '', reference: '' }) }} style={{ width: '100%', marginTop: 10, padding: '12px', background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: R.ui, fontWeight: 600, fontSize: 14, color: R.inkSoft }}>Volver</button>
+                <button onClick={() => { setPending(null); setPayFields({ authCode: '', cardLast4: '', reference: '' }) }} style={{ width: '100%', marginTop: 10, padding: '12px', background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: R.ui, fontWeight: 600, fontSize: 14, color: R.inkSoft }}>{t('Volver', 'Back')}</button>
               </>
             ) : pay === 'choose' ? (
               <>
                 <div style={{ textAlign: 'center', marginBottom: 18 }}>
-                  <div style={{ fontSize: 13, color: R.inkSoft }}>Total a cobrar</div>
+                  <div style={{ fontSize: 13, color: R.inkSoft }}>{t('Total a cobrar', 'Total to charge')}</div>
                   <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 32, color: R.ink, letterSpacing: '-.02em' }}>{money(total)}</div>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  {PAY_METHODS.map(m => (
-                    <button key={m.id} onClick={() => { if (m.id === 'efectivo') registerSale(m.id, m.label, {}); else setPending({ id: m.id, label: m.label }) }} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', background: R.surface, border: `1px solid ${R.line}`, borderRadius: 14, cursor: 'pointer', fontFamily: R.ui, textAlign: 'left' }}>
+                  {PAY_METHODS.map(m => { const ml = en ? m.labelEn : m.label; return (
+                    <button key={m.id} onClick={() => { if (m.id === 'efectivo') registerSale(m.id, ml, {}); else setPending({ id: m.id, label: ml }) }} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', background: R.surface, border: `1px solid ${R.line}`, borderRadius: 14, cursor: 'pointer', fontFamily: R.ui, textAlign: 'left' }}>
                       <span style={{ width: 38, height: 38, borderRadius: 10, background: R.coralTint, display: 'grid', placeItems: 'center', flexShrink: 0 }}><Icon n={m.icon} size={18} color={R.coralPress} /></span>
-                      <span style={{ flex: 1, fontWeight: 700, fontSize: 15, color: R.ink }}>{m.label}</span>
+                      <span style={{ flex: 1, fontWeight: 700, fontSize: 15, color: R.ink }}>{ml}</span>
                       <Icon n="chevR" size={16} color={R.inkFaint} />
                     </button>
-                  ))}
+                  )})}
                 </div>
-                <button onClick={closePay} style={{ width: '100%', marginTop: 14, padding: '12px', background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: R.ui, fontWeight: 600, fontSize: 14, color: R.inkSoft }}>Cancelar</button>
+                <button onClick={closePay} style={{ width: '100%', marginTop: 14, padding: '12px', background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: R.ui, fontWeight: 600, fontSize: 14, color: R.inkSoft }}>{t('Cancelar', 'Cancel')}</button>
               </>
             ) : (
               <div style={{ textAlign: 'center', padding: '8px 0' }}>
                 <div style={{ width: 64, height: 64, borderRadius: '50%', background: R.jadeTint, display: 'grid', placeItems: 'center', margin: '0 auto 16px' }}>
                   <Icon n="check" size={30} color={R.jade} />
                 </div>
-                <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 22, color: R.ink }}>Cobro registrado</div>
+                <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 22, color: R.ink }}>{t('Cobro registrado', 'Payment recorded')}</div>
                 <div style={{ fontSize: 14, color: R.inkSoft, marginTop: 4 }}>{money(pay.total)} · {pay.method}{pay.cardLast4 ? ` ····${pay.cardLast4}` : ''}</div>
                 {(pay.authCode || pay.reference) && (
-                  <div style={{ fontSize: 12.5, color: R.inkFaint, marginTop: 3 }}>{pay.authCode ? `Autorización ${pay.authCode}` : `Referencia ${pay.reference}`}</div>
+                  <div style={{ fontSize: 12.5, color: R.inkFaint, marginTop: 3 }}>{pay.authCode ? `${t('Autorización', 'Authorization')} ${pay.authCode}` : `${t('Referencia', 'Reference')} ${pay.reference}`}</div>
                 )}
-                <div style={{ fontSize: 12.5, color: R.inkFaint, marginTop: 10 }}>¿Quieres imprimir el ticket de la venta?</div>
+                <div style={{ fontSize: 12.5, color: R.inkFaint, marginTop: 10 }}>{t('¿Quieres imprimir el ticket de la venta?', 'Do you want to print the sale ticket?')}</div>
                 <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
                   <button onClick={() => setReceipt(pay as Sale)} style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '13px', border: `1px solid ${R.line}`, borderRadius: 14, background: R.surface, color: R.ink, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14 }}>
-                    <Icon n="printer" size={17} color={R.ink} /> Imprimir
+                    <Icon n="printer" size={17} color={R.ink} /> {t('Imprimir', 'Print')}
                   </button>
-                  <button onClick={() => { setLines([]); setPay(null) }} style={{ flex: 1, padding: '13px', border: 'none', borderRadius: 14, background: R.ink, color: '#fff', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14 }}>Nuevo ticket</button>
+                  <button onClick={() => { setLines([]); setPay(null) }} style={{ flex: 1, padding: '13px', border: 'none', borderRadius: 14, background: R.ink, color: '#fff', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14 }}>{t('Nuevo ticket', 'New ticket')}</button>
                 </div>
               </div>
             )}
@@ -2428,13 +2491,13 @@ function PosView({ vert, items, setItems, onGo, taxMode, bizInfo }: { vert: Vert
               <div style={{ textAlign: 'center', fontWeight: 700, fontSize: 15 }}>{vert.full || vert.name}</div>
               <div style={{ textAlign: 'center', fontSize: 11, color: '#666', marginTop: 3, lineHeight: 1.5 }}>
                 {bizInfo.address}<br />
-                Tel. {bizInfo.phone}<br />
+                {t('Tel.', 'Tel.')} {bizInfo.phone}<br />
                 RFC: {bizInfo.rfc}
               </div>
               <div style={{ borderTop: '1px dashed #bbb', margin: '12px 0' }} />
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#666' }}>
-                <span>{new Date(receipt.at).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' })}</span>
-                <span>Folio {receipt.folio || String(receipt.at).slice(-6)}</span>
+                <span>{new Date(receipt.at).toLocaleString(en ? 'en-US' : 'es-MX', { dateStyle: 'short', timeStyle: 'short' })}</span>
+                <span>{t('Folio', 'No.')} {receipt.folio || String(receipt.at).slice(-6)}</span>
               </div>
               <div style={{ borderTop: '1px dashed #bbb', margin: '12px 0' }} />
               {receipt.items.map((it, i) => (
@@ -2447,23 +2510,23 @@ function PosView({ vert, items, setItems, onGo, taxMode, bizInfo }: { vert: Vert
               <div style={{ borderTop: '1px dashed #bbb', margin: '12px 0' }} />
               {receipt.added ? (
                 <>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#666', marginBottom: 3 }}><span>Subtotal</span><span>{money(receipt.base)}</span></div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#666', marginBottom: 3 }}><span>IVA (16%)</span><span>+{money(receipt.iva)}</span></div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#666', marginBottom: 3 }}><span>{t('Subtotal', 'Subtotal')}</span><span>{money(receipt.base)}</span></div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#666', marginBottom: 3 }}><span>{t('IVA (16%)', 'Tax (16%)')}</span><span>+{money(receipt.iva)}</span></div>
                 </>
               ) : (
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#666', marginBottom: 3 }}><span>IVA incluido (16%)</span><span>{money(receipt.iva)}</span></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#666', marginBottom: 3 }}><span>{t('IVA incluido (16%)', 'Tax included (16%)')}</span><span>{money(receipt.iva)}</span></div>
               )}
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 15, fontWeight: 700, marginTop: 4 }}><span>TOTAL</span><span>{money(receipt.total)}</span></div>
               <div style={{ borderTop: '1px dashed #bbb', margin: '12px 0' }} />
-              <div style={{ fontSize: 12 }}>Pago: {receipt.method}{receipt.cardLast4 ? ` ····${receipt.cardLast4}` : ''}</div>
-              {receipt.authCode && <div style={{ fontSize: 12 }}>Autorización: {receipt.authCode}</div>}
-              {receipt.reference && <div style={{ fontSize: 12 }}>Referencia: {receipt.reference}</div>}
-              <div style={{ textAlign: 'center', fontSize: 12, marginTop: 12, lineHeight: 1.5 }}>¡Gracias por tu compra! 🌮<br />Vía Reva</div>
+              <div style={{ fontSize: 12 }}>{t('Pago', 'Payment')}: {receipt.method}{receipt.cardLast4 ? ` ····${receipt.cardLast4}` : ''}</div>
+              {receipt.authCode && <div style={{ fontSize: 12 }}>{t('Autorización', 'Authorization')}: {receipt.authCode}</div>}
+              {receipt.reference && <div style={{ fontSize: 12 }}>{t('Referencia', 'Reference')}: {receipt.reference}</div>}
+              <div style={{ textAlign: 'center', fontSize: 12, marginTop: 12, lineHeight: 1.5 }}>{t('¡Gracias por tu compra! 🌮', 'Thank you for your purchase! 🌮')}<br />{t('Vía Reva', 'Via Reva')}</div>
             </div>
             <div style={{ display: 'flex', gap: 10 }}>
-              <button onClick={() => setReceipt(null)} style={{ flex: 1, padding: '13px', border: 'none', borderRadius: 14, background: R.bgAlt, color: R.inkSoft, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14 }}>Cerrar</button>
+              <button onClick={() => setReceipt(null)} style={{ flex: 1, padding: '13px', border: 'none', borderRadius: 14, background: R.bgAlt, color: R.inkSoft, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14 }}>{t('Cerrar', 'Close')}</button>
               <button onClick={() => printTicket(receipt)} style={{ flex: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '13px', border: 'none', borderRadius: 14, background: R.coral, color: '#fff', cursor: 'pointer', fontFamily: R.ui, fontWeight: 800, fontSize: 14.5 }}>
-                <Icon n="printer" size={17} color="#fff" /> Imprimir
+                <Icon n="printer" size={17} color="#fff" /> {t('Imprimir', 'Print')}
               </button>
             </div>
           </div>
@@ -2482,16 +2545,16 @@ type SaleRow = {
   items: { name: string; qty: number; unit_price: number; service_id?: string | null; tracked?: boolean }[]
 }
 
-const SALE_STATUS: Record<string, { label: string; color: string; tint: string }> = {
-  paid: { label: 'Pagada', color: '#16614c', tint: R.jadeTint },
-  void: { label: 'Anulada', color: R.coralPress, tint: R.coralTint },
-  refunded: { label: 'Reembolsada', color: R.amberDeep, tint: R.amberTint },
+const SALE_STATUS: Record<string, { label: string; labelEn: string; color: string; tint: string }> = {
+  paid: { label: 'Pagada', labelEn: 'Paid', color: '#16614c', tint: R.jadeTint },
+  void: { label: 'Anulada', labelEn: 'Voided', color: R.coralPress, tint: R.coralTint },
+  refunded: { label: 'Reembolsada', labelEn: 'Refunded', color: R.amberDeep, tint: R.amberTint },
 }
-const saleMethodLabel = (m: string | null) => {
+const saleMethodLabel = (m: string | null, en = false) => {
   const s = (m ?? '').toLowerCase()
-  if (s === 'efectivo') return 'Efectivo'
-  if (s === 'tarjeta') return 'Tarjeta'
-  if (s === 'transferencia') return 'Transferencia'
+  if (s === 'efectivo') return en ? 'Cash' : 'Efectivo'
+  if (s === 'tarjeta') return en ? 'Card' : 'Tarjeta'
+  if (s === 'transferencia') return en ? 'Transfer' : 'Transferencia'
   return m || '—'
 }
 const saleRefText = (s: SaleRow) => {
@@ -2501,19 +2564,33 @@ const saleRefText = (s: SaleRow) => {
   if (s.reference) parts.push(`Ref ${s.reference}`)
   return parts.join(' · ')
 }
-const saleWhen = (iso: string) => new Date(iso).toLocaleString('es-MX', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
+const saleWhen = (iso: string, en = false) => new Date(iso).toLocaleString(en ? 'en-US' : 'es-MX', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
 
 // Guía contextual para el paso de confirmación: qué hacer con el dinero según el
 // método de pago. Reva sólo actualiza el registro; el movimiento real lo hace el
 // dueño en su terminal o caja.
-const saleActionHint = (type: 'void' | 'refunded', method: string | null): string => {
+const saleActionHint = (type: 'void' | 'refunded', method: string | null, en = false): string => {
   const m = (method ?? '').toLowerCase()
   if (type === 'void') {
+    if (en) {
+      const how = m === 'tarjeta' ? 'If the charge hasn’t settled yet, do the reversal/cancellation on your terminal.'
+        : m === 'transferencia' ? 'If the transfer never arrived or was a mistake, there’s nothing to return.'
+        : m === 'efectivo' ? 'Return the cash from the register to the customer.'
+        : 'Reverse the charge through the same method.'
+      return `Use it to fix a mistake. ${how} Reva only updates the record: the sale will stop counting in Reports and inventory is NOT restocked.`
+    }
     const how = m === 'tarjeta' ? 'Si el cobro aún no cierra lote, haz la reversa/cancelación en tu terminal.'
       : m === 'transferencia' ? 'Si la transferencia no llegó o fue un error, no hay nada que devolver.'
       : m === 'efectivo' ? 'Devuelve el efectivo de la caja al cliente.'
       : 'Revierte el cobro por el mismo medio.'
     return `Úsalo para corregir un error. ${how} Reva sólo actualiza el registro: la venta dejará de contar en Informes y el inventario NO se repone.`
+  }
+  if (en) {
+    const how = m === 'tarjeta' ? 'Do the refund on your terminal; the money goes back to the customer’s card (may take days).'
+      : m === 'transferencia' ? 'Send a transfer back to the customer.'
+      : m === 'efectivo' ? 'Hand the cash from the register to the customer.'
+      : 'Return the money through the same method.'
+    return `Use it when the sale was correct but you’re returning the money. ${how} Reva only updates the record: it will leave your revenue in Reports.`
   }
   const how = m === 'tarjeta' ? 'Haz la devolución en tu terminal; el dinero vuelve a la tarjeta del cliente (puede tardar días).'
     : m === 'transferencia' ? 'Envía una transferencia de vuelta al cliente.'
@@ -2523,6 +2600,8 @@ const saleActionHint = (type: 'void' | 'refunded', method: string | null): strin
 }
 
 function SalesHistoryView({ vert, bizInfo, onGo }: { vert: Vert; bizInfo: BizInfo; onGo: (v: string) => void }) {
+  const t = useT()
+  const en = useEn()
   const bizId = SHARED_BIZ_ID[vert.id] ?? vert.id
   const [sales, setSales] = useState<SaleRow[] | null>(null)
   const [error, setError] = useState('')
@@ -2542,11 +2621,11 @@ function SalesHistoryView({ vert, bizInfo, onGo }: { vert: Vert; bizInfo: BizInf
     setError('')
     try {
       const r = await fetch(`/api/biz/sales?biz_id=${encodeURIComponent(bizId)}`)
-      if (!r.ok) { setSales([]); setError(r.status === 403 ? 'No autorizado' : 'No se pudieron cargar las ventas'); return }
+      if (!r.ok) { setSales([]); setError(r.status === 403 ? t('No autorizado', 'Not authorized') : t('No se pudieron cargar las ventas', 'Could not load sales')); return }
       const d = await r.json()
       setSales((d.sales ?? []) as SaleRow[])
     } catch {
-      setSales([]); setError('Sin conexión con el servidor')
+      setSales([]); setError(t('Sin conexión con el servidor', 'No connection to the server'))
     }
   }, [bizId])
   useEffect(() => { setSales(null); load() }, [load])
@@ -2584,26 +2663,27 @@ function SalesHistoryView({ vert, bizInfo, onGo }: { vert: Vert; bizInfo: BizInf
     printTicketHTML({
       bizName: vert.full || vert.name,
       address: bizInfo.address, phone: bizInfo.phone, rfc: bizInfo.rfc,
-      folio: s.folio, when: saleWhen(s.created_at),
+      folio: s.folio, when: saleWhen(s.created_at, en),
       rows: s.items.map(it => ({ name: it.name, qty: it.qty, lineTotal: it.unit_price * it.qty })),
       added: true, base: s.subtotal, iva: s.tax_amount, total: s.total,
-      method: saleMethodLabel(s.method), cardLast4: s.card_last4 ?? undefined,
-      authCode: s.auth_code ?? undefined, reference: s.reference ?? undefined,
-      voidLabel: s.status === 'void' ? 'ANULADA' : s.status === 'refunded' ? 'REEMBOLSADA' : undefined,
+      method: saleMethodLabel(s.method, en), cardLast4: s.card_last4 ?? undefined,
+      authCode: s.auth_code ?? undefined, reference: s.reference ?? undefined, en,
+      voidLabel: s.status === 'void' ? (en ? 'VOIDED' : 'ANULADA') : s.status === 'refunded' ? (en ? 'REFUNDED' : 'REEMBOLSADA') : undefined,
     })
   }
 
   // Etiqueta legible del periodo activo, para el encabezado del reporte impreso.
   function periodLabel(): string {
-    if (datePreset === 'hoy') return 'Hoy'
-    if (datePreset === '7d') return 'Últimos 7 días'
-    if (datePreset === '30d') return 'Últimos 30 días'
+    if (datePreset === 'hoy') return t('Hoy', 'Today')
+    if (datePreset === '7d') return t('Últimos 7 días', 'Last 7 days')
+    if (datePreset === '30d') return t('Últimos 30 días', 'Last 30 days')
     if (datePreset === 'custom') {
-      const f = customFrom ? new Date(`${customFrom}T00:00:00`).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' }) : '…'
-      const t = customTo ? new Date(`${customTo}T00:00:00`).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' }) : '…'
-      return `${f} — ${t}`
+      const loc = en ? 'en-US' : 'es-MX'
+      const f = customFrom ? new Date(`${customFrom}T00:00:00`).toLocaleDateString(loc, { day: '2-digit', month: 'short', year: 'numeric' }) : '…'
+      const to = customTo ? new Date(`${customTo}T00:00:00`).toLocaleDateString(loc, { day: '2-digit', month: 'short', year: 'numeric' }) : '…'
+      return `${f} — ${to}`
     }
-    return 'Todo el historial'
+    return t('Todo el historial', 'All history')
   }
 
   // Imprime el historial que se ve en pantalla (mismos filtros de estatus, periodo
@@ -2611,21 +2691,21 @@ function SalesHistoryView({ vert, bizInfo, onGo }: { vert: Vert; bizInfo: BizInf
   function printReport() {
     if (list.length === 0) return
     const esc = (s: string) => (s || '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c] as string))
-    const statusLabel = statusFilter === 'todas' ? 'Todas' : (SALE_STATUS[statusFilter]?.label ?? statusFilter)
+    const statusLabel = statusFilter === 'todas' ? t('Todas', 'All') : (en ? SALE_STATUS[statusFilter]?.labelEn : SALE_STATUS[statusFilter]?.label) ?? statusFilter
     const rowsHTML = list.map(s => {
-      const prod = s.items.length === 0 ? 'Venta' : s.items.map(it => `${it.qty}× ${it.name}`).join(', ')
-      const st = SALE_STATUS[s.status] ?? { label: s.status }
+      const prod = s.items.length === 0 ? t('Venta', 'Sale') : s.items.map(it => `${it.qty}× ${it.name}`).join(', ')
+      const st = SALE_STATUS[s.status] ?? { label: s.status, labelEn: s.status }
       const struck = s.status !== 'paid'
       return `<tr>
         <td class="mono">${esc(s.folio)}</td>
         <td>${esc(prod)}</td>
-        <td class="nw">${esc(saleWhen(s.created_at))}</td>
-        <td>${esc(saleMethodLabel(s.method))}</td>
-        <td>${esc(st.label)}</td>
+        <td class="nw">${esc(saleWhen(s.created_at, en))}</td>
+        <td>${esc(saleMethodLabel(s.method, en))}</td>
+        <td>${esc(en ? (st.labelEn ?? st.label) : st.label)}</td>
         <td class="r${struck ? ' void' : ''}">${money(s.total)}</td>
       </tr>`
     }).join('')
-    const html = `<!doctype html><html><head><meta charset="utf-8"><title>Ventas — ${esc(vert.full || vert.name)}</title>
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${en ? 'Sales' : 'Ventas'} — ${esc(vert.full || vert.name)}</title>
       <style>
         *{margin:0;padding:0;box-sizing:border-box}
         body{font-family:-apple-system,'Segoe UI',Arial,sans-serif;color:#1a1a1a;padding:28px}
@@ -2646,18 +2726,18 @@ function SalesHistoryView({ vert, bizInfo, onGo }: { vert: Vert; bizInfo: BizInf
         @media print{body{padding:0}}
       </style></head><body>
       <h1>${esc(vert.full || vert.name)}</h1>
-      <div class="sub">Historial de ventas · ${esc(periodLabel())} · Estatus: ${esc(statusLabel)}${q ? ` · Búsqueda: “${esc(query.trim())}”` : ''} · Impreso ${esc(new Date().toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' }))}</div>
+      <div class="sub">${en ? 'Sales history' : 'Historial de ventas'} · ${esc(periodLabel())} · ${en ? 'Status' : 'Estatus'}: ${esc(statusLabel)}${q ? ` · ${en ? 'Search' : 'Búsqueda'}: “${esc(query.trim())}”` : ''} · ${en ? 'Printed' : 'Impreso'} ${esc(new Date().toLocaleString(en ? 'en-US' : 'es-MX', { dateStyle: 'medium', timeStyle: 'short' }))}</div>
       <div class="kpis">
-        <div class="kpi"><div class="n">${paid.length}</div><div class="l">Tickets pagados</div></div>
-        <div class="kpi"><div class="n">${money(ingreso)}</div><div class="l">Ingreso (pagadas)</div></div>
-        <div class="kpi"><div class="n">${anuladas}</div><div class="l">Anuladas / reembolsadas</div></div>
+        <div class="kpi"><div class="n">${paid.length}</div><div class="l">${en ? 'Paid tickets' : 'Tickets pagados'}</div></div>
+        <div class="kpi"><div class="n">${money(ingreso)}</div><div class="l">${en ? 'Revenue (paid)' : 'Ingreso (pagadas)'}</div></div>
+        <div class="kpi"><div class="n">${anuladas}</div><div class="l">${en ? 'Voided / refunded' : 'Anuladas / reembolsadas'}</div></div>
       </div>
       <table>
-        <thead><tr><th>Folio</th><th>Productos</th><th>Fecha</th><th>Método</th><th>Estatus</th><th class="r">Total</th></tr></thead>
+        <thead><tr><th>${en ? 'No.' : 'Folio'}</th><th>${en ? 'Products' : 'Productos'}</th><th>${en ? 'Date' : 'Fecha'}</th><th>${en ? 'Method' : 'Método'}</th><th>${en ? 'Status' : 'Estatus'}</th><th class="r">Total</th></tr></thead>
         <tbody>${rowsHTML}</tbody>
-        <tfoot><tr><td colspan="5">Ingreso de tickets pagados (${paid.length})</td><td class="r">${money(ingreso)}</td></tr></tfoot>
+        <tfoot><tr><td colspan="5">${en ? 'Revenue from paid tickets' : 'Ingreso de tickets pagados'} (${paid.length})</td><td class="r">${money(ingreso)}</td></tr></tfoot>
       </table>
-      <div class="foot">${list.length} ${list.length === 1 ? 'venta' : 'ventas'} en la vista · Vía Reva</div>
+      <div class="foot">${list.length} ${en ? (list.length === 1 ? 'sale' : 'sales') : (list.length === 1 ? 'venta' : 'ventas')} ${en ? 'in view' : 'en la vista'} · ${en ? 'Via Reva' : 'Vía Reva'}</div>
       </body></html>`
     const frame = document.createElement('iframe')
     frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0'
@@ -2677,7 +2757,7 @@ function SalesHistoryView({ vert, bizInfo, onGo }: { vert: Vert; bizInfo: BizInf
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: s.id, status, reason: why, restock: doRestock }),
       })
-      if (!r.ok) { setError('No se pudo actualizar la venta'); return }
+      if (!r.ok) { setError(t('No se pudo actualizar la venta', 'Could not update the sale')); return }
       const data = await r.json().catch(() => ({} as { restocked?: boolean }))
       const note = status === 'paid' ? null : (why.trim() || s.note)
       setSales(prev => (prev ?? []).map(x => x.id === s.id ? { ...x, status, note } : x))
@@ -2687,10 +2767,10 @@ function SalesHistoryView({ vert, bizInfo, onGo }: { vert: Vert; bizInfo: BizInf
       // aplicar), avísalo para que ajuste el stock a mano en Inventario.
       const wantedRestock = doRestock && s.items.some(it => it.tracked)
       if (wantedRestock && !data.restocked) {
-        setError('La venta se actualizó, pero no se pudo reponer el inventario automáticamente. Ajústalo en Inventario o aplica la migración 021.')
+        setError(t('La venta se actualizó, pero no se pudo reponer el inventario automáticamente. Ajústalo en Inventario o aplica la migración 021.', 'The sale was updated, but inventory could not be restocked automatically. Adjust it in Inventory or apply migration 021.'))
       }
     } catch {
-      setError('Sin conexión con el servidor')
+      setError(t('Sin conexión con el servidor', 'No connection to the server'))
     } finally { setBusy(false) }
   }
 
@@ -2709,9 +2789,9 @@ function SalesHistoryView({ vert, bizInfo, onGo }: { vert: Vert; bizInfo: BizInf
       {/* KPIs */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, marginBottom: 18 }}>
         {[
-          { label: 'Tickets pagados', value: String(paid.length), tint: R.jadeTint, color: '#16614c', icon: 'ticket' },
-          { label: 'Ingreso (pagadas)', value: money(ingreso), tint: R.coralTint, color: R.coralPress, icon: 'card' },
-          { label: 'Anuladas / reembolsadas', value: String(anuladas), tint: R.amberTint, color: R.amberDeep, icon: 'info' },
+          { label: t('Tickets pagados', 'Paid tickets'), value: String(paid.length), tint: R.jadeTint, color: '#16614c', icon: 'ticket' },
+          { label: t('Ingreso (pagadas)', 'Revenue (paid)'), value: money(ingreso), tint: R.coralTint, color: R.coralPress, icon: 'card' },
+          { label: t('Anuladas / reembolsadas', 'Voided / refunded'), value: String(anuladas), tint: R.amberTint, color: R.amberDeep, icon: 'info' },
         ].map(k => (
           <BCard key={k.label} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <div style={{ width: 40, height: 40, borderRadius: 12, background: k.tint, display: 'grid', placeItems: 'center', flexShrink: 0 }}><Icon n={k.icon} size={20} color={k.color} /></div>
@@ -2727,22 +2807,22 @@ function SalesHistoryView({ vert, bizInfo, onGo }: { vert: Vert; bizInfo: BizInf
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14, flexWrap: 'wrap' }}>
         <div style={{ position: 'relative', flex: 1, minWidth: 220 }}>
           <span style={{ position: 'absolute', left: 13, top: '50%', transform: 'translateY(-50%)' }}><Icon n="search" size={16} color={R.inkFaint} /></span>
-          <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Buscar por folio, producto, monto, tarjeta…"
+          <input value={query} onChange={e => setQuery(e.target.value)} placeholder={t('Buscar por folio, producto, monto, tarjeta…', 'Search by number, product, amount, card…')}
             style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 999, padding: '11px 14px 11px 38px', fontSize: 14, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.surface }} />
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          {chip('todas', 'Todas')}{chip('paid', 'Pagadas')}{chip('void', 'Anuladas')}{chip('refunded', 'Reembolsadas')}
+          {chip('todas', t('Todas', 'All'))}{chip('paid', t('Pagadas', 'Paid'))}{chip('void', t('Anuladas', 'Voided'))}{chip('refunded', t('Reembolsadas', 'Refunded'))}
         </div>
-        <button onClick={printReport} disabled={list.length === 0} title="Imprimir el historial que ves en pantalla"
+        <button onClick={printReport} disabled={list.length === 0} title={t('Imprimir el historial que ves en pantalla', 'Print the history shown on screen')}
           style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 16px', borderRadius: 999, border: `1px solid ${R.line}`, background: R.surface, color: list.length === 0 ? R.inkFaint : R.ink, cursor: list.length === 0 ? 'default' : 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13, opacity: list.length === 0 ? .6 : 1 }}>
-          <Icon n="printer" size={16} color={list.length === 0 ? R.inkFaint : R.ink} /> Imprimir
+          <Icon n="printer" size={16} color={list.length === 0 ? R.inkFaint : R.ink} /> {t('Imprimir', 'Print')}
         </button>
       </div>
 
       {/* Filtro por periodo */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
-        <span style={{ fontSize: 12.5, fontWeight: 700, color: R.inkFaint, marginRight: 2 }}>Periodo</span>
-        {([['todo', 'Todo'], ['hoy', 'Hoy'], ['7d', '7 días'], ['30d', '30 días'], ['custom', 'Personalizado']] as const).map(([id, label]) => {
+        <span style={{ fontSize: 12.5, fontWeight: 700, color: R.inkFaint, marginRight: 2 }}>{t('Periodo', 'Period')}</span>
+        {([['todo', t('Todo', 'All')], ['hoy', t('Hoy', 'Today')], ['7d', t('7 días', '7 days')], ['30d', t('30 días', '30 days')], ['custom', t('Personalizado', 'Custom')]] as const).map(([id, label]) => {
           const on = datePreset === id
           return (
             <button key={id} onClick={() => setDatePreset(id)}
@@ -2766,32 +2846,32 @@ function SalesHistoryView({ vert, bizInfo, onGo }: { vert: Vert; bizInfo: BizInf
 
       {/* Lista */}
       {sales === null ? (
-        <div style={{ flex: 1, display: 'grid', placeItems: 'center', color: R.inkSoft, fontSize: 14 }}>Cargando ventas…</div>
+        <div style={{ flex: 1, display: 'grid', placeItems: 'center', color: R.inkSoft, fontSize: 14 }}>{t('Cargando ventas…', 'Loading sales…')}</div>
       ) : list.length === 0 ? (
         <BCard style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', gap: 12, color: R.inkSoft, minHeight: 220 }}>
           <Icon n="ticket" size={30} color={R.inkFaint} />
-          <div style={{ maxWidth: 300 }}>{(sales.length === 0) ? 'Aún no hay ventas registradas. Cobra desde el Punto de venta y aparecerán aquí.' : 'Ninguna venta coincide con los filtros seleccionados.'}</div>
-          {sales.length === 0 && <button onClick={() => onGo('pos')} style={{ padding: '10px 18px', background: R.ink, color: '#fff', border: 'none', borderRadius: 999, fontFamily: R.ui, fontWeight: 700, fontSize: 13.5, cursor: 'pointer' }}>Ir al Punto de venta</button>}
+          <div style={{ maxWidth: 300 }}>{(sales.length === 0) ? t('Aún no hay ventas registradas. Cobra desde el Punto de venta y aparecerán aquí.', 'No sales recorded yet. Charge from the Point of sale and they’ll appear here.') : t('Ninguna venta coincide con los filtros seleccionados.', 'No sale matches the selected filters.')}</div>
+          {sales.length === 0 && <button onClick={() => onGo('pos')} style={{ padding: '10px 18px', background: R.ink, color: '#fff', border: 'none', borderRadius: 999, fontFamily: R.ui, fontWeight: 700, fontSize: 13.5, cursor: 'pointer' }}>{t('Ir al Punto de venta', 'Go to Point of sale')}</button>}
         </BCard>
       ) : (
         <div style={{ border: `1px solid ${R.line}`, borderRadius: 14, overflow: 'hidden', background: R.surface }}>
           <div style={{ display: 'grid', gridTemplateColumns: '96px 1.4fr 130px 110px 110px 120px', background: R.bgAlt, fontSize: 11.5, fontWeight: 700, color: R.inkSoft }}>
-            {['Folio', 'Productos', 'Fecha', 'Método', 'Estatus', 'Total'].map((c, i) => (
+            {[t('Folio', 'No.'), t('Productos', 'Products'), t('Fecha', 'Date'), t('Método', 'Method'), t('Estatus', 'Status'), t('Total', 'Total')].map((c, i) => (
               <div key={c} style={{ padding: '10px 12px', textAlign: i >= 4 ? 'right' : 'left' }}>{c}</div>
             ))}
           </div>
           {list.map(s => {
-            const st = SALE_STATUS[s.status] ?? { label: s.status, color: R.inkSoft, tint: R.bgAlt }
-            const prod = s.items.length === 0 ? 'Venta' : s.items.length === 1 ? s.items[0].name : `${s.items[0].name} +${s.items.length - 1}`
+            const st = SALE_STATUS[s.status] ?? { label: s.status, labelEn: s.status, color: R.inkSoft, tint: R.bgAlt }
+            const prod = s.items.length === 0 ? t('Venta', 'Sale') : s.items.length === 1 ? s.items[0].name : `${s.items[0].name} +${s.items.length - 1}`
             return (
               <button key={s.id} onClick={() => { setConfirm(null); setReason(''); setDetail(s) }}
                 style={{ width: '100%', textAlign: 'left', display: 'grid', gridTemplateColumns: '96px 1.4fr 130px 110px 110px 120px', alignItems: 'center', fontSize: 12.5, background: 'none', border: 'none', borderTop: `1px solid ${R.lineSoft}`, cursor: 'pointer', fontFamily: R.ui, color: R.ink }}>
                 <div style={{ padding: '11px 12px', fontWeight: 700 }}>{s.folio}</div>
                 <div style={{ padding: '11px 12px', color: R.inkSoft, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{prod}</div>
-                <div style={{ padding: '11px 12px', color: R.inkSoft }}>{saleWhen(s.created_at)}</div>
-                <div style={{ padding: '11px 12px', color: R.inkSoft }}>{saleMethodLabel(s.method)}</div>
+                <div style={{ padding: '11px 12px', color: R.inkSoft }}>{saleWhen(s.created_at, en)}</div>
+                <div style={{ padding: '11px 12px', color: R.inkSoft }}>{saleMethodLabel(s.method, en)}</div>
                 <div style={{ padding: '11px 12px', textAlign: 'right' }}>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: st.color, background: st.tint, borderRadius: 999, padding: '3px 9px' }}>{st.label}</span>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: st.color, background: st.tint, borderRadius: 999, padding: '3px 9px' }}>{en ? st.labelEn : st.label}</span>
                 </div>
                 <div style={{ padding: '11px 12px', textAlign: 'right', fontWeight: 700, textDecoration: s.status === 'paid' ? 'none' : 'line-through', color: s.status === 'paid' ? R.ink : R.inkFaint }}>{money(s.total)}</div>
               </button>
@@ -2802,7 +2882,7 @@ function SalesHistoryView({ vert, bizInfo, onGo }: { vert: Vert; bizInfo: BizInf
 
       {/* Detalle del ticket */}
       {detail && (() => {
-        const st = SALE_STATUS[detail.status] ?? { label: detail.status, color: R.inkSoft, tint: R.bgAlt }
+        const st = SALE_STATUS[detail.status] ?? { label: detail.status, labelEn: detail.status, color: R.inkSoft, tint: R.bgAlt }
         return (
           <div onClick={() => setDetail(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(20,15,12,.45)', display: 'grid', placeItems: 'center', zIndex: 60, padding: 20 }}>
             <div onClick={e => e.stopPropagation()} style={{ background: R.surface, borderRadius: 20, width: 'min(460px, 94vw)', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 24px 60px rgba(0,0,0,.28)' }}>
@@ -2810,11 +2890,11 @@ function SalesHistoryView({ vert, bizInfo, onGo }: { vert: Vert; bizInfo: BizInf
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                   <Icon n="ticket" size={20} color={R.coral} />
                   <div>
-                    <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 18, color: R.ink }}>Folio {detail.folio}</div>
-                    <div style={{ fontSize: 12, color: R.inkSoft }}>{saleWhen(detail.created_at)}</div>
+                    <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 18, color: R.ink }}>{t('Folio', 'No.')} {detail.folio}</div>
+                    <div style={{ fontSize: 12, color: R.inkSoft }}>{saleWhen(detail.created_at, en)}</div>
                   </div>
                 </div>
-                <span style={{ fontSize: 11.5, fontWeight: 700, color: st.color, background: st.tint, borderRadius: 999, padding: '4px 11px' }}>{st.label}</span>
+                <span style={{ fontSize: 11.5, fontWeight: 700, color: st.color, background: st.tint, borderRadius: 999, padding: '4px 11px' }}>{en ? st.labelEn : st.label}</span>
               </div>
 
               <div style={{ padding: '18px 20px' }}>
@@ -2826,14 +2906,14 @@ function SalesHistoryView({ vert, bizInfo, onGo }: { vert: Vert; bizInfo: BizInf
                   </div>
                 ))}
                 <div style={{ borderTop: `1px dashed ${R.line}`, margin: '12px 0' }} />
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, color: R.inkSoft, marginBottom: 3 }}><span>Subtotal (sin IVA)</span><span>{money(detail.subtotal)}</span></div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, color: R.inkSoft, marginBottom: 3 }}><span>IVA (16%)</span><span>{money(detail.tax_amount)}</span></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, color: R.inkSoft, marginBottom: 3 }}><span>{t('Subtotal (sin IVA)', 'Subtotal (excl. tax)')}</span><span>{money(detail.subtotal)}</span></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, color: R.inkSoft, marginBottom: 3 }}><span>{t('IVA (16%)', 'Tax (16%)')}</span><span>{money(detail.tax_amount)}</span></div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 15.5, fontWeight: 800, color: R.ink, marginTop: 5 }}><span>TOTAL</span><span>{money(detail.total)}</span></div>
                 <div style={{ borderTop: `1px dashed ${R.line}`, margin: '12px 0' }} />
-                <div style={{ fontSize: 12.5, color: R.inkSoft }}>Pago: {saleMethodLabel(detail.method)}{saleRefText(detail) ? ` · ${saleRefText(detail)}` : ''}</div>
+                <div style={{ fontSize: 12.5, color: R.inkSoft }}>{t('Pago', 'Payment')}: {saleMethodLabel(detail.method, en)}{saleRefText(detail) ? ` · ${saleRefText(detail)}` : ''}</div>
                 {detail.status !== 'paid' && detail.note && (
                   <div style={{ marginTop: 12, background: st.tint, color: st.color, borderRadius: 10, padding: '9px 12px', fontSize: 12.5 }}>
-                    <b>Motivo:</b> {detail.note}
+                    <b>{t('Motivo:', 'Reason:')}</b> {detail.note}
                   </div>
                 )}
               </div>
@@ -2843,12 +2923,12 @@ function SalesHistoryView({ vert, bizInfo, onGo }: { vert: Vert; bizInfo: BizInf
                 {confirm ? (
                   <div style={{ background: R.bg, border: `1px solid ${R.line}`, borderRadius: 14, padding: 14 }}>
                     <div style={{ fontWeight: 700, fontSize: 14, color: R.ink, marginBottom: 8 }}>
-                      {confirm.type === 'void' ? 'Anular esta venta' : 'Registrar reembolso'}
+                      {confirm.type === 'void' ? t('Anular esta venta', 'Void this sale') : t('Registrar reembolso', 'Record refund')}
                     </div>
                     <div style={{ fontSize: 12.5, color: R.inkSoft, marginBottom: 10, lineHeight: 1.5 }}>
-                      {saleActionHint(confirm.type, detail.method)}
+                      {saleActionHint(confirm.type, detail.method, en)}
                     </div>
-                    <textarea value={reason} onChange={e => setReason(e.target.value)} rows={2} placeholder="Motivo (opcional): error de captura, cliente canceló, etc."
+                    <textarea value={reason} onChange={e => setReason(e.target.value)} rows={2} placeholder={t('Motivo (opcional): error de captura, cliente canceló, etc.', 'Reason (optional): entry error, customer cancelled, etc.')}
                       style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 10, padding: '9px 11px', fontSize: 13, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.surface, resize: 'vertical', marginBottom: 12 }} />
                     {(() => {
                       const trackedUnits = detail.items.reduce((n, it) => n + (it.tracked ? it.qty : 0), 0)
@@ -2857,40 +2937,40 @@ function SalesHistoryView({ vert, bizInfo, onGo }: { vert: Vert; bizInfo: BizInf
                         <label style={{ display: 'flex', alignItems: 'flex-start', gap: 9, marginBottom: 12, cursor: 'pointer' }}>
                           <input type="checkbox" checked={restock} onChange={e => setRestock(e.target.checked)} style={{ width: 17, height: 17, marginTop: 1, accentColor: R.jade, cursor: 'pointer', flexShrink: 0 }} />
                           <span style={{ fontSize: 12.5, color: R.ink, lineHeight: 1.45 }}>
-                            Devolver <b>{trackedUnits} {trackedUnits === 1 ? 'unidad' : 'unidades'}</b> al inventario
-                            <span style={{ display: 'block', color: R.inkSoft, fontSize: 11.5 }}>Sólo afecta productos con inventario controlado.</span>
+                            {en ? <>Return <b>{trackedUnits} {trackedUnits === 1 ? 'unit' : 'units'}</b> to inventory</> : <>Devolver <b>{trackedUnits} {trackedUnits === 1 ? 'unidad' : 'unidades'}</b> al inventario</>}
+                            <span style={{ display: 'block', color: R.inkSoft, fontSize: 11.5 }}>{t('Sólo afecta productos con inventario controlado.', 'Only affects products with tracked inventory.')}</span>
                           </span>
                         </label>
                       )
                     })()}
                     <div style={{ display: 'flex', gap: 10 }}>
-                      <button disabled={busy} onClick={() => { setConfirm(null); setReason('') }} style={{ flex: 1, padding: '12px', border: 'none', borderRadius: 12, background: R.bgAlt, color: R.inkSoft, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5 }}>Cancelar</button>
+                      <button disabled={busy} onClick={() => { setConfirm(null); setReason('') }} style={{ flex: 1, padding: '12px', border: 'none', borderRadius: 12, background: R.bgAlt, color: R.inkSoft, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5 }}>{t('Cancelar', 'Cancel')}</button>
                       <button disabled={busy} onClick={() => applyStatus(detail, confirm.type, reason, restock)} style={{ flex: 1.6, padding: '12px', border: 'none', borderRadius: 12, background: confirm.type === 'void' ? R.coral : R.amber, color: '#fff', cursor: busy ? 'default' : 'pointer', fontFamily: R.ui, fontWeight: 800, fontSize: 13.5, opacity: busy ? .7 : 1 }}>
-                        {busy ? 'Guardando…' : confirm.type === 'void' ? 'Sí, anular' : 'Sí, reembolsar'}
+                        {busy ? t('Guardando…', 'Saving…') : confirm.type === 'void' ? t('Sí, anular', 'Yes, void') : t('Sí, reembolsar', 'Yes, refund')}
                       </button>
                     </div>
                   </div>
                 ) : (
                   <>
                     <div style={{ display: 'flex', gap: 10, marginBottom: detail.status === 'paid' ? 10 : 0 }}>
-                      <button onClick={() => setDetail(null)} style={{ flex: 1, padding: '12px', border: 'none', borderRadius: 12, background: R.bgAlt, color: R.inkSoft, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5 }}>Cerrar</button>
+                      <button onClick={() => setDetail(null)} style={{ flex: 1, padding: '12px', border: 'none', borderRadius: 12, background: R.bgAlt, color: R.inkSoft, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5 }}>{t('Cerrar', 'Close')}</button>
                       <button onClick={() => reprint(detail)} style={{ flex: 1.4, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '12px', border: `1px solid ${R.line}`, borderRadius: 12, background: R.surface, color: R.ink, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5 }}>
-                        <Icon n="printer" size={16} color={R.ink} /> Reimprimir
+                        <Icon n="printer" size={16} color={R.ink} /> {t('Reimprimir', 'Reprint')}
                       </button>
                     </div>
                     {detail.status === 'paid' ? (
                       <>
                         <div style={{ fontSize: 12, color: R.inkSoft, lineHeight: 1.5, marginBottom: 10, background: R.bgAlt, borderRadius: 10, padding: '9px 12px' }}>
-                          <b style={{ color: R.ink }}>Anular</b>: corrige un error del momento. <b style={{ color: R.ink }}>Reembolsar</b>: devuelve el dinero de una venta correcta. Reva no mueve el dinero — hazlo en tu terminal o caja.
+                          {en ? <><b style={{ color: R.ink }}>Void</b>: fix an on-the-spot error. <b style={{ color: R.ink }}>Refund</b>: return the money on a correct sale. Reva doesn’t move money — do it on your terminal or register.</> : <><b style={{ color: R.ink }}>Anular</b>: corrige un error del momento. <b style={{ color: R.ink }}>Reembolsar</b>: devuelve el dinero de una venta correcta. Reva no mueve el dinero — hazlo en tu terminal o caja.</>}
                         </div>
                         <div style={{ display: 'flex', gap: 10 }}>
-                          <button onClick={() => { setReason(''); setRestock(false); setConfirm({ type: 'refunded' }) }} style={{ flex: 1, padding: '12px', border: `1px solid ${R.amber}`, borderRadius: 12, background: R.amberTint, color: R.amberDeep, cursor: 'pointer', fontFamily: R.ui, fontWeight: 800, fontSize: 13.5 }}>Reembolsar</button>
-                          <button onClick={() => { setReason(''); setRestock(true); setConfirm({ type: 'void' }) }} style={{ flex: 1, padding: '12px', border: 'none', borderRadius: 12, background: R.coral, color: '#fff', cursor: 'pointer', fontFamily: R.ui, fontWeight: 800, fontSize: 13.5 }}>Anular venta</button>
+                          <button onClick={() => { setReason(''); setRestock(false); setConfirm({ type: 'refunded' }) }} style={{ flex: 1, padding: '12px', border: `1px solid ${R.amber}`, borderRadius: 12, background: R.amberTint, color: R.amberDeep, cursor: 'pointer', fontFamily: R.ui, fontWeight: 800, fontSize: 13.5 }}>{t('Reembolsar', 'Refund')}</button>
+                          <button onClick={() => { setReason(''); setRestock(true); setConfirm({ type: 'void' }) }} style={{ flex: 1, padding: '12px', border: 'none', borderRadius: 12, background: R.coral, color: '#fff', cursor: 'pointer', fontFamily: R.ui, fontWeight: 800, fontSize: 13.5 }}>{t('Anular venta', 'Void sale')}</button>
                         </div>
                       </>
                     ) : (
                       <button disabled={busy} onClick={() => applyStatus(detail, 'paid', '', false)} style={{ width: '100%', marginTop: 10, padding: '12px', border: `1px solid ${R.line}`, borderRadius: 12, background: R.surface, color: R.inkSoft, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5 }}>
-                        Reactivar como pagada
+                        {t('Reactivar como pagada', 'Reactivate as paid')}
                       </button>
                     )}
                   </>
@@ -2906,16 +2986,18 @@ function SalesHistoryView({ vert, bizInfo, onGo }: { vert: Vert; bizInfo: BizInf
 
 // ── Informes ───────────────────────────────────────────────
 const REPORT_PERIODS = [
-  { id: 'hoy', label: 'Hoy', days: 1 },
-  { id: '7d', label: '7 días', days: 7 },
-  { id: '30d', label: '30 días', days: 30 },
-  { id: '90d', label: '90 días', days: 90 },
+  { id: 'hoy', label: 'Hoy', labelEn: 'Today', days: 1 },
+  { id: '7d', label: '7 días', labelEn: '7 days', days: 7 },
+  { id: '30d', label: '30 días', labelEn: '30 days', days: 30 },
+  { id: '90d', label: '90 días', labelEn: '90 days', days: 90 },
 ]
-const dayLabel = (d: Date) => d.toLocaleDateString('es-MX', { day: '2-digit', month: 'short' })
+const periodLbl = (id: string, en: boolean) => { const p = REPORT_PERIODS.find(x => x.id === id); return p ? (en ? p.labelEn : p.label) : id }
+const dayLabel = (d: Date, en = false) => d.toLocaleDateString(en ? 'en-US' : 'es-MX', { day: '2-digit', month: 'short' })
 
 type DetailTable = { cols: string[]; rows: (string | number)[][] }
 
 function MiniTable({ title, cols, rows, cap }: { title: string; cols: string[]; rows: (string | number)[][]; cap: number }) {
+  const t = useT()
   const shown = rows.slice(0, cap)
   const grid = `1.4fr ${Array(cols.length - 1).fill('1fr').join(' ')}`
   return (
@@ -2931,19 +3013,21 @@ function MiniTable({ title, cols, rows, cap }: { title: string; cols: string[]; 
           </div>
         ))}
       </div>
-      {rows.length > cap && <div style={{ fontSize: 11, color: R.inkFaint, marginTop: 5 }}>+{rows.length - cap} más — completo en el PDF</div>}
+      {rows.length > cap && <div style={{ fontSize: 11, color: R.inkFaint, marginTop: 5 }}>+{rows.length - cap} {t('más — completo en el PDF', 'more — full in the PDF')}</div>}
     </div>
   )
 }
 
 function ReportsView({ vert, items, onGo, bizInfo, metrics, agenda, requests }: { vert: Vert; items: CatItem[]; onGo: (v: string) => void; bizInfo: BizInfo; metrics?: BizMetrics | null; agenda: AgItem[]; requests: PanelRequest[] }) {
+  const t = useT()
+  const en = useEn()
   const [period, setPeriod] = useState('30d')
   const [mods, setMods] = useState<string[]>(['requests', 'agenda', 'messages', 'pos', 'catalog', 'promos', 'destacado', 'metrics'])
   const [compare, setCompare] = useState(false)
   const [detail, setDetail] = useState<'summary' | 'detailed'>('summary')
   const days = REPORT_PERIODS.find(p => p.id === period)!.days
 
-  const num = (n: number) => Math.round(n).toLocaleString('es-MX')
+  const num = (n: number) => Math.round(n).toLocaleString(en ? 'en-US' : 'es-MX')
   const fmt = (n: number) => n >= 1000 ? '$' + (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k' : '$' + Math.round(n)
   const pct = (n: number) => `${Math.round(n)}%`
   const signed = (n: number) => `${n >= 0 ? '+' : ''}${n}%`
@@ -2974,21 +3058,21 @@ function ReportsView({ vert, items, onGo, bizInfo, metrics, agenda, requests }: 
   const ctrLabel = P.featured.impresiones > 0 ? `${P.featured.ctr}%` : '—'
 
   const summary: { label: string; value: string; tint: string; color: string; icon: string; trend: number }[] = [
-    { label: 'Ingreso total', value: fmt(P.metrics.ingresoAtribuido), tint: R.coralTint, color: R.coralPress, icon: 'chart', trend: P.trends.metrics },
-    { label: 'Reservas', value: num(P.agenda.reservas), tint: R.jadeTint, color: '#16614c', icon: 'cal', trend: P.trends.agenda },
-    { label: 'Ventas (POS)', value: num(P.pos.ventas), tint: R.amberTint, color: R.amberDeep, icon: 'card', trend: P.trends.pos },
-    { label: 'Vía Reva', value: pct(P.metrics.viaReva), tint: R.bgAlt, color: R.ink, icon: 'spark', trend: P.trends.metrics },
+    { label: t('Ingreso total', 'Total revenue'), value: fmt(P.metrics.ingresoAtribuido), tint: R.coralTint, color: R.coralPress, icon: 'chart', trend: P.trends.metrics },
+    { label: t('Reservas', 'Bookings'), value: num(P.agenda.reservas), tint: R.jadeTint, color: '#16614c', icon: 'cal', trend: P.trends.agenda },
+    { label: t('Ventas (POS)', 'Sales (POS)'), value: num(P.pos.ventas), tint: R.amberTint, color: R.amberDeep, icon: 'card', trend: P.trends.pos },
+    { label: t('Vía Reva', 'Via Reva'), value: pct(P.metrics.viaReva), tint: R.bgAlt, color: R.ink, icon: 'spark', trend: P.trends.metrics },
   ]
 
   const allCards: { id: string; icon: string; title: string; trend: number; kpis: [string, string][] }[] = [
-    { id: 'requests', icon: 'inbox', title: 'Solicitudes', trend: P.trends.requests, kpis: [['Recibidas', num(P.requests.recibidas)], ['Auto-confirmadas', pct(P.requests.autoConf)], ['En negociación', String(P.requests.negociacion)], ['Conversión', pct(P.requests.conversion)]] },
-    { id: 'agenda', icon: 'cal', title: 'Agenda', trend: P.trends.agenda, kpis: [['Reservas', num(P.agenda.reservas)], ['Ocupación', pct(P.agenda.ocupacion)], ['Confirmadas', pct(P.agenda.confirmadas)], ['No-shows', pct(P.agenda.noShows)]] },
-    { id: 'messages', icon: 'chat', title: 'Mensajes', trend: P.trends.messages, kpis: [['Conversaciones', num(P.messages.conversaciones)], ['Sin leer', String(P.messages.sinLeer)], ['Resp. promedio', respLabel], ['Satisfacción', satLabel]] },
-    { id: 'pos', icon: 'card', title: 'Punto de venta', trend: P.trends.pos, kpis: [['Ventas', num(P.pos.ventas)], ['Ingreso', fmt(P.pos.ingreso)], ['Ticket prom.', P.pos.ventas > 0 ? fmt(P.pos.ticketProm) : '—'], ['Pago tarjeta', pct(P.pos.pagoTarjeta)]] },
-    { id: 'catalog', icon: 'grid', title: 'Catálogo', trend: 0, kpis: [['Activos', String(activos)], ['Inactivos', String(inactivos)], ['Categorías', String(cats)], ['Top producto', topItem]] },
-    { id: 'promos', icon: 'gift', title: 'Promociones', trend: P.trends.promos, kpis: [['Sellos', num(P.promos.sellos)], ['Canjes', num(P.promos.canjes)], ['Recurrentes', pct(P.promos.recurrentes)], ['Lealtad activa', num(P.promos.lealtad)]] },
-    { id: 'destacado', icon: 'spark', title: 'Destacado', trend: P.trends.featured, kpis: [['Impresiones', num(P.featured.impresiones)], ['Clics', num(P.featured.clics)], ['CTR', ctrLabel], ['Crec. clics', signed(P.featured.clicksGrowth)]] },
-    { id: 'metrics', icon: 'chart', title: 'Métricas', trend: P.trends.metrics, kpis: [['Ingreso atribuido', fmt(P.metrics.ingresoAtribuido)], ['Vía Reva', pct(P.metrics.viaReva)], ['ROVE', num(P.metrics.rove)], ['Crecimiento', signed(P.metrics.crecimiento)]] },
+    { id: 'requests', icon: 'inbox', title: t('Solicitudes', 'Requests'), trend: P.trends.requests, kpis: [[t('Recibidas', 'Received'), num(P.requests.recibidas)], [t('Auto-confirmadas', 'Auto-confirmed'), pct(P.requests.autoConf)], [t('En negociación', 'In negotiation'), String(P.requests.negociacion)], [t('Conversión', 'Conversion'), pct(P.requests.conversion)]] },
+    { id: 'agenda', icon: 'cal', title: t('Agenda', 'Agenda'), trend: P.trends.agenda, kpis: [[t('Reservas', 'Bookings'), num(P.agenda.reservas)], [t('Ocupación', 'Occupancy'), pct(P.agenda.ocupacion)], [t('Confirmadas', 'Confirmed'), pct(P.agenda.confirmadas)], ['No-shows', pct(P.agenda.noShows)]] },
+    { id: 'messages', icon: 'chat', title: t('Mensajes', 'Messages'), trend: P.trends.messages, kpis: [[t('Conversaciones', 'Conversations'), num(P.messages.conversaciones)], [t('Sin leer', 'Unread'), String(P.messages.sinLeer)], [t('Resp. promedio', 'Avg. response'), respLabel], [t('Satisfacción', 'Satisfaction'), satLabel]] },
+    { id: 'pos', icon: 'card', title: t('Punto de venta', 'Point of sale'), trend: P.trends.pos, kpis: [[t('Ventas', 'Sales'), num(P.pos.ventas)], [t('Ingreso', 'Revenue'), fmt(P.pos.ingreso)], [t('Ticket prom.', 'Avg. ticket'), P.pos.ventas > 0 ? fmt(P.pos.ticketProm) : '—'], [t('Pago tarjeta', 'Card payment'), pct(P.pos.pagoTarjeta)]] },
+    { id: 'catalog', icon: 'grid', title: t('Catálogo', 'Catalog'), trend: 0, kpis: [[t('Activos', 'Active'), String(activos)], [t('Inactivos', 'Inactive'), String(inactivos)], [t('Categorías', 'Categories'), String(cats)], [t('Top producto', 'Top product'), topItem]] },
+    { id: 'promos', icon: 'gift', title: t('Promociones', 'Promotions'), trend: P.trends.promos, kpis: [[t('Sellos', 'Stamps'), num(P.promos.sellos)], [t('Canjes', 'Redemptions'), num(P.promos.canjes)], [t('Recurrentes', 'Returning'), pct(P.promos.recurrentes)], [t('Lealtad activa', 'Active loyalty'), num(P.promos.lealtad)]] },
+    { id: 'destacado', icon: 'spark', title: t('Destacado', 'Featured'), trend: P.trends.featured, kpis: [[t('Impresiones', 'Impressions'), num(P.featured.impresiones)], [t('Clics', 'Clicks'), num(P.featured.clics)], ['CTR', ctrLabel], [t('Crec. clics', 'Click growth'), signed(P.featured.clicksGrowth)]] },
+    { id: 'metrics', icon: 'chart', title: t('Métricas', 'Metrics'), trend: P.trends.metrics, kpis: [[t('Ingreso atribuido', 'Attributed revenue'), fmt(P.metrics.ingresoAtribuido)], [t('Vía Reva', 'Via Reva'), pct(P.metrics.viaReva)], ['ROVE', num(P.metrics.rove)], [t('Crecimiento', 'Growth'), signed(P.metrics.crecimiento)]] },
   ]
   const cards = allCards.filter(c => mods.includes(c.id))
   const toggleMod = (id: string) => setMods(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
@@ -3002,32 +3086,32 @@ function ReportsView({ vert, items, onGo, bizInfo, metrics, agenda, requests }: 
   // Detalle por módulo: desglose por día real y/o transacciones reales.
   function buildDetail(id: string): { daily: (DetailTable & { title: string }) | null; tx: (DetailTable & { title: string }) | null } {
     if (id === 'requests') {
-      return { daily: { title: 'Recibidas por día', cols: ['Fecha', 'Recibidas'], rows: daily.map(r => [dayLabel(r.date), num(r.recibidas)]) }, tx: null }
+      return { daily: { title: t('Recibidas por día', 'Received per day'), cols: [t('Fecha', 'Date'), t('Recibidas', 'Received')], rows: daily.map(r => [dayLabel(r.date, en), num(r.recibidas)]) }, tx: null }
     }
     if (id === 'agenda') {
       return {
-        daily: { title: 'Reservas por día', cols: ['Fecha', 'Reservas'], rows: daily.map(r => [dayLabel(r.date), num(r.reservas)]) },
-        tx: { title: 'Reservas', cols: ['Hora', 'Cliente', 'Personas', 'Estado'], rows: agenda.map(a => [a.time, a.who, `${a.party} p.`, a.tag]) },
+        daily: { title: t('Reservas por día', 'Bookings per day'), cols: [t('Fecha', 'Date'), t('Reservas', 'Bookings')], rows: daily.map(r => [dayLabel(r.date, en), num(r.reservas)]) },
+        tx: { title: t('Reservas', 'Bookings'), cols: [t('Hora', 'Time'), t('Cliente', 'Customer'), t('Personas', 'People'), t('Estado', 'Status')], rows: agenda.map(a => [a.time, a.who, `${a.party} p.`, t(a.tag, TAG_EN[a.tag] ?? a.tag)]) },
       }
     }
     if (id === 'messages') {
-      return { daily: { title: 'Mensajes por día', cols: ['Fecha', 'Mensajes'], rows: daily.map(r => [dayLabel(r.date), num(r.mensajes)]) }, tx: null }
+      return { daily: { title: t('Mensajes por día', 'Messages per day'), cols: [t('Fecha', 'Date'), t('Mensajes', 'Messages')], rows: daily.map(r => [dayLabel(r.date, en), num(r.mensajes)]) }, tx: null }
     }
     if (id === 'pos') {
-      const tx = (metrics?.txPos ?? []).map(t => [t.folio, t.hora, t.producto, t.metodo, t.ref, fmt(t.total)] as (string | number)[])
+      const tx = (metrics?.txPos ?? []).map(x => [x.folio, x.hora, x.producto, x.metodo, x.ref, fmt(x.total)] as (string | number)[])
       return {
-        daily: { title: 'Ventas por día', cols: ['Fecha', 'Ventas', 'Ingreso'], rows: daily.map(r => [dayLabel(r.date), num(r.ventas), fmt(r.ingreso)]) },
-        tx: tx.length ? { title: `Ventas — últimas ${tx.length}`, cols: ['Folio', 'Hora', 'Producto', 'Método', 'Referencia', 'Total'], rows: tx } : null,
+        daily: { title: t('Ventas por día', 'Sales per day'), cols: [t('Fecha', 'Date'), t('Ventas', 'Sales'), t('Ingreso', 'Revenue')], rows: daily.map(r => [dayLabel(r.date, en), num(r.ventas), fmt(r.ingreso)]) },
+        tx: tx.length ? { title: en ? `Sales — last ${tx.length}` : `Ventas — últimas ${tx.length}`, cols: [t('Folio', 'No.'), t('Hora', 'Time'), t('Producto', 'Product'), t('Método', 'Method'), t('Referencia', 'Reference'), t('Total', 'Total')], rows: tx } : null,
       }
     }
     if (id === 'catalog') {
-      return { daily: null, tx: { title: 'Productos del catálogo', cols: ['Producto', 'Categoría', 'Precio', 'Estado'], rows: items.map(c => [c.name, c.category || '—', c.price, c.active ? 'Activo' : 'Inactivo']) } }
+      return { daily: null, tx: { title: t('Productos del catálogo', 'Catalog products'), cols: [t('Producto', 'Product'), t('Categoría', 'Category'), t('Precio', 'Price'), t('Estado', 'Status')], rows: items.map(c => [c.name, c.category || '—', c.price, c.active ? t('Activo', 'Active') : t('Inactivo', 'Inactive')]) } }
     }
     return { daily: null, tx: null }
   }
 
   function exportCSV() {
-    const rows: string[][] = [['Periodo', REPORT_PERIODS.find(p => p.id === period)!.label], ['Negocio', vert.full || vert.name], ['Detalle', detail === 'detailed' ? 'Detallado' : 'Resumen'], [], ['Módulo', 'Métrica', 'Valor']]
+    const rows: string[][] = [[t('Periodo', 'Period'), periodLbl(period, en)], [t('Negocio', 'Business'), vert.full || vert.name], [t('Detalle', 'Detail'), detail === 'detailed' ? t('Detallado', 'Detailed') : t('Resumen', 'Summary')], [], [t('Módulo', 'Module'), t('Métrica', 'Metric'), t('Valor', 'Value')]]
     cards.forEach(c => c.kpis.forEach(k => rows.push([c.title, k[0], k[1]])))
     if (detail === 'detailed') {
       cards.forEach(c => {
@@ -3046,8 +3130,8 @@ function ReportsView({ vert, items, onGo, bizInfo, metrics, agenda, requests }: 
 
   function printReport() {
     const esc = (s: string) => String(s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c] as string))
-    const pLabel = REPORT_PERIODS.find(p => p.id === period)!.label
-    const when = new Date().toLocaleString('es-MX', { dateStyle: 'long', timeStyle: 'short' })
+    const pLabel = periodLbl(period, en)
+    const when = new Date().toLocaleString(en ? 'en-US' : 'es-MX', { dateStyle: 'long', timeStyle: 'short' })
     const sumRows = summary.map(s => `<div class="kv"><span>${esc(s.label)}</span><span><b>${esc(s.value)}</b>${compare ? ` <i>▲ ${s.trend}%</i>` : ''}</span></div>`).join('')
     const htmlTable = (cols: string[], rows: (string | number)[][]) => `<table class="dt"><thead><tr>${cols.map((col, i) => `<th class="${i === 0 ? 'l' : 'r'}">${esc(col)}</th>`).join('')}</tr></thead><tbody>${rows.map(r => `<tr>${r.map((cell, ci) => `<td class="${ci === 0 ? 'l' : 'r'}">${esc(String(cell))}</td>`).join('')}</tr>`).join('')}</tbody></table>`
     const sections = cards.map(c => {
@@ -3059,7 +3143,7 @@ function ReportsView({ vert, items, onGo, bizInfo, metrics, agenda, requests }: 
       }
       return `<div class="sec"><h2>${esc(c.title)}${compare ? `<span class="t">▲ ${c.trend}%</span>` : ''}</h2><table>${c.kpis.map(k => `<tr><td>${esc(k[0])}</td><td class="r">${esc(k[1])}</td></tr>`).join('')}</table>${extra}</div>`
     }).join('')
-    const html = `<!doctype html><html><head><meta charset="utf-8"><title>Informe ${esc(vert.name)} · ${esc(pLabel)}</title>
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${en ? 'Report' : 'Informe'} ${esc(vert.name)} · ${esc(pLabel)}</title>
     <style>
       *{margin:0;padding:0;box-sizing:border-box}
       body{font-family:-apple-system,'Segoe UI',Roboto,Helvetica,sans-serif;color:#221C19;padding:36px;max-width:720px;margin:0 auto}
@@ -3089,12 +3173,12 @@ function ReportsView({ vert, items, onGo, bizInfo, metrics, agenda, requests }: 
         <h1>${esc(vert.full || vert.name)}</h1>
         <div class="meta">${esc(bizInfo.address)} · Tel. ${esc(bizInfo.phone)} · RFC: ${esc(bizInfo.rfc)}</div>
       </header>
-      <div class="title">Informe de operación</div>
-      <div class="sub">Período: ${esc(pLabel)} · ${detail === 'detailed' ? 'Detallado' : 'Resumen'}${compare ? ' · comparado con período anterior' : ''} · Generado: ${esc(when)}</div>
-      <h2>Resumen general</h2>
+      <div class="title">${en ? 'Operations report' : 'Informe de operación'}</div>
+      <div class="sub">${en ? 'Period' : 'Período'}: ${esc(pLabel)} · ${detail === 'detailed' ? (en ? 'Detailed' : 'Detallado') : (en ? 'Summary' : 'Resumen')}${compare ? (en ? ' · compared to previous period' : ' · comparado con período anterior') : ''} · ${en ? 'Generated' : 'Generado'}: ${esc(when)}</div>
+      <h2>${en ? 'Overview' : 'Resumen general'}</h2>
       <div class="summary">${sumRows}</div>
       ${sections}
-      <footer>Generado por Reva · Vía Reva</footer>
+      <footer>${en ? 'Generated by Reva · Via Reva' : 'Generado por Reva · Vía Reva'}</footer>
     </body></html>`
     const frame = document.createElement('iframe')
     frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0'
@@ -3111,19 +3195,19 @@ function ReportsView({ vert, items, onGo, bizInfo, metrics, agenda, requests }: 
       {/* Panel de filtros */}
       <div style={{ background: R.surface, border: `1px solid ${R.line}`, borderRadius: 16, padding: 18, marginBottom: 18 }}>
         {/* Período */}
-        <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', color: R.inkSoft, marginBottom: 8 }}>Período</div>
+        <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', color: R.inkSoft, marginBottom: 8 }}>{t('Período', 'Period')}</div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
           {REPORT_PERIODS.map(p => {
             const on = period === p.id
-            return <button key={p.id} onClick={() => setPeriod(p.id)} style={{ padding: '8px 14px', borderRadius: 999, border: `1px solid ${on ? R.coral : R.line}`, background: on ? R.coral : R.surface, color: on ? '#fff' : R.inkSoft, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13 }}>{p.label}</button>
+            return <button key={p.id} onClick={() => setPeriod(p.id)} style={{ padding: '8px 14px', borderRadius: 999, border: `1px solid ${on ? R.coral : R.line}`, background: on ? R.coral : R.surface, color: on ? '#fff' : R.inkSoft, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13 }}>{en ? p.labelEn : p.label}</button>
           })}
         </div>
 
         {/* Módulos */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-          <span style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', color: R.inkSoft }}>Módulos en el reporte</span>
+          <span style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', color: R.inkSoft }}>{t('Módulos en el reporte', 'Modules in the report')}</span>
           <button onClick={() => setMods(mods.length === allCards.length ? [] : allCards.map(c => c.id))} style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 12, color: R.coral }}>
-            {mods.length === allCards.length ? 'Quitar todos' : 'Seleccionar todos'}
+            {mods.length === allCards.length ? t('Quitar todos', 'Remove all') : t('Seleccionar todos', 'Select all')}
           </button>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
@@ -3138,9 +3222,9 @@ function ReportsView({ vert, items, onGo, bizInfo, metrics, agenda, requests }: 
         </div>
 
         {/* Nivel de detalle */}
-        <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', color: R.inkSoft, marginBottom: 8 }}>Nivel de detalle</div>
+        <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', color: R.inkSoft, marginBottom: 8 }}>{t('Nivel de detalle', 'Detail level')}</div>
         <div style={{ display: 'flex', gap: 4, background: R.bgAlt, borderRadius: 999, padding: 4, width: 'fit-content', marginBottom: 16 }}>
-          {([['summary', 'Resumen'], ['detailed', 'Detallado']] as const).map(([id, lab]) => {
+          {([['summary', t('Resumen', 'Summary')], ['detailed', t('Detallado', 'Detailed')]] as const).map(([id, lab]) => {
             const on = detail === id
             return <button key={id} onClick={() => setDetail(id)} style={{ padding: '7px 18px', borderRadius: 999, border: 'none', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 12.5, background: on ? R.surface : 'transparent', color: on ? R.ink : R.inkSoft, boxShadow: on ? '0 1px 2px rgba(34,28,25,.08)' : 'none' }}>{lab}</button>
           })}
@@ -3152,14 +3236,14 @@ function ReportsView({ vert, items, onGo, bizInfo, metrics, agenda, requests }: 
             <span style={{ width: 38, height: 22, borderRadius: 999, background: compare ? R.jade : R.line, position: 'relative', flexShrink: 0 }}>
               <span style={{ position: 'absolute', top: 2, left: compare ? 18 : 2, width: 18, height: 18, borderRadius: '50%', background: '#fff', transition: 'left .18s' }} />
             </span>
-            <span style={{ fontSize: 13.5, fontWeight: 600, color: R.ink }}>Comparar con período anterior</span>
+            <span style={{ fontSize: 13.5, fontWeight: 600, color: R.ink }}>{t('Comparar con período anterior', 'Compare with previous period')}</span>
           </button>
           <div style={{ display: 'flex', gap: 10 }}>
             <button onClick={exportCSV} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '10px 16px', background: R.bgAlt, color: R.inkSoft, border: 'none', borderRadius: 999, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13 }}>
               <Icon n="report" size={16} color={R.inkSoft} /> CSV
             </button>
             <button onClick={printReport} disabled={cards.length === 0} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '10px 18px', background: cards.length ? R.coral : R.coralTint, color: cards.length ? '#fff' : R.coralPress, border: 'none', borderRadius: 999, cursor: cards.length ? 'pointer' : 'not-allowed', fontFamily: R.ui, fontWeight: 700, fontSize: 13 }}>
-              <Icon n="printer" size={16} color={cards.length ? '#fff' : R.coralPress} /> Imprimir / PDF
+              <Icon n="printer" size={16} color={cards.length ? '#fff' : R.coralPress} /> {t('Imprimir / PDF', 'Print / PDF')}
             </button>
           </div>
         </div>
@@ -3182,7 +3266,7 @@ function ReportsView({ vert, items, onGo, bizInfo, metrics, agenda, requests }: 
       {/* Tarjetas por módulo */}
       {cards.length === 0 ? (
         <div style={{ background: R.surface, border: `1px solid ${R.line}`, borderRadius: 16, padding: '40px 0', textAlign: 'center', color: R.inkSoft, fontSize: 13.5 }}>
-          Selecciona al menos un módulo para generar el reporte.
+          {t('Selecciona al menos un módulo para generar el reporte.', 'Select at least one module to generate the report.')}
         </div>
       ) : (
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
@@ -3192,7 +3276,7 @@ function ReportsView({ vert, items, onGo, bizInfo, metrics, agenda, requests }: 
               <span style={{ width: 34, height: 34, borderRadius: 9, background: R.coralTint, display: 'grid', placeItems: 'center', flexShrink: 0 }}><Icon n={c.icon} size={18} color={R.coralPress} /></span>
               <span style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink }}>{c.title}</span>
               {compare && <span style={{ fontSize: 11.5, fontWeight: 700, color: R.jade, background: R.jadeTint, padding: '2px 8px', borderRadius: 999 }}>▲ {c.trend}%</span>}
-              <button onClick={() => onGo(c.id)} style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 12.5, color: R.coral }}>Ver <Icon n="arrowR" size={14} color={R.coral} /></button>
+              <button onClick={() => onGo(c.id)} style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 12.5, color: R.coral }}>{t('Ver', 'View')} <Icon n="arrowR" size={14} color={R.coral} /></button>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
               {c.kpis.map(([label, value]) => (
@@ -3204,7 +3288,7 @@ function ReportsView({ vert, items, onGo, bizInfo, metrics, agenda, requests }: 
             </div>
             {detail === 'detailed' && (() => {
               const d = buildDetail(c.id)
-              if (!d.daily && !d.tx) return <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${R.lineSoft}`, fontSize: 12, color: R.inkFaint }}>Sin desglose adicional para este módulo.</div>
+              if (!d.daily && !d.tx) return <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${R.lineSoft}`, fontSize: 12, color: R.inkFaint }}>{t('Sin desglose adicional para este módulo.', 'No additional breakdown for this module.')}</div>
               return (
                 <div style={{ marginTop: 16, paddingTop: 14, borderTop: `1px solid ${R.lineSoft}`, display: 'flex', flexDirection: 'column', gap: 16 }}>
                   {d.daily && <MiniTable title={d.daily.title} cols={d.daily.cols} rows={d.daily.rows} cap={7} />}
@@ -3223,26 +3307,28 @@ function ReportsView({ vert, items, onGo, bizInfo, metrics, agenda, requests }: 
 type EmpRole = 'Dueño' | 'Admin' | 'Caja'
 type Employee = { id: number; name: string; email: string; role: EmpRole; status: 'activo' | 'invitado' }
 
-function SettingsView({ agentCfg, setAgentCfg, taxMode, setTaxMode, bizInfo, setBizInfo, vert, onGo }: { agentCfg: BizAgentConfig; setAgentCfg: (u: BizAgentConfig | ((c: BizAgentConfig) => BizAgentConfig)) => void; taxMode: TaxMode; setTaxMode: (v: TaxMode) => void; bizInfo: BizInfo; setBizInfo: (v: BizInfo) => void; vert: Vert; onGo: (v: string) => void }) {
+function SettingsView({ agentCfg, setAgentCfg, taxMode, setTaxMode, bizInfo, setBizInfo, vert, onGo, lang, setLang }: { agentCfg: BizAgentConfig; setAgentCfg: (u: BizAgentConfig | ((c: BizAgentConfig) => BizAgentConfig)) => void; taxMode: TaxMode; setTaxMode: (v: TaxMode) => void; bizInfo: BizInfo; setBizInfo: (v: BizInfo) => void; vert: Vert; onGo: (v: string) => void; lang: Lang; setLang: (l: Lang) => void }) {
+  const t = useT()
+  const en = useEn()
   const agentOn = agentCfg.on
   const setAgentOn = (v: boolean) => setAgentCfg(c => ({ ...c, on: v }))
   const bizFields: { key: keyof BizInfo; label: string; placeholder: string }[] = [
     { key: 'rfc', label: 'RFC', placeholder: 'Ej. LUP190423K10' },
-    { key: 'address', label: 'Dirección', placeholder: 'Calle, número, colonia, ciudad' },
-    { key: 'phone', label: 'Teléfono', placeholder: 'Ej. +52 624 142 0011' },
+    { key: 'address', label: t('Dirección', 'Address'), placeholder: t('Calle, número, colonia, ciudad', 'Street, number, neighborhood, city') },
+    { key: 'phone', label: t('Teléfono', 'Phone'), placeholder: 'Ej. +52 624 142 0011' },
   ]
   const taxOpts: { id: TaxMode; label: string; sub: string }[] = [
-    { id: 'added', label: 'Agregar al total (16%)', sub: 'El precio es sin IVA y se suma al cobrar' },
-    { id: 'included', label: 'Incluido en el precio', sub: 'El precio ya trae el IVA' },
+    { id: 'added', label: t('Agregar al total (16%)', 'Add to total (16%)'), sub: t('El precio es sin IVA y se suma al cobrar', 'Price excludes tax and is added at checkout') },
+    { id: 'included', label: t('Incluido en el precio', 'Included in the price'), sub: t('El precio ya trae el IVA', 'The price already includes tax') },
   ]
   const rows = [
-    { id: 'perfil', label: 'Perfil del negocio', sub: 'Nombre, fotos, descripción' },
-    { id: 'horarios', label: 'Horarios y capacidad', sub: 'Horarios por día, mesas' },
-    { id: 'agente', label: 'Agente de IA', sub: 'Tono, instrucciones, límites' },
-    { id: 'alertas', label: 'Alertas proactivas', sub: 'Avisos que Reva muestra a clientes cercanos' },
-    { id: 'pagos', label: 'Pagos y comisiones', sub: 'Método de cobro, depósitos' },
-    { id: 'destacados', label: 'Destacados (Stripe)', sub: 'Comprar visibilidad en la plataforma' },
-    { id: 'plan', label: 'Plan Reva', sub: '$300/mes · 15 días gratis · + 2% por procesamiento' },
+    { id: 'perfil', label: t('Perfil del negocio', 'Business profile'), sub: t('Nombre, fotos, descripción', 'Name, photos, description') },
+    { id: 'horarios', label: t('Horarios y capacidad', 'Hours and capacity'), sub: t('Horarios por día, mesas', 'Hours by day, tables') },
+    { id: 'agente', label: t('Agente de IA', 'AI agent'), sub: t('Tono, instrucciones, límites', 'Tone, instructions, limits') },
+    { id: 'alertas', label: t('Alertas proactivas', 'Proactive alerts'), sub: t('Avisos que Reva muestra a clientes cercanos', 'Notices Reva shows to nearby customers') },
+    { id: 'pagos', label: t('Pagos y comisiones', 'Payments and commissions'), sub: t('Método de cobro, depósitos', 'Payment method, deposits') },
+    { id: 'destacados', label: t('Destacados (Stripe)', 'Featured (Stripe)'), sub: t('Comprar visibilidad en la plataforma', 'Buy visibility on the platform') },
+    { id: 'plan', label: t('Plan Reva', 'Reva plan'), sub: t('$300/mes · 15 días gratis · + 2% por procesamiento', '$300/mo · 15 days free · + 2% processing') },
   ]
 
   const [open, setOpen] = useState<string | null>(null)
@@ -3292,11 +3378,11 @@ function SettingsView({ agentCfg, setAgentCfg, taxMode, setTaxMode, bizInfo, set
 
   const ALERT_TYPES: { id: AlertType; label: string; emoji: string }[] = [
     { id: 'happy_hour', label: 'Happy hour', emoji: '🍹' },
-    { id: 'evento', label: 'Evento especial', emoji: '🎉' },
-    { id: 'promo', label: 'Promoción', emoji: '🏷️' },
-    { id: 'ultimos_lugares', label: 'Últimos lugares', emoji: '⚡' },
+    { id: 'evento', label: en ? 'Special event' : 'Evento especial', emoji: '🎉' },
+    { id: 'promo', label: en ? 'Promotion' : 'Promoción', emoji: '🏷️' },
+    { id: 'ultimos_lugares', label: en ? 'Last spots' : 'Últimos lugares', emoji: '⚡' },
   ]
-  const DAY_LABELS = ['D', 'L', 'M', 'X', 'J', 'V', 'S']
+  const DAY_LABELS = en ? ['S', 'M', 'T', 'W', 'T', 'F', 'S'] : ['D', 'L', 'M', 'X', 'J', 'V', 'S']
   const BLANK_FORM = { type: 'happy_hour' as AlertType, title: '', body: '', cta: 'Échale un ojo', startTime: '18:00', endTime: '20:00', days: [] }
 
   function startEditAlert(a: ProactiveAlert) {
@@ -3346,13 +3432,28 @@ function SettingsView({ agentCfg, setAgentCfg, taxMode, setTaxMode, bizInfo, set
 
   const fieldStyle: CSSProperties = { width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 10, padding: '11px 13px', fontSize: 14, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.bg }
   const lblStyle: CSSProperties = { display: 'block', fontSize: 11.5, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase', color: R.inkSoft, marginBottom: 5 }
-  const titles: Record<string, string> = { perfil: 'Perfil del negocio', horarios: 'Horarios y capacidad', agente: 'Agente de IA', alertas: 'Alertas proactivas', pagos: 'Pagos y comisiones', destacados: 'Destacados', plan: 'Plan Reva' }
+  const titles: Record<string, string> = en
+    ? { perfil: 'Business profile', horarios: 'Hours and capacity', agente: 'AI agent', alertas: 'Proactive alerts', pagos: 'Payments and commissions', destacados: 'Featured', plan: 'Reva plan' }
+    : { perfil: 'Perfil del negocio', horarios: 'Horarios y capacidad', agente: 'Agente de IA', alertas: 'Alertas proactivas', pagos: 'Pagos y comisiones', destacados: 'Destacados', plan: 'Plan Reva' }
   return (
     <div style={{ padding: '24px 28px' }}>
+      {/* Idioma del panel */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '16px 20px', background: R.surface, border: `1px solid ${R.line}`, borderRadius: 16, marginBottom: 20 }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 15, color: R.ink }}>{t('Idioma del panel', 'Panel language')}</div>
+          <div style={{ fontSize: 13, color: R.inkSoft, marginTop: 2 }}>{t('Elige el idioma de tu panel de negocio.', 'Choose the language of your business panel.')}</div>
+        </div>
+        <div style={{ display: 'inline-flex', gap: 4, background: R.bgAlt, borderRadius: 999, padding: 4, flexShrink: 0 }}>
+          {([['es', 'Español'], ['en', 'English']] as [Lang, string][]).map(([id, label]) => (
+            <button key={id} onClick={() => setLang(id)} style={{ padding: '7px 16px', borderRadius: 999, border: 'none', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13, background: lang === id ? R.surface : 'transparent', color: lang === id ? R.ink : R.inkSoft, boxShadow: lang === id ? '0 1px 3px rgba(0,0,0,.08)' : 'none' }}>{label}</button>
+          ))}
+        </div>
+      </div>
+
       <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '16px 20px', background: agentOn ? R.jadeTint : R.bgAlt, borderRadius: 16, marginBottom: 20 }}>
         <div style={{ flex: 1 }}>
-          <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 15, color: R.ink }}>Agente IA — {agentOn ? 'Activo' : 'Pausado'}</div>
-          <div style={{ fontSize: 13, color: R.inkSoft, marginTop: 2 }}>{agentOn ? 'Reva está negociando solicitudes en tiempo real.' : 'Las solicitudes quedan en cola sin responder.'}</div>
+          <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 15, color: R.ink }}>{t('Agente IA', 'AI agent')} — {agentOn ? t('Activo', 'Active') : t('Pausado', 'Paused')}</div>
+          <div style={{ fontSize: 13, color: R.inkSoft, marginTop: 2 }}>{agentOn ? t('Reva está negociando solicitudes en tiempo real.', 'Reva is negotiating requests in real time.') : t('Las solicitudes quedan en cola sin responder.', 'Requests are queued without a reply.')}</div>
         </div>
         <button onClick={() => setAgentOn(!agentOn)} style={{ width: 46, height: 27, borderRadius: 999, border: 'none', cursor: 'pointer', background: agentOn ? R.jade : R.line, position: 'relative', flexShrink: 0 }}>
           <span style={{ position: 'absolute', top: 3, left: agentOn ? 22 : 3, width: 21, height: 21, borderRadius: '50%', background: '#fff', transition: 'left .18s', boxShadow: '0 1px 3px rgba(0,0,0,.2)' }} />
@@ -3363,27 +3464,27 @@ function SettingsView({ agentCfg, setAgentCfg, taxMode, setTaxMode, bizInfo, set
       <div style={{ background: R.surface, border: `1px solid ${R.line}`, borderRadius: 16, padding: '16px 18px', marginBottom: 20 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
           <Icon n="pin" size={17} color={R.coral} />
-          <span style={{ fontFamily: R.display, fontWeight: 700, fontSize: 15, color: R.ink }}>Municipio de operación</span>
+          <span style={{ fontFamily: R.display, fontWeight: 700, fontSize: 15, color: R.ink }}>{t('Municipio de operación', 'Operating municipality')}</span>
         </div>
-        <div style={{ fontSize: 13, color: R.inkSoft, marginBottom: 12 }}>Define en qué municipio te encuentran los clientes en Discover. Es distinto de la dirección del ticket.</div>
+        <div style={{ fontSize: 13, color: R.inkSoft, marginBottom: 12 }}>{t('Define en qué municipio te encuentran los clientes en Discover. Es distinto de la dirección del ticket.', 'Sets which municipality customers find you in on Discover. It’s different from the ticket address.')}</div>
         <label style={{ display: 'block' }}>
-          <span style={{ display: 'block', fontSize: 11.5, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase', color: R.inkSoft, marginBottom: 5 }}>Municipio</span>
-          <input value={bizInfo.municipio} onChange={e => setBizInfo({ ...bizInfo, municipio: e.target.value })} placeholder="Ej. Loreto" list="municipios-bcs"
+          <span style={{ display: 'block', fontSize: 11.5, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase', color: R.inkSoft, marginBottom: 5 }}>{t('Municipio', 'Municipality')}</span>
+          <input value={bizInfo.municipio} onChange={e => setBizInfo({ ...bizInfo, municipio: e.target.value })} placeholder={t('Ej. Loreto', 'e.g. Loreto')} list="municipios-bcs"
             style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 10, padding: '11px 13px', fontSize: 14, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.bg }} />
           <datalist id="municipios-bcs">
             {CITIES.map(c => <option key={c} value={c} />)}
           </datalist>
         </label>
-        <div style={{ fontSize: 12, color: R.inkFaint, marginTop: 8 }}>Escribe el municipio tal cual (respeta acentos y mayúsculas) para que los clientes de esa zona te encuentren.</div>
+        <div style={{ fontSize: 12, color: R.inkFaint, marginTop: 8 }}>{t('Escribe el municipio tal cual (respeta acentos y mayúsculas) para que los clientes de esa zona te encuentren.', 'Type the municipality exactly (mind accents and capitals) so customers in that area find you.')}</div>
       </div>
 
       {/* Datos del negocio para el ticket */}
       <div style={{ background: R.surface, border: `1px solid ${R.line}`, borderRadius: 16, padding: '16px 18px', marginBottom: 20 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
           <Icon n="info" size={17} color={R.coral} />
-          <span style={{ fontFamily: R.display, fontWeight: 700, fontSize: 15, color: R.ink }}>Datos del negocio</span>
+          <span style={{ fontFamily: R.display, fontWeight: 700, fontSize: 15, color: R.ink }}>{t('Datos del negocio', 'Business details')}</span>
         </div>
-        <div style={{ fontSize: 13, color: R.inkSoft, marginBottom: 12 }}>Aparecen en el ticket de venta.</div>
+        <div style={{ fontSize: 13, color: R.inkSoft, marginBottom: 12 }}>{t('Aparecen en el ticket de venta.', 'They appear on the sale ticket.')}</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {bizFields.map(f => (
             <label key={f.key} style={{ display: 'block' }}>
@@ -3399,9 +3500,9 @@ function SettingsView({ agentCfg, setAgentCfg, taxMode, setTaxMode, bizInfo, set
       <div style={{ background: R.surface, border: `1px solid ${R.line}`, borderRadius: 16, padding: '16px 18px', marginBottom: 20 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
           <Icon n="card" size={17} color={R.coral} />
-          <span style={{ fontFamily: R.display, fontWeight: 700, fontSize: 15, color: R.ink }}>Manejo de IVA</span>
+          <span style={{ fontFamily: R.display, fontWeight: 700, fontSize: 15, color: R.ink }}>{t('Manejo de IVA', 'Tax handling')}</span>
         </div>
-        <div style={{ fontSize: 13, color: R.inkSoft, marginBottom: 12 }}>Cómo se calcula el impuesto en el Punto de venta.</div>
+        <div style={{ fontSize: 13, color: R.inkSoft, marginBottom: 12 }}>{t('Cómo se calcula el impuesto en el Punto de venta.', 'How tax is calculated at the Point of sale.')}</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {taxOpts.map(o => {
             const on = taxMode === o.id
@@ -3424,9 +3525,9 @@ function SettingsView({ agentCfg, setAgentCfg, taxMode, setTaxMode, bizInfo, set
       <div style={{ background: R.surface, border: `1px solid ${R.line}`, borderRadius: 16, padding: '16px 18px', marginBottom: 20 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
           <Icon n="users" size={17} color={R.coral} />
-          <span style={{ fontFamily: R.display, fontWeight: 700, fontSize: 15, color: R.ink }}>Empleados</span>
+          <span style={{ fontFamily: R.display, fontWeight: 700, fontSize: 15, color: R.ink }}>{t('Empleados', 'Employees')}</span>
         </div>
-        <div style={{ fontSize: 13, color: R.inkSoft, marginBottom: 14 }}>Acceso a la plataforma para tu equipo.</div>
+        <div style={{ fontSize: 13, color: R.inkSoft, marginBottom: 14 }}>{t('Acceso a la plataforma para tu equipo.', 'Platform access for your team.')}</div>
 
         {/* member list */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14 }}>
@@ -3444,22 +3545,22 @@ function SettingsView({ agentCfg, setAgentCfg, taxMode, setTaxMode, bizInfo, set
               </div>
               {/* role chip */}
               <span style={{ fontSize: 11.5, fontWeight: 700, padding: '4px 9px', borderRadius: 999, background: emp.role === 'Dueño' ? R.coralTint : emp.role === 'Admin' ? R.jadeTint : R.bgAlt, color: emp.role === 'Dueño' ? R.coralPress : emp.role === 'Admin' ? R.jade : R.inkSoft, whiteSpace: 'nowrap' }}>
-                {emp.role}
+                {emp.role === 'Dueño' ? t('Dueño', 'Owner') : emp.role === 'Caja' ? t('Caja', 'Register') : emp.role}
               </span>
               {/* status chip */}
               {emp.status === 'invitado' && (
                 <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 999, whiteSpace: 'nowrap', background: resentEmpIds.includes(emp.id) ? R.jadeTint : R.amberTint, color: resentEmpIds.includes(emp.id) ? R.jade : R.amberDeep }}>
-                  {resentEmpIds.includes(emp.id) ? 'Reenviado ✓' : 'Pendiente'}
+                  {resentEmpIds.includes(emp.id) ? t('Reenviado ✓', 'Resent ✓') : t('Pendiente', 'Pending')}
                 </span>
               )}
               {emp.status === 'invitado' && (
-                <button onClick={() => flashResent(emp.id)} title="Reenviar invitación" aria-label="Reenviar" style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 4, color: R.inkFaint, display: 'grid', placeItems: 'center' }}>
+                <button onClick={() => flashResent(emp.id)} title={t('Reenviar invitación', 'Resend invitation')} aria-label={t('Reenviar', 'Resend')} style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 4, color: R.inkFaint, display: 'grid', placeItems: 'center' }}>
                   <Icon n="send" size={13} color={R.inkFaint} />
                 </button>
               )}
               {/* remove (not for owner) */}
               {emp.role !== 'Dueño' && (
-                <button onClick={() => setEmployees(prev => prev.filter(e => e.id !== emp.id))} style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 4, color: R.inkFaint, display: 'grid', placeItems: 'center' }} aria-label="Eliminar">
+                <button onClick={() => setEmployees(prev => prev.filter(e => e.id !== emp.id))} style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 4, color: R.inkFaint, display: 'grid', placeItems: 'center' }} aria-label={t('Eliminar', 'Delete')}>
                   <Icon n="x" size={15} color={R.inkFaint} />
                 </button>
               )}
@@ -3469,7 +3570,7 @@ function SettingsView({ agentCfg, setAgentCfg, taxMode, setTaxMode, bizInfo, set
 
         {/* invite form */}
         <div style={{ borderTop: `1px solid ${R.line}`, paddingTop: 14 }}>
-          <div style={{ fontSize: 12.5, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase', color: R.inkSoft, marginBottom: 9 }}>Invitar empleado</div>
+          <div style={{ fontSize: 12.5, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase', color: R.inkSoft, marginBottom: 9 }}>{t('Invitar empleado', 'Invite employee')}</div>
           <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
             <div style={{ position: 'relative', flex: 1 }}>
               <div style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}>
@@ -3486,16 +3587,16 @@ function SettingsView({ agentCfg, setAgentCfg, taxMode, setTaxMode, bizInfo, set
             {/* role selector */}
             <select value={inviteRole} onChange={e => setInviteRole(e.target.value as 'Admin' | 'Caja')} style={{ border: `1px solid ${R.line}`, borderRadius: 10, padding: '10px 10px', fontSize: 13.5, color: R.ink, background: R.bg, fontFamily: R.ui, cursor: 'pointer', outline: 'none' }}>
               <option value="Admin">Admin</option>
-              <option value="Caja">Caja</option>
+              <option value="Caja">{t('Caja', 'Register')}</option>
             </select>
           </div>
           {inviteError && <div style={{ fontSize: 12, color: R.coral, marginBottom: 6 }}>{inviteError}</div>}
           <button onClick={sendInvite} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '10px 16px', border: 'none', borderRadius: 10, background: R.ink, color: '#fff', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5 }}>
             <Icon n="send" size={14} color="#fff" />
-            Enviar invitación
+            {t('Enviar invitación', 'Send invitation')}
           </button>
           <div style={{ fontSize: 11.5, color: R.inkFaint, marginTop: 8 }}>
-            Admin: gestiona reservas y mensajes. Caja: solo Punto de venta.
+            {t('Admin: gestiona reservas y mensajes. Caja: solo Punto de venta.', 'Admin: manages bookings and messages. Register: Point of sale only.')}
           </div>
         </div>
       </div>
@@ -3518,44 +3619,44 @@ function SettingsView({ agentCfg, setAgentCfg, taxMode, setTaxMode, bizInfo, set
           <div onClick={e => e.stopPropagation()} style={{ width: '100%', maxWidth: 460, maxHeight: '88vh', overflowY: 'auto', background: R.bg, borderRadius: 20, padding: 24, boxShadow: '0 30px 80px rgba(0,0,0,.4)' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
               <span style={{ fontFamily: R.display, fontWeight: 800, fontSize: 19, color: R.ink }}>{titles[open]}</span>
-              <button onClick={() => setOpen(null)} aria-label="Cerrar" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: R.inkFaint, fontSize: 22, lineHeight: 1, padding: 0 }}>×</button>
+              <button onClick={() => setOpen(null)} aria-label={t('Cerrar', 'Close')} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: R.inkFaint, fontSize: 22, lineHeight: 1, padding: 0 }}>×</button>
             </div>
 
             {open === 'perfil' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 <label style={{ position: 'relative', height: 110, borderRadius: 12, border: `1px dashed ${R.line}`, background: profile.img ? `center/cover no-repeat url(${profile.img})` : R.surface, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
-                  {!profile.img && <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, color: R.inkSoft }}><Icon n="plus" size={20} color={R.inkSoft} /><span style={{ fontSize: 13, fontWeight: 600 }}>Subir foto / logo</span></span>}
+                  {!profile.img && <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, color: R.inkSoft }}><Icon n="plus" size={20} color={R.inkSoft} /><span style={{ fontSize: 13, fontWeight: 600 }}>{t('Subir foto / logo', 'Upload photo / logo')}</span></span>}
                   <input type="file" accept="image/*" onChange={e => { const f = e.target.files?.[0]; if (!f) return; const r = new FileReader(); r.onload = () => setProfile(p => ({ ...p, img: r.result as string })); r.readAsDataURL(f) }} style={{ display: 'none' }} />
                 </label>
-                <label><span style={lblStyle}>Nombre del negocio</span><input value={profile.name} onChange={e => setProfile({ ...profile, name: e.target.value })} style={fieldStyle} /></label>
-                <label><span style={lblStyle}>Descripción</span><textarea value={profile.desc} onChange={e => setProfile({ ...profile, desc: e.target.value })} rows={3} style={{ ...fieldStyle, resize: 'vertical' }} /></label>
+                <label><span style={lblStyle}>{t('Nombre del negocio', 'Business name')}</span><input value={profile.name} onChange={e => setProfile({ ...profile, name: e.target.value })} style={fieldStyle} /></label>
+                <label><span style={lblStyle}>{t('Descripción', 'Description')}</span><textarea value={profile.desc} onChange={e => setProfile({ ...profile, desc: e.target.value })} rows={3} style={{ ...fieldStyle, resize: 'vertical' }} /></label>
               </div>
             )}
 
             {open === 'horarios' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 <div style={{ display: 'flex', gap: 10 }}>
-                  <label style={{ flex: 1 }}><span style={lblStyle}>Abre</span><input type="time" value={horario.open} onChange={e => setHorario({ ...horario, open: e.target.value })} style={fieldStyle} /></label>
-                  <label style={{ flex: 1 }}><span style={lblStyle}>Cierra</span><input type="time" value={horario.close} onChange={e => setHorario({ ...horario, close: e.target.value })} style={fieldStyle} /></label>
+                  <label style={{ flex: 1 }}><span style={lblStyle}>{t('Abre', 'Opens')}</span><input type="time" value={horario.open} onChange={e => setHorario({ ...horario, open: e.target.value })} style={fieldStyle} /></label>
+                  <label style={{ flex: 1 }}><span style={lblStyle}>{t('Cierra', 'Closes')}</span><input type="time" value={horario.close} onChange={e => setHorario({ ...horario, close: e.target.value })} style={fieldStyle} /></label>
                 </div>
-                <label><span style={lblStyle}>Capacidad ({vert.capacity.label})</span><input inputMode="numeric" value={horario.capacity} onChange={e => setHorario({ ...horario, capacity: e.target.value.replace(/\D/g, '') })} style={fieldStyle} /></label>
-                <div style={{ fontSize: 12.5, color: R.inkSoft }}>Reva no aceptará reservas fuera de este horario ni por encima de la capacidad.</div>
+                <label><span style={lblStyle}>{t('Capacidad', 'Capacity')} ({vert.capacity.label})</span><input inputMode="numeric" value={horario.capacity} onChange={e => setHorario({ ...horario, capacity: e.target.value.replace(/\D/g, '') })} style={fieldStyle} /></label>
+                <div style={{ fontSize: 12.5, color: R.inkSoft }}>{t('Reva no aceptará reservas fuera de este horario ni por encima de la capacidad.', 'Reva won’t accept bookings outside these hours or above capacity.')}</div>
               </div>
             )}
 
             {open === 'agente' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                 <div>
-                  <span style={lblStyle}>Tono</span>
+                  <span style={lblStyle}>{t('Tono', 'Tone')}</span>
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                    {(['Cálido', 'Neutral', 'Formal'] as const).map(t => {
-                      const on = agentCfg.tone === t
-                      return <button key={t} onClick={() => setAgentCfg(c => ({ ...c, tone: t }))} style={{ padding: '8px 16px', borderRadius: 999, border: `1px solid ${on ? R.coral : R.line}`, background: on ? R.coralTint : R.surface, color: on ? R.coralPress : R.inkSoft, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13 }}>{t}</button>
+                    {(['Cálido', 'Neutral', 'Formal'] as const).map(tn => {
+                      const on = agentCfg.tone === tn
+                      return <button key={tn} onClick={() => setAgentCfg(c => ({ ...c, tone: tn }))} style={{ padding: '8px 16px', borderRadius: 999, border: `1px solid ${on ? R.coral : R.line}`, background: on ? R.coralTint : R.surface, color: on ? R.coralPress : R.inkSoft, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13 }}>{en ? ({ 'Cálido': 'Warm', 'Neutral': 'Neutral', 'Formal': 'Formal' } as Record<string, string>)[tn] : tn}</button>
                     })}
                   </div>
                 </div>
-                <label><span style={lblStyle}>Instrucciones</span><textarea value={agentCfg.instructions} onChange={e => setAgentCfg(c => ({ ...c, instructions: e.target.value }))} rows={4} style={{ ...fieldStyle, resize: 'vertical' }} /></label>
-                <label><span style={lblStyle}>Límite de descuento que puede ofrecer</span>
+                <label><span style={lblStyle}>{t('Instrucciones', 'Instructions')}</span><textarea value={agentCfg.instructions} onChange={e => setAgentCfg(c => ({ ...c, instructions: e.target.value }))} rows={4} style={{ ...fieldStyle, resize: 'vertical' }} /></label>
+                <label><span style={lblStyle}>{t('Límite de descuento que puede ofrecer', 'Max discount it can offer')}</span>
                   <div style={{ position: 'relative' }}>
                     <input inputMode="numeric" value={String(agentCfg.maxDiscount)} onChange={e => setAgentCfg(c => ({ ...c, maxDiscount: Number(e.target.value.replace(/\D/g, '')) || 0 }))} style={{ ...fieldStyle, paddingRight: 34 }} />
                     <span style={{ position: 'absolute', right: 13, top: '50%', transform: 'translateY(-50%)', color: R.inkSoft, fontSize: 14 }}>%</span>
@@ -3564,25 +3665,25 @@ function SettingsView({ agentCfg, setAgentCfg, taxMode, setTaxMode, bizInfo, set
                 {/* Guardia fuera de horario */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', background: agentCfg.autoReplyOffHours ? R.jadeTint : R.surface, border: `1px solid ${agentCfg.autoReplyOffHours ? R.jade : R.line}`, borderRadius: 12 }}>
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 13.5, fontWeight: 700, color: R.ink }}>Atender fuera de horario</div>
-                    <div style={{ fontSize: 12, color: R.inkSoft, marginTop: 2 }}>Cuando el negocio está cerrado ({vert.hours}), la IA responde sola las dudas de los clientes en el chat.</div>
+                    <div style={{ fontSize: 13.5, fontWeight: 700, color: R.ink }}>{t('Atender fuera de horario', 'Handle after hours')}</div>
+                    <div style={{ fontSize: 12, color: R.inkSoft, marginTop: 2 }}>{en ? `When the business is closed (${vert.hours}), the AI answers customer questions in chat on its own.` : `Cuando el negocio está cerrado (${vert.hours}), la IA responde sola las dudas de los clientes en el chat.`}</div>
                   </div>
                   <button onClick={() => setAgentCfg(c => ({ ...c, autoReplyOffHours: !c.autoReplyOffHours }))} style={{ width: 46, height: 27, borderRadius: 999, border: 'none', cursor: 'pointer', background: agentCfg.autoReplyOffHours ? R.jade : R.line, position: 'relative', flexShrink: 0 }}>
                     <span style={{ position: 'absolute', top: 3, left: agentCfg.autoReplyOffHours ? 22 : 3, width: 21, height: 21, borderRadius: '50%', background: '#fff', transition: 'left .18s', boxShadow: '0 1px 3px rgba(0,0,0,.2)' }} />
                   </button>
                 </div>
-                <div style={{ fontSize: 11.5, color: R.inkFaint }}>Dentro del horario, tú sigues respondiendo (a mano o con el botón del agente).</div>
+                <div style={{ fontSize: 11.5, color: R.inkFaint }}>{t('Dentro del horario, tú sigues respondiendo (a mano o con el botón del agente).', 'During hours, you keep replying (by hand or with the agent button).')}</div>
               </div>
             )}
 
             {open === 'alertas' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                <div style={{ fontSize: 13, color: R.inkSoft, marginBottom: 2 }}>Reva muestra estas alertas a clientes cercanos en tiempo real cuando están activas.</div>
+                <div style={{ fontSize: 13, color: R.inkSoft, marginBottom: 2 }}>{t('Reva muestra estas alertas a clientes cercanos en tiempo real cuando están activas.', 'Reva shows these alerts to nearby customers in real time when active.')}</div>
 
                 {/* existing alerts */}
                 {bizAlerts.length === 0 && !alertFormOpen && (
                   <div style={{ padding: '18px', textAlign: 'center', border: `1px dashed ${R.line}`, borderRadius: 12, color: R.inkFaint, fontSize: 13 }}>
-                    Sin alertas configuradas todavía.
+                    {t('Sin alertas configuradas todavía.', 'No alerts configured yet.')}
                   </div>
                 )}
                 {bizAlerts.map(a => (
@@ -3591,10 +3692,10 @@ function SettingsView({ agentCfg, setAgentCfg, taxMode, setTaxMode, bizInfo, set
                       <span style={{ fontSize: 20 }}>{ALERT_TYPES.find(t => t.id === a.type)?.emoji ?? '🔔'}</span>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <p style={{ fontWeight: 700, fontSize: 13.5, color: R.ink, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.title}</p>
-                        <p style={{ fontSize: 12, color: R.inkSoft, margin: '2px 0 0' }}>{a.startTime} – {a.endTime} · {a.days.length === 0 ? 'Todos los días' : a.days.map(d => DAY_LABELS[d]).join(', ')}</p>
+                        <p style={{ fontSize: 12, color: R.inkSoft, margin: '2px 0 0' }}>{a.startTime} – {a.endTime} · {a.days.length === 0 ? t('Todos los días', 'Every day') : a.days.map(d => DAY_LABELS[d]).join(', ')}</p>
                       </div>
                       {/* edit */}
-                      <button onClick={() => startEditAlert(a)} title="Editar alerta"
+                      <button onClick={() => startEditAlert(a)} title={t('Editar alerta', 'Edit alert')}
                         style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 4, color: R.inkFaint, display: 'grid', placeItems: 'center' }}>
                         <Icon n="edit" size={15} color={editingAlertId === a.id ? R.coral : R.inkFaint} />
                       </button>
@@ -3615,10 +3716,10 @@ function SettingsView({ agentCfg, setAgentCfg, taxMode, setTaxMode, bizInfo, set
                 {/* new alert form */}
                 {alertFormOpen ? (
                   <div style={{ border: `1px solid ${R.line}`, borderRadius: 14, padding: '14px', background: R.surface, display: 'flex', flexDirection: 'column', gap: 12 }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', color: R.inkSoft }}>{editingAlertId ? 'Editar alerta' : 'Nueva alerta'}</div>
+                    <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', color: R.inkSoft }}>{editingAlertId ? t('Editar alerta', 'Edit alert') : t('Nueva alerta', 'New alert')}</div>
                     {/* type */}
                     <div>
-                      <span style={{ display: 'block', fontSize: 11, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase', color: R.inkSoft, marginBottom: 7 }}>Tipo</span>
+                      <span style={{ display: 'block', fontSize: 11, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase', color: R.inkSoft, marginBottom: 7 }}>{t('Tipo', 'Type')}</span>
                       <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
                         {ALERT_TYPES.map(t => {
                           const on = alertForm.type === t.id
@@ -3633,33 +3734,33 @@ function SettingsView({ agentCfg, setAgentCfg, taxMode, setTaxMode, bizInfo, set
                     </div>
                     {/* title */}
                     <label>
-                      <span style={{ display: 'block', fontSize: 11, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase', color: R.inkSoft, marginBottom: 5 }}>Título del aviso</span>
-                      <input value={alertForm.title} onChange={e => setAlertForm(f => ({ ...f, title: e.target.value }))} placeholder="Es happy hour a 2 min de ti — Mi negocio" style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 10, padding: '10px 12px', fontSize: 13.5, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.bg }} />
+                      <span style={{ display: 'block', fontSize: 11, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase', color: R.inkSoft, marginBottom: 5 }}>{t('Título del aviso', 'Alert title')}</span>
+                      <input value={alertForm.title} onChange={e => setAlertForm(f => ({ ...f, title: e.target.value }))} placeholder={t('Es happy hour a 2 min de ti — Mi negocio', "It's happy hour 2 min from you — My business")} style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 10, padding: '10px 12px', fontSize: 13.5, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.bg }} />
                     </label>
                     {/* body */}
                     <label>
-                      <span style={{ display: 'block', fontSize: 11, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase', color: R.inkSoft, marginBottom: 5 }}>Descripción</span>
-                      <textarea value={alertForm.body} onChange={e => setAlertForm(f => ({ ...f, body: e.target.value }))} rows={2} placeholder="Terraza de azotea, 6–8pm. ¿Te aparto antes de que se llene?" style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 10, padding: '10px 12px', fontSize: 13.5, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.bg, resize: 'vertical' }} />
+                      <span style={{ display: 'block', fontSize: 11, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase', color: R.inkSoft, marginBottom: 5 }}>{t('Descripción', 'Description')}</span>
+                      <textarea value={alertForm.body} onChange={e => setAlertForm(f => ({ ...f, body: e.target.value }))} rows={2} placeholder={t('Terraza de azotea, 6–8pm. ¿Te aparto antes de que se llene?', 'Rooftop terrace, 6–8pm. Want me to hold a spot before it fills up?')} style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 10, padding: '10px 12px', fontSize: 13.5, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.bg, resize: 'vertical' }} />
                     </label>
                     {/* cta */}
                     <label>
-                      <span style={{ display: 'block', fontSize: 11, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase', color: R.inkSoft, marginBottom: 5 }}>Texto del botón</span>
-                      <input value={alertForm.cta} onChange={e => setAlertForm(f => ({ ...f, cta: e.target.value }))} placeholder="Échale un ojo" style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 10, padding: '10px 12px', fontSize: 13.5, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.bg }} />
+                      <span style={{ display: 'block', fontSize: 11, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase', color: R.inkSoft, marginBottom: 5 }}>{t('Texto del botón', 'Button text')}</span>
+                      <input value={alertForm.cta} onChange={e => setAlertForm(f => ({ ...f, cta: e.target.value }))} placeholder={t('Échale un ojo', 'Check it out')} style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 10, padding: '10px 12px', fontSize: 13.5, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.bg }} />
                     </label>
                     {/* time window */}
                     <div style={{ display: 'flex', gap: 10 }}>
                       <label style={{ flex: 1 }}>
-                        <span style={{ display: 'block', fontSize: 11, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase', color: R.inkSoft, marginBottom: 5 }}>Desde</span>
+                        <span style={{ display: 'block', fontSize: 11, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase', color: R.inkSoft, marginBottom: 5 }}>{t('Desde', 'From')}</span>
                         <input type="time" value={alertForm.startTime} onChange={e => setAlertForm(f => ({ ...f, startTime: e.target.value }))} style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 10, padding: '10px 12px', fontSize: 14, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.bg }} />
                       </label>
                       <label style={{ flex: 1 }}>
-                        <span style={{ display: 'block', fontSize: 11, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase', color: R.inkSoft, marginBottom: 5 }}>Hasta</span>
+                        <span style={{ display: 'block', fontSize: 11, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase', color: R.inkSoft, marginBottom: 5 }}>{t('Hasta', 'To')}</span>
                         <input type="time" value={alertForm.endTime} onChange={e => setAlertForm(f => ({ ...f, endTime: e.target.value }))} style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 10, padding: '10px 12px', fontSize: 14, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.bg }} />
                       </label>
                     </div>
                     {/* days */}
                     <div>
-                      <span style={{ display: 'block', fontSize: 11, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase', color: R.inkSoft, marginBottom: 7 }}>Días <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(vacío = todos)</span></span>
+                      <span style={{ display: 'block', fontSize: 11, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase', color: R.inkSoft, marginBottom: 7 }}>{t('Días', 'Days')} <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>{t('(vacío = todos)', '(empty = all)')}</span></span>
                       <div style={{ display: 'flex', gap: 6 }}>
                         {DAY_LABELS.map((d, i) => {
                           const on = alertForm.days.includes(i)
@@ -3674,13 +3775,13 @@ function SettingsView({ agentCfg, setAgentCfg, taxMode, setTaxMode, bizInfo, set
                     </div>
                     {/* actions */}
                     <div style={{ display: 'flex', gap: 8 }}>
-                      <button onClick={saveAlert} style={{ flex: 1, padding: '11px', border: 'none', borderRadius: 10, background: R.ink, color: '#fff', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14 }}>{editingAlertId ? 'Actualizar alerta' : 'Guardar alerta'}</button>
-                      <button onClick={cancelAlertForm} style={{ padding: '11px 16px', border: `1px solid ${R.line}`, borderRadius: 10, background: R.bg, cursor: 'pointer', fontFamily: R.ui, fontWeight: 600, fontSize: 14, color: R.inkSoft }}>Cancelar</button>
+                      <button onClick={saveAlert} style={{ flex: 1, padding: '11px', border: 'none', borderRadius: 10, background: R.ink, color: '#fff', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14 }}>{editingAlertId ? t('Actualizar alerta', 'Update alert') : t('Guardar alerta', 'Save alert')}</button>
+                      <button onClick={cancelAlertForm} style={{ padding: '11px 16px', border: `1px solid ${R.line}`, borderRadius: 10, background: R.bg, cursor: 'pointer', fontFamily: R.ui, fontWeight: 600, fontSize: 14, color: R.inkSoft }}>{t('Cancelar', 'Cancel')}</button>
                     </div>
                   </div>
                 ) : (
                   <button onClick={() => setAlertFormOpen(true)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '11px 14px', border: `1px dashed ${R.line}`, borderRadius: 12, background: 'transparent', cursor: 'pointer', fontFamily: R.ui, fontWeight: 600, fontSize: 13.5, color: R.inkSoft }}>
-                    <Icon n="plus" size={16} color={R.inkSoft} /> Añadir nueva alerta
+                    <Icon n="plus" size={16} color={R.inkSoft} /> {t('Añadir nueva alerta', 'Add new alert')}
                   </button>
                 )}
               </div>
@@ -3690,85 +3791,86 @@ function SettingsView({ agentCfg, setAgentCfg, taxMode, setTaxMode, bizInfo, set
               <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                 <div style={{ border: `1px solid ${stripeReady ? R.jade : R.line}`, borderRadius: 12, padding: 14, background: stripeReady ? R.jadeTint ?? R.surface : R.surface, display: 'flex', flexDirection: 'column', gap: 10 }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-                    <span style={{ fontSize: 14, fontWeight: 700, color: R.ink }}>Cobros con Stripe</span>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: R.ink }}>{t('Cobros con Stripe', 'Payments with Stripe')}</span>
                     <span style={{ fontSize: 12, fontWeight: 700, color: stripeReady ? R.jade : R.inkFaint, background: stripeReady ? (R.jadeTint ?? R.bgAlt) : R.bgAlt, padding: '3px 10px', borderRadius: 999 }}>
-                      {stripeReady ? 'Conectado' : stripeConn?.connected ? 'Incompleto' : 'Sin conectar'}
+                      {stripeReady ? t('Conectado', 'Connected') : stripeConn?.connected ? t('Incompleto', 'Incomplete') : t('Sin conectar', 'Not connected')}
                     </span>
                   </div>
                   <span style={{ fontSize: 12.5, color: R.inkSoft }}>
-                    Conecta tu cuenta para recibir los depósitos de tus reservas directo a tu banco. Reva retiene una comisión del 2% por cada cobro; el resto es tuyo.
+                    {t('Conecta tu cuenta para recibir los depósitos de tus reservas directo a tu banco. Reva retiene una comisión del 2% por cada cobro; el resto es tuyo.', 'Connect your account to receive booking deposits straight to your bank. Reva keeps a 2% fee per charge; the rest is yours.')}
                   </span>
                   {!stripeReady && (
                     <button onClick={startStripeOnboard} disabled={stripeBusy} style={{ alignSelf: 'flex-start', padding: '9px 16px', borderRadius: 999, border: 'none', background: R.coral, color: '#fff', cursor: stripeBusy ? 'wait' : 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13, opacity: stripeBusy ? 0.7 : 1 }}>
-                      {stripeBusy ? 'Abriendo Stripe…' : stripeConn?.connected ? 'Continuar conexión' : 'Conectar con Stripe'}
+                      {stripeBusy ? t('Abriendo Stripe…', 'Opening Stripe…') : stripeConn?.connected ? t('Continuar conexión', 'Continue setup') : t('Conectar con Stripe', 'Connect with Stripe')}
                     </button>
                   )}
                   {stripeReady && !stripeConn?.payouts_enabled && (
-                    <span style={{ fontSize: 12, color: R.amber ?? R.inkSoft }}>Cobros activos. Falta habilitar los depósitos a tu banco — completa tus datos en Stripe.</span>
+                    <span style={{ fontSize: 12, color: R.amber ?? R.inkSoft }}>{t('Cobros activos. Falta habilitar los depósitos a tu banco — completa tus datos en Stripe.', 'Charges active. Bank payouts still need enabling — complete your details in Stripe.')}</span>
                   )}
                   {stripeErr && (
                     <span style={{ fontSize: 12, color: R.coralPress ?? R.coral, background: R.coralTint ?? R.bgAlt, borderRadius: 8, padding: '8px 10px' }}>{stripeErr}</span>
                   )}
                 </div>
                 <button onClick={() => setPagos({ ...pagos, deposit: !pagos.deposit })} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', border: `1px solid ${R.line}`, borderRadius: 10, background: R.surface, cursor: 'pointer', fontFamily: R.ui }}>
-                  <span style={{ fontSize: 14, fontWeight: 600, color: R.ink }}>Pedir depósito al reservar</span>
+                  <span style={{ fontSize: 14, fontWeight: 600, color: R.ink }}>{t('Pedir depósito al reservar', 'Require deposit on booking')}</span>
                   <span style={{ width: 34, height: 20, borderRadius: 999, background: pagos.deposit ? R.jade : R.inkFaint, position: 'relative', flexShrink: 0 }}><span style={{ position: 'absolute', top: 2, left: pagos.deposit ? 16 : 2, width: 16, height: 16, borderRadius: '50%', background: '#fff', transition: 'left .18s' }} /></span>
                 </button>
-                {pagos.deposit && <label><span style={lblStyle}>Monto del depósito</span><input inputMode="numeric" value={pagos.depositAmount} onChange={e => setPagos({ ...pagos, depositAmount: e.target.value.replace(/\D/g, '') })} style={fieldStyle} /></label>}
+                {pagos.deposit && <label><span style={lblStyle}>{t('Monto del depósito', 'Deposit amount')}</span><input inputMode="numeric" value={pagos.depositAmount} onChange={e => setPagos({ ...pagos, depositAmount: e.target.value.replace(/\D/g, '') })} style={fieldStyle} /></label>}
                 <div>
-                  <span style={lblStyle}>Métodos de cobro aceptados</span>
+                  <span style={lblStyle}>{t('Métodos de cobro aceptados', 'Accepted payment methods')}</span>
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                     {['Efectivo', 'Tarjeta', 'Transferencia'].map(mth => {
                       const on = pagos.methods.includes(mth)
-                      return <button key={mth} onClick={() => setPagos({ ...pagos, methods: on ? pagos.methods.filter(x => x !== mth) : [...pagos.methods, mth] })} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 13px', borderRadius: 999, border: `1px solid ${on ? R.coral : R.line}`, background: on ? R.coralTint : R.surface, color: on ? R.coralPress : R.inkSoft, cursor: 'pointer', fontFamily: R.ui, fontWeight: 600, fontSize: 13 }}><Icon n={on ? 'check' : 'plus'} size={13} color={on ? R.coralPress : R.inkFaint} /> {mth}</button>
+                      const ml = mth === 'Efectivo' ? t('Efectivo', 'Cash') : mth === 'Tarjeta' ? t('Tarjeta', 'Card') : t('Transferencia', 'Transfer')
+                      return <button key={mth} onClick={() => setPagos({ ...pagos, methods: on ? pagos.methods.filter(x => x !== mth) : [...pagos.methods, mth] })} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 13px', borderRadius: 999, border: `1px solid ${on ? R.coral : R.line}`, background: on ? R.coralTint : R.surface, color: on ? R.coralPress : R.inkSoft, cursor: 'pointer', fontFamily: R.ui, fontWeight: 600, fontSize: 13 }}><Icon n={on ? 'check' : 'plus'} size={13} color={on ? R.coralPress : R.inkFaint} /> {ml}</button>
                     })}
                   </div>
                 </div>
-                <div style={{ fontSize: 12.5, color: R.inkSoft, background: R.bgAlt, borderRadius: 10, padding: '10px 12px' }}>El manejo de IVA ({taxMode === 'added' ? 'agregado al total' : 'incluido en el precio'}) se configura arriba, en “Manejo de IVA”. Comisión Reva: 2% por procesamiento de pagos.</div>
+                <div style={{ fontSize: 12.5, color: R.inkSoft, background: R.bgAlt, borderRadius: 10, padding: '10px 12px' }}>{en ? `Tax handling (${taxMode === 'added' ? 'added to total' : 'included in the price'}) is set above, in “Tax handling”. Reva fee: 2% for payment processing.` : `El manejo de IVA (${taxMode === 'added' ? 'agregado al total' : 'incluido en el precio'}) se configura arriba, en “Manejo de IVA”. Comisión Reva: 2% por procesamiento de pagos.`}</div>
               </div>
             )}
 
             {open === 'destacados' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                <div style={{ fontSize: 13.5, color: R.inkSoft }}>Compra visibilidad para aparecer arriba en la plataforma. Reva siempre lo marca como “Destacado”.</div>
-                {(Object.keys(DEST_TIERS) as TierId[]).map(t => {
-                  const T = DEST_TIERS[t]
+                <div style={{ fontSize: 13.5, color: R.inkSoft }}>{t('Compra visibilidad para aparecer arriba en la plataforma. Reva siempre lo marca como “Destacado”.', 'Buy visibility to appear at the top of the platform. Reva always marks it as “Featured”.')}</div>
+                {(Object.keys(DEST_TIERS) as TierId[]).map(tier => {
+                  const T = DEST_TIERS[tier]
                   return (
-                    <div key={t} style={{ border: `1px solid ${R.line}`, borderRadius: 14, padding: 14, display: 'flex', alignItems: 'center', gap: 12 }}>
-                      <span style={{ fontWeight: 800, fontSize: 13, color: T.accent.press, background: T.accent.tint, padding: '4px 10px', borderRadius: 999, whiteSpace: 'nowrap' }}>{T.badge}</span>
-                      <span style={{ flex: 1, fontSize: 12.5, color: R.inkSoft }}>Desde <b style={{ color: R.ink }}>{T.from}</b> · {T.cupos} cupos</span>
+                    <div key={tier} style={{ border: `1px solid ${R.line}`, borderRadius: 14, padding: 14, display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <span style={{ fontWeight: 800, fontSize: 13, color: T.accent.press, background: T.accent.tint, padding: '4px 10px', borderRadius: 999, whiteSpace: 'nowrap' }}>{en ? T.badge.replace('Destacado', 'Featured') : T.badge}</span>
+                      <span style={{ flex: 1, fontSize: 12.5, color: R.inkSoft }}>{t('Desde', 'From')} <b style={{ color: R.ink }}>{T.from}</b> · {T.cupos} {t('cupos', 'slots')}</span>
                     </div>
                   )
                 })}
-                <button onClick={() => { setOpen(null); onGo('destacado') }} style={{ marginTop: 4, padding: '13px', border: 'none', borderRadius: 14, background: R.coral, color: '#fff', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14.5 }}>Ir a Destacado</button>
+                <button onClick={() => { setOpen(null); onGo('destacado') }} style={{ marginTop: 4, padding: '13px', border: 'none', borderRadius: 14, background: R.coral, color: '#fff', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14.5 }}>{t('Ir a Destacado', 'Go to Featured')}</button>
               </div>
             )}
 
             {open === 'plan' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                <div style={{ fontSize: 13.5, color: R.inkSoft, marginBottom: 4 }}>Tu negocio usa Reva con un solo plan simple.</div>
+                <div style={{ fontSize: 13.5, color: R.inkSoft, marginBottom: 4 }}>{t('Tu negocio usa Reva con un solo plan simple.', 'Your business uses Reva on a single simple plan.')}</div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '16px', border: `1px solid ${R.coral}`, background: R.coralTint, borderRadius: 14, fontFamily: R.ui }}>
                   <span style={{ flex: 1 }}>
                     <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span style={{ fontWeight: 700, fontSize: 14.5, color: R.coralPress }}>Plan Reva</span>
-                      <span style={{ fontSize: 10, fontWeight: 700, background: R.jade, color: '#fff', padding: '2px 8px', borderRadius: 999 }}>15 días gratis</span>
-                      <span style={{ fontFamily: R.display, fontWeight: 800, fontSize: 14, color: R.ink, marginLeft: 'auto' }}>$300/mes</span>
+                      <span style={{ fontWeight: 700, fontSize: 14.5, color: R.coralPress }}>{t('Plan Reva', 'Reva plan')}</span>
+                      <span style={{ fontSize: 10, fontWeight: 700, background: R.jade, color: '#fff', padding: '2px 8px', borderRadius: 999 }}>{t('15 días gratis', '15 days free')}</span>
+                      <span style={{ fontFamily: R.display, fontWeight: 800, fontSize: 14, color: R.ink, marginLeft: 'auto' }}>{t('$300/mes', '$300/mo')}</span>
                     </span>
-                    <span style={{ display: 'block', fontSize: 12, fontWeight: 600, color: R.coralPress, marginTop: 2 }}>+ 2% por procesamiento de pagos</span>
-                    <span style={{ display: 'block', fontSize: 12, color: R.inkFaint, marginTop: 2 }}>Agente de IA · agenda en tiempo real · panel · mensajes · reportes completos · soporte prioritario.</span>
+                    <span style={{ display: 'block', fontSize: 12, fontWeight: 600, color: R.coralPress, marginTop: 2 }}>{t('+ 2% por procesamiento de pagos', '+ 2% for payment processing')}</span>
+                    <span style={{ display: 'block', fontSize: 12, color: R.inkFaint, marginTop: 2 }}>{t('Agente de IA · agenda en tiempo real · panel · mensajes · reportes completos · soporte prioritario.', 'AI agent · real-time scheduling · dashboard · messages · full reports · priority support.')}</span>
                   </span>
                 </div>
                 {/* Destacado add-on */}
                 <div style={{ border: `1px solid ${R.amberTint}`, borderRadius: 14, padding: '13px 14px', background: R.amberTint, marginTop: 2 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                     <div>
-                      <p style={{ fontWeight: 700, fontSize: 14, color: R.amberDeep, margin: 0 }}>✦ Destacado — add-on</p>
-                      <p style={{ fontSize: 12, color: R.amberDeep, margin: '3px 0 6px', opacity: .85 }}>Sin comisión adicional · compatible con cualquier plan</p>
+                      <p style={{ fontWeight: 700, fontSize: 14, color: R.amberDeep, margin: 0 }}>{t('✦ Destacado — add-on', '✦ Featured — add-on')}</p>
+                      <p style={{ fontSize: 12, color: R.amberDeep, margin: '3px 0 6px', opacity: .85 }}>{t('Sin comisión adicional · compatible con cualquier plan', 'No extra commission · works with any plan')}</p>
                     </div>
-                    <span style={{ fontFamily: R.display, fontWeight: 800, fontSize: 14, color: R.amberDeep, whiteSpace: 'nowrap' }}>Desde $2,500/sem</span>
+                    <span style={{ fontFamily: R.display, fontWeight: 800, fontSize: 14, color: R.amberDeep, whiteSpace: 'nowrap' }}>{t('Desde $2,500/sem', 'From $2,500/wk')}</span>
                   </div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-                    {['Aparición al tope de búsquedas', 'Banner en Discovery', 'Estadísticas de visibilidad'].map(f => (
+                    {(en ? ['Top of search results', 'Discovery banner', 'Visibility stats'] : ['Aparición al tope de búsquedas', 'Banner en Discovery', 'Estadísticas de visibilidad']).map(f => (
                       <span key={f} style={{ fontSize: 11, fontWeight: 600, background: 'rgba(154,108,28,.12)', color: R.amberDeep, padding: '3px 8px', borderRadius: 999 }}>{f}</span>
                     ))}
                   </div>
@@ -3777,7 +3879,7 @@ function SettingsView({ agentCfg, setAgentCfg, taxMode, setTaxMode, bizInfo, set
             )}
 
             {open !== 'destacados' && (
-              <button onClick={() => setOpen(null)} style={{ width: '100%', marginTop: 18, padding: '13px', border: 'none', borderRadius: 14, background: R.ink, color: '#fff', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14.5 }}>Guardar cambios</button>
+              <button onClick={() => setOpen(null)} style={{ width: '100%', marginTop: 18, padding: '13px', border: 'none', borderRadius: 14, background: R.ink, color: '#fff', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14.5 }}>{t('Guardar cambios', 'Save changes')}</button>
             )}
           </div>
         </div>
@@ -3788,33 +3890,37 @@ function SettingsView({ agentCfg, setAgentCfg, taxMode, setTaxMode, bizInfo, set
 
 type TierId = 'premium' | 'destacado'
 const DEST_TIERS: Record<TierId, {
-  label: string; badge: string; from: string; cupos: number; otros: number; blurb: string
+  label: string; badge: string; badgeEn: string; from: string; cupos: number; otros: number; blurb: string; blurbEn: string
   accent: { main: string; press: string; tint: string }
-  plans: { id: string; label: string; days: number; price: string; perDay: string; sub: string; best?: boolean }[]
+  plans: { id: string; label: string; labelEn: string; days: number; price: string; perDay: string; perDayEn: string; sub: string; subEn: string; best?: boolean }[]
 }> = {
   premium: {
-    label: 'Premium', badge: '★ Premium', from: '$890', cupos: 2, otros: 1,
+    label: 'Premium', badge: '★ Premium', badgeEn: '★ Premium', from: '$890', cupos: 2, otros: 1,
     blurb: 'El lugar #1 del top y prioridad en las recomendaciones de Reva. Muy pocos cupos.',
+    blurbEn: 'The #1 spot at the top and priority in Reva’s recommendations. Very few slots.',
     accent: { main: R.amber, press: R.amberDeep, tint: R.amberTint },
     plans: [
-      { id: 'semana', label: 'Semana', days: 7, price: '$890', perDay: '$127/día', sub: 'Pruébalo unos días' },
-      { id: 'quincena', label: 'Quincena', days: 15, price: '$1,590', perDay: '$106/día', sub: 'Lo más elegido', best: true },
-      { id: 'mes', label: 'Mes', days: 30, price: '$2,790', perDay: '$93/día', sub: 'Mejor precio por día' },
+      { id: 'semana', label: 'Semana', labelEn: 'Week', days: 7, price: '$890', perDay: '$127/día', perDayEn: '$127/day', sub: 'Pruébalo unos días', subEn: 'Try it for a few days' },
+      { id: 'quincena', label: 'Quincena', labelEn: 'Two weeks', days: 15, price: '$1,590', perDay: '$106/día', perDayEn: '$106/day', sub: 'Lo más elegido', subEn: 'Most popular', best: true },
+      { id: 'mes', label: 'Mes', labelEn: 'Month', days: 30, price: '$2,790', perDay: '$93/día', perDayEn: '$93/day', sub: 'Mejor precio por día', subEn: 'Best price per day' },
     ],
   },
   destacado: {
-    label: 'Destacado', badge: '✦ Destacado', from: '$390', cupos: 8, otros: 5,
+    label: 'Destacado', badge: '✦ Destacado', badgeEn: '✦ Featured', from: '$390', cupos: 8, otros: 5,
     blurb: 'Aparece en la franja de Destacados, arriba de los resultados. Más cupos y más accesible.',
+    blurbEn: 'Appear in the Featured strip, above the results. More slots and more affordable.',
     accent: { main: R.coral, press: R.coralPress, tint: R.coralTint },
     plans: [
-      { id: 'semana', label: 'Semana', days: 7, price: '$390', perDay: '$56/día', sub: 'Pruébalo unos días' },
-      { id: 'quincena', label: 'Quincena', days: 15, price: '$690', perDay: '$46/día', sub: 'Lo más elegido', best: true },
-      { id: 'mes', label: 'Mes', days: 30, price: '$1,190', perDay: '$40/día', sub: 'Mejor precio por día' },
+      { id: 'semana', label: 'Semana', labelEn: 'Week', days: 7, price: '$390', perDay: '$56/día', perDayEn: '$56/day', sub: 'Pruébalo unos días', subEn: 'Try it for a few days' },
+      { id: 'quincena', label: 'Quincena', labelEn: 'Two weeks', days: 15, price: '$690', perDay: '$46/día', perDayEn: '$46/day', sub: 'Lo más elegido', subEn: 'Most popular', best: true },
+      { id: 'mes', label: 'Mes', labelEn: 'Month', days: 30, price: '$1,190', perDay: '$40/día', perDayEn: '$40/day', sub: 'Mejor precio por día', subEn: 'Best price per day' },
     ],
   },
 }
 
 function DestacadoView({ vert }: { vert: Vert }) {
+  const t = useT()
+  const en = useEn()
   const [tier, setTier] = useState<TierId>('destacado')
   const [plan, setPlan] = useState('quincena')
   const [content, setContent] = useState<'negocio' | number>('negocio')
@@ -3826,9 +3932,10 @@ function DestacadoView({ vert }: { vert: Vert }) {
 
   const T = DEST_TIERS[tier]
   const A = T.accent
+  const tierName = (D: typeof T) => en ? (D.label === 'Destacado' ? 'Featured' : D.label) : D.label
   const sel = T.plans.find(p => p.id === plan) ?? T.plans[1]
   const selContent = content === 'negocio' ? null : vert.catalog[content]
-  const whatLabel = selContent ? selContent.name : 'Todo el negocio'
+  const whatLabel = selContent ? selContent.name : t('Todo el negocio', 'The whole business')
   // Imagen de la vista previa: el producto destacado, o la portada del negocio
   // (primera imagen del catálogo) cuando se destaca "Todo el negocio". Igual que
   // la tarjeta que verá el huésped en Discover.
@@ -3860,7 +3967,7 @@ function DestacadoView({ vert }: { vert: Vert }) {
         if (raw) setFeatured(JSON.parse(raw))
       } catch { /* ignore */ }
     } else if (outcome === 'cancelled') {
-      setPayError('Pago cancelado. No se te cobró nada.')
+      setPayError(t('Pago cancelado. No se te cobró nada.', 'Payment cancelled. You were not charged.'))
     }
     if (outcome) {
       sessionStorage.removeItem('reva_featured_pending')
@@ -3896,8 +4003,8 @@ function DestacadoView({ vert }: { vert: Vert }) {
         setPaying(false)
         setPayError(
           res.status === 401
-            ? 'Inicia sesión con tu cuenta del negocio para completar el pago.'
-            : data.error ?? 'No se pudo iniciar el pago. Intenta de nuevo.',
+            ? t('Inicia sesión con tu cuenta del negocio para completar el pago.', 'Sign in with your business account to complete the payment.')
+            : data.error ?? t('No se pudo iniciar el pago. Intenta de nuevo.', 'Could not start the payment. Try again.'),
         )
         return
       }
@@ -3908,7 +4015,7 @@ function DestacadoView({ vert }: { vert: Vert }) {
       window.location.href = data.url // → Stripe Checkout
     } catch {
       setPaying(false)
-      setPayError('No se pudo conectar con el servidor de pagos.')
+      setPayError(t('No se pudo conectar con el servidor de pagos.', 'Could not connect to the payment server.'))
     }
   }
 
@@ -3926,30 +4033,30 @@ function DestacadoView({ vert }: { vert: Vert }) {
             <Icon n="spark" size={26} color="#fff" fill="#fff" />
           </div>
           <div style={{ flex: 1 }}>
-            <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 20 }}>Estás en {DEST_TIERS[featured.tier].label} ✦</div>
-            <div style={{ fontSize: 13.5, opacity: .85, marginTop: 4 }}>Destacando <strong style={{ fontWeight: 700 }}>{featured.what}</strong> · {featured.days} días restantes ({featured.label}) · rotación equitativa</div>
+            <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 20 }}>{en ? `You're on ${tierName(DEST_TIERS[featured.tier])}` : `Estás en ${DEST_TIERS[featured.tier].label}`} ✦</div>
+            <div style={{ fontSize: 13.5, opacity: .85, marginTop: 4 }}>{en ? <>Featuring <strong style={{ fontWeight: 700 }}>{featured.what}</strong> · {featured.days} days left ({featured.label}) · fair rotation</> : <>Destacando <strong style={{ fontWeight: 700 }}>{featured.what}</strong> · {featured.days} días restantes ({featured.label}) · rotación equitativa</>}</div>
           </div>
-          <button onClick={pause} style={{ background: 'rgba(255,255,255,.16)', color: '#fff', border: 'none', borderRadius: 999, padding: '10px 18px', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5, cursor: 'pointer', flexShrink: 0 }}>Pausar</button>
+          <button onClick={pause} style={{ background: 'rgba(255,255,255,.16)', color: '#fff', border: 'none', borderRadius: 999, padding: '10px 18px', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5, cursor: 'pointer', flexShrink: 0 }}>{t('Pausar', 'Pause')}</button>
         </div>
       ) : (
         <div style={{ borderRadius: 18, background: `linear-gradient(120deg, ${R.dusk}, ${R.duskSoft})`, color: '#fff', padding: '24px', marginBottom: 16 }}>
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 11.5, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', background: 'rgba(255,255,255,.14)', padding: '4px 10px', borderRadius: 999 }}>
-            <Icon n="spark" size={12} color="#fff" fill="#fff" /> Destacado
+            <Icon n="spark" size={12} color="#fff" fill="#fff" /> {t('Destacado', 'Featured')}
           </div>
-          <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 23, marginTop: 12 }}>Aparece primero en {vert.municipio}</div>
-          <div style={{ fontSize: 14, opacity: .82, marginTop: 6, maxWidth: 560 }}>Reva pone a {vert.name} arriba en Discover cuando alguien busca lo que ofreces. Siempre marcado como “Destacado” — honesto y claro para el huésped.</div>
+          <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 23, marginTop: 12 }}>{en ? `Appear first in ${vert.municipio}` : `Aparece primero en ${vert.municipio}`}</div>
+          <div style={{ fontSize: 14, opacity: .82, marginTop: 6, maxWidth: 560 }}>{en ? `Reva puts ${vert.name} at the top of Discover when someone searches for what you offer. Always marked as “Featured” — honest and clear for the guest.` : `Reva pone a ${vert.name} arriba en Discover cuando alguien busca lo que ofreces. Siempre marcado como “Destacado” — honesto y claro para el huésped.`}</div>
         </div>
       )}
 
       {/* Impacto */}
       <div style={{ display: 'flex', gap: 14, marginBottom: 22 }}>
-        <BMetric label="Más solicitudes" value="+38%" tint={R.coralTint} icon={<Icon n="bolt" size={20} color={R.coral} />} />
-        <BMetric label="Vistas en Discover" value="3.2×" tint={R.jadeTint} icon={<Icon n="chart" size={20} color={R.jade} />} />
-        <BMetric label={heldHere ? `Tu cupo · ${T.label}` : `Cupos · ${T.label}`} value={heldHere ? `1 de ${T.cupos}` : `${disponibles} de ${T.cupos}`} tint={A.tint} icon={<Icon n="spark" size={20} color={A.main} />} />
+        <BMetric label={t('Más solicitudes', 'More requests')} value="+38%" tint={R.coralTint} icon={<Icon n="bolt" size={20} color={R.coral} />} />
+        <BMetric label={t('Vistas en Discover', 'Discover views')} value="3.2×" tint={R.jadeTint} icon={<Icon n="chart" size={20} color={R.jade} />} />
+        <BMetric label={heldHere ? `${t('Tu cupo', 'Your slot')} · ${tierName(T)}` : `${t('Cupos', 'Slots')} · ${tierName(T)}`} value={heldHere ? `1 ${t('de', 'of')} ${T.cupos}` : `${disponibles} ${t('de', 'of')} ${T.cupos}`} tint={A.tint} icon={<Icon n="spark" size={20} color={A.main} />} />
       </div>
 
       {/* Nivel */}
-      <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink, marginBottom: 12 }}>Elige tu espacio</div>
+      <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink, marginBottom: 12 }}>{t('Elige tu espacio', 'Choose your space')}</div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 20 }}>
         {(['premium', 'destacado'] as TierId[]).map(id => {
           const D = DEST_TIERS[id]; const on = tier === id; const ac = D.accent
@@ -3957,16 +4064,16 @@ function DestacadoView({ vert }: { vert: Vert }) {
           return (
             <button key={id} onClick={() => setTier(id)} style={{ textAlign: 'left', cursor: 'pointer', borderRadius: 16, padding: 18, border: `1.5px solid ${on ? ac.main : R.line}`, background: on ? ac.tint : R.surface, fontFamily: R.ui }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                <span style={{ fontFamily: R.display, fontWeight: 800, fontSize: 16, color: on ? ac.press : R.ink }}>{D.badge}</span>
+                <span style={{ fontFamily: R.display, fontWeight: 800, fontSize: 16, color: on ? ac.press : R.ink }}>{en ? D.badgeEn : D.badge}</span>
                 {soldOut
-                  ? <span style={{ fontSize: 10, fontWeight: 700, color: '#fff', background: R.inkSoft, padding: '3px 8px', borderRadius: 999, textTransform: 'uppercase', letterSpacing: '.03em' }}>Sin cupos</span>
-                  : id === 'premium' && <span style={{ fontSize: 10, fontWeight: 700, color: '#fff', background: ac.press, padding: '3px 8px', borderRadius: 999, textTransform: 'uppercase', letterSpacing: '.03em' }}>Máx. visibilidad</span>}
+                  ? <span style={{ fontSize: 10, fontWeight: 700, color: '#fff', background: R.inkSoft, padding: '3px 8px', borderRadius: 999, textTransform: 'uppercase', letterSpacing: '.03em' }}>{t('Sin cupos', 'No slots')}</span>
+                  : id === 'premium' && <span style={{ fontSize: 10, fontWeight: 700, color: '#fff', background: ac.press, padding: '3px 8px', borderRadius: 999, textTransform: 'uppercase', letterSpacing: '.03em' }}>{t('Máx. visibilidad', 'Max visibility')}</span>}
               </div>
-              <div style={{ fontSize: 12.5, color: R.inkSoft, marginBottom: 12, lineHeight: 1.45 }}>{D.blurb}</div>
+              <div style={{ fontSize: 12.5, color: R.inkSoft, marginBottom: 12, lineHeight: 1.45 }}>{en ? D.blurbEn : D.blurb}</div>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-                <span style={{ fontSize: 12, color: R.inkSoft }}>desde</span>
+                <span style={{ fontSize: 12, color: R.inkSoft }}>{t('desde', 'from')}</span>
                 <span style={{ fontFamily: R.display, fontWeight: 800, fontSize: 22, color: R.ink }}>{D.from}</span>
-                <span style={{ fontSize: 12, color: soldOut ? R.coralPress : R.inkSoft, fontWeight: soldOut ? 700 : 400 }}>· {featured?.tier === id ? 'tu cupo activo' : soldOut ? 'sin cupos' : `${free} de ${D.cupos} libres`}</span>
+                <span style={{ fontSize: 12, color: soldOut ? R.coralPress : R.inkSoft, fontWeight: soldOut ? 700 : 400 }}>· {featured?.tier === id ? t('tu cupo activo', 'your active slot') : soldOut ? t('sin cupos', 'no slots') : `${free} ${t('de', 'of')} ${D.cupos} ${t('libres', 'free')}`}</span>
               </div>
             </button>
           )
@@ -3978,18 +4085,18 @@ function DestacadoView({ vert }: { vert: Vert }) {
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '13px 16px', borderRadius: 14, background: R.amberTint, border: `1px solid ${R.amber}`, marginBottom: 20 }}>
           <Icon n="clock" size={17} color={R.amberDeep} />
           <div style={{ fontSize: 13, color: R.amberDeep, lineHeight: 1.5 }}>
-            <b>Ambos niveles están cubiertos en {vert.kind} · {vert.hood} ahora mismo.</b> No hay cupos de Premium ni de Destacado disponibles. Elige un nivel y únete a la lista de espera — te avisamos en cuanto se libere uno.
+            {en ? <><b>Both tiers are covered in {vert.kind} · {vert.hood} right now.</b> No Premium or Featured slots are available. Choose a tier and join the waitlist — we’ll let you know as soon as one opens up.</> : <><b>Ambos niveles están cubiertos en {vert.kind} · {vert.hood} ahora mismo.</b> No hay cupos de Premium ni de Destacado disponibles. Elige un nivel y únete a la lista de espera — te avisamos en cuanto se libere uno.</>}
           </div>
         </div>
       )}
 
       {/* Qué destacar */}
-      <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink, marginBottom: 4 }}>¿Qué quieres destacar?</div>
-      <div style={{ fontSize: 13, color: R.inkSoft, marginBottom: 12 }}>Esto es lo que el huésped verá arriba en Discover.</div>
+      <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink, marginBottom: 4 }}>{t('¿Qué quieres destacar?', 'What do you want to feature?')}</div>
+      <div style={{ fontSize: 13, color: R.inkSoft, marginBottom: 12 }}>{t('Esto es lo que el huésped verá arriba en Discover.', 'This is what the guest will see at the top of Discover.')}</div>
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 20 }}>
         <button onClick={() => setContent('negocio')} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '10px 14px', borderRadius: 12, cursor: 'pointer', border: `1.5px solid ${content === 'negocio' ? A.main : R.line}`, background: content === 'negocio' ? A.tint : R.surface, fontFamily: R.ui }}>
           <Icon n="home" size={16} color={content === 'negocio' ? A.press : R.inkSoft} />
-          <span style={{ fontSize: 13.5, fontWeight: 700, color: content === 'negocio' ? A.press : R.ink }}>Todo el negocio</span>
+          <span style={{ fontSize: 13.5, fontWeight: 700, color: content === 'negocio' ? A.press : R.ink }}>{t('Todo el negocio', 'The whole business')}</span>
         </button>
         {vert.catalog.map((c, i) => {
           const on = content === i
@@ -4005,23 +4112,23 @@ function DestacadoView({ vert }: { vert: Vert }) {
       {/* Disponibilidad + duración */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: lleno ? R.coralPress : R.inkSoft, marginBottom: 12, flexWrap: 'wrap' }}>
         <span style={{ width: 7, height: 7, borderRadius: '50%', background: lleno ? R.coral : R.jade, flexShrink: 0 }} />
-        {heldHere ? `Tienes 1 de ${T.cupos} cupos de ${T.label} en ${vert.kind} · ${vert.hood}` : lleno ? `Sin cupos de ${T.label} en ${vert.kind} · ${vert.hood} ahora mismo` : `Quedan ${disponibles} de ${T.cupos} cupos de ${T.label} en ${vert.kind} · ${vert.hood}`}
-        <span style={{ color: R.inkFaint }}>· rotación equitativa del top</span>
+        {heldHere ? (en ? `You have 1 of ${T.cupos} ${tierName(T)} slots in ${vert.kind} · ${vert.hood}` : `Tienes 1 de ${T.cupos} cupos de ${T.label} en ${vert.kind} · ${vert.hood}`) : lleno ? (en ? `No ${tierName(T)} slots in ${vert.kind} · ${vert.hood} right now` : `Sin cupos de ${T.label} en ${vert.kind} · ${vert.hood} ahora mismo`) : (en ? `${disponibles} of ${T.cupos} ${tierName(T)} slots left in ${vert.kind} · ${vert.hood}` : `Quedan ${disponibles} de ${T.cupos} cupos de ${T.label} en ${vert.kind} · ${vert.hood}`)}
+        <span style={{ color: R.inkFaint }}>· {t('rotación equitativa del top', 'fair rotation of the top')}</span>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 18 }}>
         {T.plans.map(p => {
           const on = plan === p.id
           return (
             <button key={p.id} onClick={() => setPlan(p.id)} style={{ position: 'relative', textAlign: 'left', cursor: 'pointer', borderRadius: 16, padding: '18px 18px 16px', border: `1.5px solid ${on ? A.main : R.line}`, background: on ? A.tint : R.surface, fontFamily: R.ui }}>
-              {p.best && <span style={{ position: 'absolute', top: -10, right: 14, background: A.main, color: '#fff', fontSize: 10.5, fontWeight: 700, padding: '3px 9px', borderRadius: 999, textTransform: 'uppercase', letterSpacing: '.04em' }}>Popular</span>}
+              {p.best && <span style={{ position: 'absolute', top: -10, right: 14, background: A.main, color: '#fff', fontSize: 10.5, fontWeight: 700, padding: '3px 9px', borderRadius: 999, textTransform: 'uppercase', letterSpacing: '.04em' }}>{t('Popular', 'Popular')}</span>}
               <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 10 }}>
                 <div style={{ width: 18, height: 18, borderRadius: '50%', border: `2px solid ${on ? A.main : R.line}`, display: 'grid', placeItems: 'center', flexShrink: 0 }}>
                   {on && <div style={{ width: 9, height: 9, borderRadius: '50%', background: A.main }} />}
                 </div>
-                <span style={{ fontFamily: R.display, fontWeight: 700, fontSize: 15.5, color: on ? A.press : R.ink }}>{p.label}</span>
+                <span style={{ fontFamily: R.display, fontWeight: 700, fontSize: 15.5, color: on ? A.press : R.ink }}>{en ? p.labelEn : p.label}</span>
               </div>
               <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 26, color: R.ink }}>{p.price}</div>
-              <div style={{ fontSize: 12.5, color: R.inkSoft, marginTop: 2 }}>{p.perDay} · {p.sub}</div>
+              <div style={{ fontSize: 12.5, color: R.inkSoft, marginTop: 2 }}>{en ? p.perDayEn : p.perDay} · {en ? p.subEn : p.sub}</div>
             </button>
           )
         })}
@@ -4029,25 +4136,25 @@ function DestacadoView({ vert }: { vert: Vert }) {
       {lleno ? (
         waitlisted ? (
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '13px 18px', background: R.amberTint, color: R.amberDeep, borderRadius: 14, fontFamily: R.ui, fontWeight: 700, fontSize: 14 }}>
-            <Icon n="clock" size={16} color={R.amberDeep} /> En lista de espera de {T.label} · te avisamos al liberarse un cupo
+            <Icon n="clock" size={16} color={R.amberDeep} /> {en ? `On the ${tierName(T)} waitlist · we’ll notify you when a slot frees up` : `En lista de espera de ${T.label} · te avisamos al liberarse un cupo`}
           </div>
         ) : (
           <button onClick={() => setWaitlisted(true)} style={{ width: '100%', maxWidth: 320, padding: '13px', background: R.dusk, color: '#fff', border: 'none', borderRadius: 14, fontFamily: R.ui, fontWeight: 700, fontSize: 15, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-            <Icon n="clock" size={16} color="#fff" /> Unirme a la lista de espera
+            <Icon n="clock" size={16} color="#fff" /> {t('Unirme a la lista de espera', 'Join the waitlist')}
           </button>
         )
       ) : (
         <button onClick={() => setConfirming(true)} style={{ width: '100%', maxWidth: 320, padding: '13px', background: A.main, color: '#fff', border: 'none', borderRadius: 14, fontFamily: R.ui, fontWeight: 700, fontSize: 15, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-          <Icon n="spark" size={16} color="#fff" fill="#fff" /> {heldHere ? 'Renovar' : 'Comprar'} {T.label} · {sel.price}
+          <Icon n="spark" size={16} color="#fff" fill="#fff" /> {heldHere ? t('Renovar', 'Renew') : t('Comprar', 'Buy')} {tierName(T)} · {sel.price}
         </button>
       )}
 
       {/* Vista previa */}
-      <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink, margin: '26px 0 12px' }}>Así te verán en Discover</div>
+      <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink, margin: '26px 0 12px' }}>{t('Así te verán en Discover', 'This is how you’ll look in Discover')}</div>
       <BCard style={{ maxWidth: 360, padding: 0, overflow: 'hidden' }}>
         <div style={{ height: 110, background: previewImg ? `center/cover no-repeat url(${previewImg})` : `linear-gradient(140deg, ${(selContent ?? vert).grad[0]}, ${(selContent ?? vert).grad[1]})`, position: 'relative' }}>
           <span style={{ position: 'absolute', top: 12, left: 12, display: 'inline-flex', alignItems: 'center', gap: 5, background: A.press, color: '#fff', fontSize: 11, fontWeight: 700, padding: '4px 9px', borderRadius: 999 }}>
-            {T.badge}
+            {en ? T.badgeEn : T.badge}
           </span>
           {!previewImg && <div style={{ position: 'absolute', right: -4, bottom: -8, fontFamily: R.display, fontWeight: 800, fontSize: 64, color: 'rgba(255,255,255,.18)' }}>{vert.mono}</div>}
         </div>
@@ -4068,29 +4175,29 @@ function DestacadoView({ vert }: { vert: Vert }) {
           )}
         </div>
       </BCard>
-      <div style={{ fontSize: 12.5, color: R.inkFaint, marginTop: 10 }}>El huésped siempre ve la etiqueta del nivel. Nunca ocultamos que es un espacio pagado.</div>
+      <div style={{ fontSize: 12.5, color: R.inkFaint, marginTop: 10 }}>{t('El huésped siempre ve la etiqueta del nivel. Nunca ocultamos que es un espacio pagado.', 'The guest always sees the tier label. We never hide that it’s a paid placement.')}</div>
 
       {/* Confirmación de pago */}
       {confirming && (
         <div onClick={() => setConfirming(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(34,28,25,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 20 }}>
           <div onClick={e => e.stopPropagation()} style={{ width: '100%', maxWidth: 400, background: R.bg, borderRadius: 20, padding: 24, boxShadow: '0 30px 80px rgba(0,0,0,.4)' }}>
-            <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 19, color: R.ink, marginBottom: 14 }}>Confirmar {T.label}</div>
+            <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 19, color: R.ink, marginBottom: 14 }}>{t('Confirmar', 'Confirm')} {tierName(T)}</div>
             <div style={{ background: R.surface, border: `1px solid ${R.line}`, borderRadius: 12, overflow: 'hidden', marginBottom: 14 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '11px 14px' }}><span style={{ fontSize: 13, color: R.inkSoft }}>Nivel</span><span style={{ fontSize: 13.5, fontWeight: 600, color: R.ink }}>{T.label}</span></div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, padding: '11px 14px', borderTop: `1px solid ${R.lineSoft}` }}><span style={{ fontSize: 13, color: R.inkSoft }}>Se destaca</span><span style={{ fontSize: 13.5, fontWeight: 600, color: R.ink, textAlign: 'right' }}>{whatLabel}</span></div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '11px 14px', borderTop: `1px solid ${R.lineSoft}` }}><span style={{ fontSize: 13, color: R.inkSoft }}>Plan</span><span style={{ fontSize: 13.5, fontWeight: 600, color: R.ink }}>{sel.label} · {sel.days} días</span></div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '11px 14px', borderTop: `1px solid ${R.lineSoft}` }}><span style={{ fontSize: 13, color: R.inkSoft }}>Negocio</span><span style={{ fontSize: 13.5, fontWeight: 600, color: R.ink }}>{vert.name}</span></div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '11px 14px', borderTop: `1px solid ${R.lineSoft}` }}><span style={{ fontSize: 13, color: R.inkSoft }}>Total</span><span style={{ fontFamily: R.display, fontWeight: 800, fontSize: 16, color: R.ink }}>{sel.price}</span></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '11px 14px' }}><span style={{ fontSize: 13, color: R.inkSoft }}>{t('Nivel', 'Tier')}</span><span style={{ fontSize: 13.5, fontWeight: 600, color: R.ink }}>{tierName(T)}</span></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, padding: '11px 14px', borderTop: `1px solid ${R.lineSoft}` }}><span style={{ fontSize: 13, color: R.inkSoft }}>{t('Se destaca', 'Featuring')}</span><span style={{ fontSize: 13.5, fontWeight: 600, color: R.ink, textAlign: 'right' }}>{whatLabel}</span></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '11px 14px', borderTop: `1px solid ${R.lineSoft}` }}><span style={{ fontSize: 13, color: R.inkSoft }}>{t('Plan', 'Plan')}</span><span style={{ fontSize: 13.5, fontWeight: 600, color: R.ink }}>{en ? sel.labelEn : sel.label} · {sel.days} {t('días', 'days')}</span></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '11px 14px', borderTop: `1px solid ${R.lineSoft}` }}><span style={{ fontSize: 13, color: R.inkSoft }}>{t('Negocio', 'Business')}</span><span style={{ fontSize: 13.5, fontWeight: 600, color: R.ink }}>{vert.name}</span></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '11px 14px', borderTop: `1px solid ${R.lineSoft}` }}><span style={{ fontSize: 13, color: R.inkSoft }}>{t('Total', 'Total')}</span><span style={{ fontFamily: R.display, fontWeight: 800, fontSize: 16, color: R.ink }}>{sel.price}</span></div>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12.5, color: R.inkSoft, marginBottom: 16 }}>
-              <Icon n="shield" size={15} color={R.jade} /> Pago seguro con Stripe · cancela cuando quieras
+              <Icon n="shield" size={15} color={R.jade} /> {t('Pago seguro con Stripe · cancela cuando quieras', 'Secure payment with Stripe · cancel anytime')}
             </div>
             {payError && (
               <div style={{ fontSize: 12.5, color: R.coralPress, background: R.coralTint, borderRadius: 10, padding: '10px 12px', marginBottom: 12, lineHeight: 1.4 }}>{payError}</div>
             )}
             <div style={{ display: 'flex', gap: 10 }}>
-              <button onClick={() => setConfirming(false)} disabled={paying} style={{ padding: '12px 16px', border: `1px solid ${R.line}`, borderRadius: 12, background: 'transparent', cursor: paying ? 'default' : 'pointer', opacity: paying ? .5 : 1, fontFamily: R.ui, fontWeight: 700, fontSize: 14, color: R.inkSoft }}>Cancelar</button>
-              <button onClick={pay} disabled={paying} style={{ flex: 1, padding: '12px', border: 'none', borderRadius: 12, background: R.jade, cursor: paying ? 'default' : 'pointer', opacity: paying ? .7 : 1, fontFamily: R.ui, fontWeight: 700, fontSize: 14.5, color: '#fff' }}>{paying ? 'Redirigiendo a Stripe…' : `Pagar y activar · ${sel.price}`}</button>
+              <button onClick={() => setConfirming(false)} disabled={paying} style={{ padding: '12px 16px', border: `1px solid ${R.line}`, borderRadius: 12, background: 'transparent', cursor: paying ? 'default' : 'pointer', opacity: paying ? .5 : 1, fontFamily: R.ui, fontWeight: 700, fontSize: 14, color: R.inkSoft }}>{t('Cancelar', 'Cancel')}</button>
+              <button onClick={pay} disabled={paying} style={{ flex: 1, padding: '12px', border: 'none', borderRadius: 12, background: R.jade, cursor: paying ? 'default' : 'pointer', opacity: paying ? .7 : 1, fontFamily: R.ui, fontWeight: 700, fontSize: 14.5, color: '#fff' }}>{paying ? t('Redirigiendo a Stripe…', 'Redirecting to Stripe…') : `${t('Pagar y activar', 'Pay and activate')} · ${sel.price}`}</button>
             </div>
           </div>
         </div>
@@ -4101,6 +4208,7 @@ function DestacadoView({ vert }: { vert: Vert }) {
 
 type PromoType = 'Descuento' | '2x1' | 'Regalo' | 'Precio especial'
 const PROMO_TYPES: PromoType[] = ['Descuento', '2x1', 'Regalo', 'Precio especial']
+const PROMO_TYPE_EN: Record<PromoType, string> = { 'Descuento': 'Discount', '2x1': '2-for-1', 'Regalo': 'Gift', 'Precio especial': 'Special price' }
 const PROMO_ICON: Record<PromoType, string> = { 'Descuento': 'bolt', '2x1': 'ticket', 'Regalo': 'gift', 'Precio especial': 'spark' }
 const promoSeed = () => ([
   { title: '15% en tu primera visita', type: 'Descuento' as PromoType, detail: 'Clientes nuevos que llegan vía Reva', vig: 'Permanente', active: true, canjes: 24 },
@@ -4109,25 +4217,27 @@ const promoSeed = () => ([
 ])
 
 const LOYALTY_ICON: Record<string, string> = { stamps: 'spark', cashback: 'bolt', coupons: 'ticket', discount: 'bolt', membership: 'shield', multipass: 'grid', referral: 'user', giftcard: 'gift' }
-const OPT_CONFIG: Record<string, { label: string; placeholder: string }> = {
-  cashback: { label: '% de devolución', placeholder: 'Ej. 5%' },
-  coupons: { label: 'Cupón', placeholder: 'Ej. 20% en tu próxima visita' },
-  discount: { label: 'Descuento', placeholder: 'Ej. 15% para clientes frecuentes' },
-  membership: { label: 'Beneficio principal', placeholder: 'Ej. 10% siempre + reserva prioritaria' },
-  multipass: { label: 'Paquete', placeholder: 'Ej. 10 clases por $1,500' },
-  referral: { label: 'Recompensa por referido', placeholder: 'Ej. $100 para ambos' },
-  giftcard: { label: 'Montos sugeridos', placeholder: 'Ej. $200 / $500 / $1,000' },
+const OPT_CONFIG: Record<string, { label: string; labelEn: string; placeholder: string; placeholderEn: string }> = {
+  cashback: { label: '% de devolución', labelEn: 'Cashback %', placeholder: 'Ej. 5%', placeholderEn: 'e.g. 5%' },
+  coupons: { label: 'Cupón', labelEn: 'Coupon', placeholder: 'Ej. 20% en tu próxima visita', placeholderEn: 'e.g. 20% off your next visit' },
+  discount: { label: 'Descuento', labelEn: 'Discount', placeholder: 'Ej. 15% para clientes frecuentes', placeholderEn: 'e.g. 15% for regulars' },
+  membership: { label: 'Beneficio principal', labelEn: 'Main benefit', placeholder: 'Ej. 10% siempre + reserva prioritaria', placeholderEn: 'e.g. 10% always + priority booking' },
+  multipass: { label: 'Paquete', labelEn: 'Package', placeholder: 'Ej. 10 clases por $1,500', placeholderEn: 'e.g. 10 classes for $1,500' },
+  referral: { label: 'Recompensa por referido', labelEn: 'Referral reward', placeholder: 'Ej. $100 para ambos', placeholderEn: 'e.g. $100 for both' },
+  giftcard: { label: 'Montos sugeridos', labelEn: 'Suggested amounts', placeholder: 'Ej. $200 / $500 / $1,000', placeholderEn: 'e.g. $200 / $500 / $1,000' },
 }
 
-const ALERT_TYPES: { id: AlertType; label: string }[] = [
-  { id: 'happy_hour', label: 'Happy hour' },
-  { id: 'evento', label: 'Evento' },
-  { id: 'promo', label: 'Promo' },
-  { id: 'ultimos_lugares', label: 'Últimos lugares' },
+const ALERT_TYPES: { id: AlertType; label: string; labelEn: string }[] = [
+  { id: 'happy_hour', label: 'Happy hour', labelEn: 'Happy hour' },
+  { id: 'evento', label: 'Evento', labelEn: 'Event' },
+  { id: 'promo', label: 'Promo', labelEn: 'Promo' },
+  { id: 'ultimos_lugares', label: 'Últimos lugares', labelEn: 'Last spots' },
 ]
 const ALERT_DEFAULT: AlertInput = { alertType: 'happy_hour', title: '', body: '', cta: 'Échale un ojo', startTime: '18:00', endTime: '20:00', days: [], active: true }
 
 function PromosView({ vert, metrics }: { vert: Vert; metrics?: BizMetrics | null }) {
+  const t = useT()
+  const en = useEn()
   const [tab, setTab] = useState<'ofertas' | 'alertas' | 'lealtad' | 'revamas'>('ofertas')
   const [promos, setPromos] = useState<Promo[]>([])
   // Alertas en vivo de cara al cliente.
@@ -4227,11 +4337,11 @@ function PromosView({ vert, metrics }: { vert: Vert; metrics?: BizMetrics | null
   const extras = enabledOpts.filter(o => o.id !== 'stamps')
   const connBanner = bm.connected ? (
     <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 12.5, fontWeight: 600, color: '#16614c', background: R.jadeTint, padding: '6px 12px', borderRadius: 999, marginBottom: 16 }}>
-      <Icon n="spark" size={13} color={R.jade} fill={R.jade} /> Lealtad activa · powered by BoomerangMe
+      <Icon n="spark" size={13} color={R.jade} fill={R.jade} /> {t('Lealtad activa · powered by BoomerangMe', 'Loyalty active · powered by BoomerangMe')}
     </div>
   ) : (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: R.amberDeep, background: R.amberTint, padding: '10px 14px', borderRadius: 12, marginBottom: 16 }}>
-      <Icon n="clock" size={15} color={R.amberDeep} /> La plataforma está conectando BoomerangMe. Tus opciones se activarán muy pronto.
+      <Icon n="clock" size={15} color={R.amberDeep} /> {t('La plataforma está conectando BoomerangMe. Tus opciones se activarán muy pronto.', 'The platform is connecting BoomerangMe. Your options will activate very soon.')}
     </div>
   )
 
@@ -4239,14 +4349,14 @@ function PromosView({ vert, metrics }: { vert: Vert; metrics?: BizMetrics | null
     <div style={{ padding: '24px 28px', maxWidth: 960 }}>
       {/* KPIs */}
       <div style={{ display: 'flex', gap: 14, marginBottom: 20, flexWrap: 'wrap' }}>
-        <BMetric label="Promos activas" value={activas} tint={R.coralTint} icon={<Icon n="gift" size={20} color={R.coral} />} />
-        <BMetric label="Canjes (mes)" value={canjes} tint={R.jadeTint} icon={<Icon n="ticket" size={20} color={R.jade} />} />
-        <BMetric label="Tarjetas Reva+ activas" value={vert.metrics.rove} tint={R.amberTint} icon={<Icon n="spark" size={20} color={R.amber} />} />
+        <BMetric label={t('Promos activas', 'Active promos')} value={activas} tint={R.coralTint} icon={<Icon n="gift" size={20} color={R.coral} />} />
+        <BMetric label={t('Canjes (mes)', 'Redemptions (month)')} value={canjes} tint={R.jadeTint} icon={<Icon n="ticket" size={20} color={R.jade} />} />
+        <BMetric label={t('Tarjetas Reva+ activas', 'Active Reva+ cards')} value={vert.metrics.rove} tint={R.amberTint} icon={<Icon n="spark" size={20} color={R.amber} />} />
       </div>
 
       {/* Tabs */}
       <div style={{ display: 'inline-flex', gap: 4, background: R.bgAlt, borderRadius: 999, padding: 4, marginBottom: 18 }}>
-        {([['ofertas', 'Ofertas'], ['alertas', 'Alertas'], ['lealtad', 'Lealtad'], ['revamas', 'Reva+']] as [typeof tab, string][]).map(([id, label]) => (
+        {([['ofertas', t('Ofertas', 'Offers')], ['alertas', t('Alertas', 'Alerts')], ['lealtad', t('Lealtad', 'Loyalty')], ['revamas', 'Reva+']] as [typeof tab, string][]).map(([id, label]) => (
           <button key={id} onClick={() => setTab(id)} style={{ padding: '8px 18px', borderRadius: 999, border: 'none', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5, background: tab === id ? R.surface : 'transparent', color: tab === id ? R.ink : R.inkSoft, boxShadow: tab === id ? '0 1px 3px rgba(0,0,0,.08)' : 'none' }}>{label}</button>
         ))}
       </div>
@@ -4254,13 +4364,13 @@ function PromosView({ vert, metrics }: { vert: Vert; metrics?: BizMetrics | null
       {tab === 'ofertas' && (
         <>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-            <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink }}>Tus ofertas</div>
+            <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink }}>{t('Tus ofertas', 'Your offers')}</div>
             <button onClick={openNew} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '10px 18px', background: R.ink, color: '#fff', border: 'none', borderRadius: 999, fontFamily: R.ui, fontWeight: 700, fontSize: 13.5, cursor: 'pointer' }}>
-              <Icon n="plus" size={16} color="#fff" /> Crear promoción
+              <Icon n="plus" size={16} color="#fff" /> {t('Crear promoción', 'Create promotion')}
             </button>
           </div>
           {promos.length === 0 ? (
-            <BCard style={{ textAlign: 'center', padding: '40px 0', color: R.inkSoft }}>Aún no tienes promociones. Crea la primera.</BCard>
+            <BCard style={{ textAlign: 'center', padding: '40px 0', color: R.inkSoft }}>{t('Aún no tienes promociones. Crea la primera.', 'You have no promotions yet. Create your first.')}</BCard>
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 14 }}>
               {promos.map(p => (
@@ -4269,8 +4379,8 @@ function PromosView({ vert, metrics }: { vert: Vert; metrics?: BizMetrics | null
                     <div style={{ width: 36, height: 36, borderRadius: 10, background: R.coralTint, display: 'grid', placeItems: 'center', flexShrink: 0 }}>
                       <Icon n={PROMO_ICON[p.type]} size={18} color={R.coral} />
                     </div>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: R.coralPress, background: R.coralTint, padding: '3px 9px', borderRadius: 999 }}>{p.type}</span>
-                    <button onClick={() => toggleActive(p)} aria-label="Activar" style={{ marginLeft: 'auto', width: 34, height: 20, borderRadius: 999, border: 'none', cursor: 'pointer', background: p.active ? R.jade : R.inkFaint, position: 'relative', flexShrink: 0 }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: R.coralPress, background: R.coralTint, padding: '3px 9px', borderRadius: 999 }}>{en ? (PROMO_TYPE_EN[p.type] ?? p.type) : p.type}</span>
+                    <button onClick={() => toggleActive(p)} aria-label={t('Activar', 'Activate')} style={{ marginLeft: 'auto', width: 34, height: 20, borderRadius: 999, border: 'none', cursor: 'pointer', background: p.active ? R.jade : R.inkFaint, position: 'relative', flexShrink: 0 }}>
                       <span style={{ position: 'absolute', top: 2, left: p.active ? 16 : 2, width: 16, height: 16, borderRadius: '50%', background: '#fff', transition: 'left .18s' }} />
                     </button>
                   </div>
@@ -4279,8 +4389,8 @@ function PromosView({ vert, metrics }: { vert: Vert; metrics?: BizMetrics | null
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, paddingTop: 12, borderTop: `1px solid ${R.lineSoft}` }}>
                     <Icon n="clock" size={14} color={R.inkFaint} />
                     <span style={{ fontSize: 12.5, color: R.inkSoft }}>{p.vig}</span>
-                    <span style={{ fontSize: 12.5, color: R.inkFaint }}>· {p.canjes} canjes</span>
-                    <button onClick={() => openEdit(p)} style={{ marginLeft: 'auto', border: 'none', background: 'transparent', cursor: 'pointer', display: 'grid', placeItems: 'center', padding: 4 }} aria-label="Editar"><Icon n="edit" size={16} color={R.inkSoft} /></button>
+                    <span style={{ fontSize: 12.5, color: R.inkFaint }}>· {p.canjes} {t('canjes', 'redemptions')}</span>
+                    <button onClick={() => openEdit(p)} style={{ marginLeft: 'auto', border: 'none', background: 'transparent', cursor: 'pointer', display: 'grid', placeItems: 'center', padding: 4 }} aria-label={t('Editar', 'Edit')}><Icon n="edit" size={16} color={R.inkSoft} /></button>
                   </div>
                 </BCard>
               ))}
@@ -4293,12 +4403,12 @@ function PromosView({ vert, metrics }: { vert: Vert; metrics?: BizMetrics | null
         <>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
             <div>
-              <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink }}>Alertas en vivo</div>
-              <div style={{ fontSize: 12.5, color: R.inkSoft, marginTop: 2 }}>Aparecen en tu ficha del cliente durante su ventana horaria.</div>
+              <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink }}>{t('Alertas en vivo', 'Live alerts')}</div>
+              <div style={{ fontSize: 12.5, color: R.inkSoft, marginTop: 2 }}>{t('Aparecen en tu ficha del cliente durante su ventana horaria.', 'They show on your customer profile during their time window.')}</div>
             </div>
             {!alertEditing && (
               <button onClick={openNewAlert} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '10px 18px', background: R.ink, color: '#fff', border: 'none', borderRadius: 999, fontFamily: R.ui, fontWeight: 700, fontSize: 13.5, cursor: 'pointer' }}>
-                <Icon n="plus" size={16} color="#fff" /> Crear alerta
+                <Icon n="plus" size={16} color="#fff" /> {t('Crear alerta', 'Create alert')}
               </button>
             )}
           </div>
@@ -4306,25 +4416,25 @@ function PromosView({ vert, metrics }: { vert: Vert; metrics?: BizMetrics | null
           {alertEditing ? (
             <BCard style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 14, maxWidth: 520 }}>
               <div>
-                <label style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', display: 'block', marginBottom: 8 }}>Tipo</label>
+                <label style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', display: 'block', marginBottom: 8 }}>{t('Tipo', 'Type')}</label>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  {ALERT_TYPES.map(t => {
-                    const on = alertForm.alertType === t.id
-                    return <button key={t.id} onClick={() => setAlertForm(f => ({ ...f, alertType: t.id }))} style={{ padding: '8px 14px', borderRadius: 999, border: `1px solid ${on ? R.coral : R.line}`, background: on ? R.coralTint : R.surface, color: on ? R.coralPress : R.inkSoft, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13 }}>{t.label}</button>
+                  {ALERT_TYPES.map(at => {
+                    const on = alertForm.alertType === at.id
+                    return <button key={at.id} onClick={() => setAlertForm(f => ({ ...f, alertType: at.id }))} style={{ padding: '8px 14px', borderRadius: 999, border: `1px solid ${on ? R.coral : R.line}`, background: on ? R.coralTint : R.surface, color: on ? R.coralPress : R.inkSoft, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13 }}>{en ? at.labelEn : at.label}</button>
                   })}
                 </div>
               </div>
-              <input value={alertForm.title} onChange={e => setAlertForm(f => ({ ...f, title: e.target.value }))} placeholder="Título (ej. Happy hour en la terraza)" style={fieldStyle} />
-              <textarea value={alertForm.body} onChange={e => setAlertForm(f => ({ ...f, body: e.target.value }))} rows={2} placeholder="Detalle que verá el cliente" style={{ ...fieldStyle, resize: 'vertical' }} />
-              <input value={alertForm.cta} onChange={e => setAlertForm(f => ({ ...f, cta: e.target.value }))} placeholder="Texto del botón (ej. Échale un ojo)" style={fieldStyle} />
+              <input value={alertForm.title} onChange={e => setAlertForm(f => ({ ...f, title: e.target.value }))} placeholder={t('Título (ej. Happy hour en la terraza)', 'Title (e.g. Happy hour on the terrace)')} style={fieldStyle} />
+              <textarea value={alertForm.body} onChange={e => setAlertForm(f => ({ ...f, body: e.target.value }))} rows={2} placeholder={t('Detalle que verá el cliente', 'Detail the customer will see')} style={{ ...fieldStyle, resize: 'vertical' }} />
+              <input value={alertForm.cta} onChange={e => setAlertForm(f => ({ ...f, cta: e.target.value }))} placeholder={t('Texto del botón (ej. Échale un ojo)', 'Button text (e.g. Check it out)')} style={fieldStyle} />
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                <label><span style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, display: 'block', marginBottom: 6 }}>Desde</span><input type="time" value={alertForm.startTime} onChange={e => setAlertForm(f => ({ ...f, startTime: e.target.value }))} style={fieldStyle} /></label>
-                <label><span style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, display: 'block', marginBottom: 6 }}>Hasta</span><input type="time" value={alertForm.endTime} onChange={e => setAlertForm(f => ({ ...f, endTime: e.target.value }))} style={fieldStyle} /></label>
+                <label><span style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, display: 'block', marginBottom: 6 }}>{t('Desde', 'From')}</span><input type="time" value={alertForm.startTime} onChange={e => setAlertForm(f => ({ ...f, startTime: e.target.value }))} style={fieldStyle} /></label>
+                <label><span style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, display: 'block', marginBottom: 6 }}>{t('Hasta', 'To')}</span><input type="time" value={alertForm.endTime} onChange={e => setAlertForm(f => ({ ...f, endTime: e.target.value }))} style={fieldStyle} /></label>
               </div>
               <div>
-                <span style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, display: 'block', marginBottom: 8 }}>Días (vacío = todos)</span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, display: 'block', marginBottom: 8 }}>{t('Días (vacío = todos)', 'Days (empty = all)')}</span>
                 <div style={{ display: 'flex', gap: 6 }}>
-                  {(['D', 'L', 'M', 'M', 'J', 'V', 'S'] as const).map((d, i) => {
+                  {(en ? ['S', 'M', 'T', 'W', 'T', 'F', 'S'] : ['D', 'L', 'M', 'M', 'J', 'V', 'S']).map((d, i) => {
                     const on = alertForm.days.includes(i)
                     return <button key={i} onClick={() => toggleAlertDay(i)} style={{ width: 34, height: 34, borderRadius: 10, border: `1px solid ${on ? R.coral : R.line}`, background: on ? R.coral : R.surface, color: on ? '#fff' : R.inkSoft, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13 }}>{d}</button>
                   })}
@@ -4334,23 +4444,23 @@ function PromosView({ vert, metrics }: { vert: Vert; metrics?: BizMetrics | null
                 <button onClick={() => setAlertForm(f => ({ ...f, active: !f.active }))} style={{ width: 46, height: 27, borderRadius: 999, border: 'none', cursor: 'pointer', background: alertForm.active ? R.jade : R.line, position: 'relative', flexShrink: 0 }}>
                   <span style={{ position: 'absolute', top: 3, left: alertForm.active ? 22 : 3, width: 21, height: 21, borderRadius: '50%', background: '#fff', transition: 'left .18s' }} />
                 </button>
-                <span style={{ fontSize: 14, color: R.ink }}>Activa</span>
+                <span style={{ fontSize: 14, color: R.ink }}>{t('Activa', 'Active')}</span>
               </label>
               <div style={{ display: 'flex', gap: 10 }}>
-                {alertEditing !== 'new' && <button onClick={removeAlert} style={{ padding: '12px 16px', border: `1px solid ${R.line}`, borderRadius: 12, background: 'transparent', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14, color: R.coralPress }}>Eliminar</button>}
-                <button onClick={() => setAlertEditing(null)} style={{ padding: '12px 16px', border: `1px solid ${R.line}`, borderRadius: 12, background: 'transparent', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14, color: R.inkSoft }}>Cancelar</button>
-                <button onClick={saveAlert} disabled={!alertForm.title.trim() || alertBusy} style={{ flex: 1, padding: '12px', border: 'none', borderRadius: 12, background: alertForm.title.trim() ? R.coral : R.coralTint, cursor: alertForm.title.trim() ? 'pointer' : 'not-allowed', fontFamily: R.ui, fontWeight: 700, fontSize: 14.5, color: alertForm.title.trim() ? '#fff' : R.coralPress }}>{alertEditing === 'new' ? 'Crear alerta' : 'Guardar cambios'}</button>
+                {alertEditing !== 'new' && <button onClick={removeAlert} style={{ padding: '12px 16px', border: `1px solid ${R.line}`, borderRadius: 12, background: 'transparent', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14, color: R.coralPress }}>{t('Eliminar', 'Delete')}</button>}
+                <button onClick={() => setAlertEditing(null)} style={{ padding: '12px 16px', border: `1px solid ${R.line}`, borderRadius: 12, background: 'transparent', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14, color: R.inkSoft }}>{t('Cancelar', 'Cancel')}</button>
+                <button onClick={saveAlert} disabled={!alertForm.title.trim() || alertBusy} style={{ flex: 1, padding: '12px', border: 'none', borderRadius: 12, background: alertForm.title.trim() ? R.coral : R.coralTint, cursor: alertForm.title.trim() ? 'pointer' : 'not-allowed', fontFamily: R.ui, fontWeight: 700, fontSize: 14.5, color: alertForm.title.trim() ? '#fff' : R.coralPress }}>{alertEditing === 'new' ? t('Crear alerta', 'Create alert') : t('Guardar cambios', 'Save changes')}</button>
               </div>
             </BCard>
           ) : alerts.length === 0 ? (
-            <BCard style={{ textAlign: 'center', padding: '40px 0', color: R.inkSoft }}>Aún no tienes alertas. Crea la primera para avisar a tus clientes en tiempo real.</BCard>
+            <BCard style={{ textAlign: 'center', padding: '40px 0', color: R.inkSoft }}>{t('Aún no tienes alertas. Crea la primera para avisar a tus clientes en tiempo real.', 'You have no alerts yet. Create the first to notify your customers in real time.')}</BCard>
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 14 }}>
               {alerts.map(a => (
                 <BCard key={a.id} style={{ padding: 16, opacity: a.active ? 1 : .6 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: R.coralPress, background: R.coralTint, padding: '3px 9px', borderRadius: 999 }}>{ALERT_TYPES.find(t => t.id === a.alertType)?.label ?? a.alertType}</span>
-                    <button onClick={() => toggleAlert(a)} aria-label="Activar" style={{ marginLeft: 'auto', width: 34, height: 20, borderRadius: 999, border: 'none', cursor: 'pointer', background: a.active ? R.jade : R.inkFaint, position: 'relative', flexShrink: 0 }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: R.coralPress, background: R.coralTint, padding: '3px 9px', borderRadius: 999 }}>{(() => { const at = ALERT_TYPES.find(x => x.id === a.alertType); return at ? (en ? at.labelEn : at.label) : a.alertType })()}</span>
+                    <button onClick={() => toggleAlert(a)} aria-label={t('Activar', 'Activate')} style={{ marginLeft: 'auto', width: 34, height: 20, borderRadius: 999, border: 'none', cursor: 'pointer', background: a.active ? R.jade : R.inkFaint, position: 'relative', flexShrink: 0 }}>
                       <span style={{ position: 'absolute', top: 2, left: a.active ? 16 : 2, width: 16, height: 16, borderRadius: '50%', background: '#fff', transition: 'left .18s' }} />
                     </button>
                   </div>
@@ -4358,8 +4468,8 @@ function PromosView({ vert, metrics }: { vert: Vert; metrics?: BizMetrics | null
                   {a.body && <div style={{ fontSize: 13, color: R.inkSoft, marginTop: 3 }}>{a.body}</div>}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, paddingTop: 12, borderTop: `1px solid ${R.lineSoft}` }}>
                     <Icon n="clock" size={14} color={R.inkFaint} />
-                    <span style={{ fontSize: 12.5, color: R.inkSoft }}>{a.startTime}–{a.endTime}{a.days.length ? ' · ' + a.days.map(d => ['D', 'L', 'M', 'M', 'J', 'V', 'S'][d]).join('') : ' · todos'}</span>
-                    <button onClick={() => openEditAlert(a)} style={{ marginLeft: 'auto', border: 'none', background: 'transparent', cursor: 'pointer', display: 'grid', placeItems: 'center', padding: 4 }} aria-label="Editar"><Icon n="edit" size={16} color={R.inkSoft} /></button>
+                    <span style={{ fontSize: 12.5, color: R.inkSoft }}>{a.startTime}–{a.endTime}{a.days.length ? ' · ' + a.days.map(d => (en ? ['S', 'M', 'T', 'W', 'T', 'F', 'S'] : ['D', 'L', 'M', 'M', 'J', 'V', 'S'])[d]).join('') : (en ? ' · all' : ' · todos')}</span>
+                    <button onClick={() => openEditAlert(a)} style={{ marginLeft: 'auto', border: 'none', background: 'transparent', cursor: 'pointer', display: 'grid', placeItems: 'center', padding: 4 }} aria-label={t('Editar', 'Edit')}><Icon n="edit" size={16} color={R.inkSoft} /></button>
                   </div>
                 </BCard>
               ))}
@@ -4378,12 +4488,12 @@ function PromosView({ vert, metrics }: { vert: Vert; metrics?: BizMetrics | null
                   <div style={{ background: `linear-gradient(120deg, ${R.dusk}, ${R.duskSoft})`, color: '#fff', padding: '22px 24px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
                       <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 11.5, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', background: 'rgba(255,255,255,.14)', padding: '4px 10px', borderRadius: 999 }}>
-                        <Icon n="spark" size={12} color="#fff" fill="#fff" /> Reva+ · Tarjeta de sellos
+                        <Icon n="spark" size={12} color="#fff" fill="#fff" /> {t('Reva+ · Tarjeta de sellos', 'Reva+ · Stamp card')}
                       </div>
-                      <button onClick={() => { setLform(loyalty); setEditLoyal(true) }} style={{ background: 'rgba(255,255,255,.16)', color: '#fff', border: 'none', borderRadius: 999, padding: '8px 16px', fontFamily: R.ui, fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>Editar programa</button>
+                      <button onClick={() => { setLform(loyalty); setEditLoyal(true) }} style={{ background: 'rgba(255,255,255,.16)', color: '#fff', border: 'none', borderRadius: 999, padding: '8px 16px', fontFamily: R.ui, fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>{t('Editar programa', 'Edit program')}</button>
                     </div>
-                    <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 21, marginTop: 14 }}>Sella {loyalty.stamps} visitas → recompensa</div>
-                    <div style={{ fontSize: 13.5, opacity: .85, marginTop: 4 }}>Recompensa: {loyalty.reward}</div>
+                    <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 21, marginTop: 14 }}>{en ? `Stamp ${loyalty.stamps} visits → reward` : `Sella ${loyalty.stamps} visitas → recompensa`}</div>
+                    <div style={{ fontSize: 13.5, opacity: .85, marginTop: 4 }}>{t('Recompensa', 'Reward')}: {loyalty.reward}</div>
                     <div style={{ display: 'flex', gap: 8, marginTop: 16, flexWrap: 'wrap' }}>
                       {Array.from({ length: loyalty.stamps }).map((_, i) => (
                         <div key={i} style={{ width: 30, height: 30, borderRadius: '50%', border: `2px solid rgba(255,255,255,.4)`, display: 'grid', placeItems: 'center', background: i < 3 ? 'rgba(255,255,255,.9)' : 'transparent' }}>
@@ -4395,13 +4505,13 @@ function PromosView({ vert, metrics }: { vert: Vert; metrics?: BizMetrics | null
                   </div>
                 </BCard>
                 <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
-                  <BMetric label="Tarjetas activas" value={metrics?.rove ?? 0} tint={R.coralTint} icon={<Icon n="user" size={20} color={R.coral} />} />
-                  <BMetric label="Sellos esta semana" value={metrics?.stampsWeek ?? 0} tint={R.jadeTint} icon={<Icon n="check" size={20} color={R.jade} />} />
-                  <BMetric label="Recompensas canjeadas" value={metrics?.rewardsRedeemed ?? 0} tint={R.amberTint} icon={<Icon n="gift" size={20} color={R.amber} />} />
+                  <BMetric label={t('Tarjetas activas', 'Active cards')} value={metrics?.rove ?? 0} tint={R.coralTint} icon={<Icon n="user" size={20} color={R.coral} />} />
+                  <BMetric label={t('Sellos esta semana', 'Stamps this week')} value={metrics?.stampsWeek ?? 0} tint={R.jadeTint} icon={<Icon n="check" size={20} color={R.jade} />} />
+                  <BMetric label={t('Recompensas canjeadas', 'Rewards redeemed')} value={metrics?.rewardsRedeemed ?? 0} tint={R.amberTint} icon={<Icon n="gift" size={20} color={R.amber} />} />
                 </div>
               </>
             ) : (
-              <BCard style={{ textAlign: 'center', padding: '32px 0', color: R.inkSoft }}>La tarjeta de sellos no está habilitada por la plataforma.</BCard>
+              <BCard style={{ textAlign: 'center', padding: '32px 0', color: R.inkSoft }}>{t('La tarjeta de sellos no está habilitada por la plataforma.', 'The stamp card is not enabled by the platform.')}</BCard>
             )}
 
             {/* ── Recompensas Reva+ Marketplace ── */}
@@ -4415,8 +4525,8 @@ function PromosView({ vert, metrics }: { vert: Vert; metrics?: BizMetrics | null
 
             {extras.length > 0 ? (
               <>
-                <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink, margin: '4px 0 4px' }}>Más opciones de lealtad</div>
-                <div style={{ fontSize: 13, color: R.inkSoft, marginBottom: 14 }}>Habilitadas por Reva para tu negocio. Actívalas cuando quieras.</div>
+                <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink, margin: '4px 0 4px' }}>{t('Más opciones de lealtad', 'More loyalty options')}</div>
+                <div style={{ fontSize: 13, color: R.inkSoft, marginBottom: 14 }}>{t('Habilitadas por Reva para tu negocio. Actívalas cuando quieras.', 'Enabled by Reva for your business. Turn them on anytime.')}</div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 14 }}>
                   {extras.map(o => {
                     const isActive = o.id in active
@@ -4426,21 +4536,21 @@ function PromosView({ vert, metrics }: { vert: Vert; metrics?: BizMetrics | null
                       <BCard key={o.id} style={{ padding: 16, display: 'flex', flexDirection: 'column' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 11, marginBottom: 8 }}>
                           <div style={{ width: 36, height: 36, borderRadius: 10, background: R.coralTint, display: 'grid', placeItems: 'center', flexShrink: 0 }}><Icon n={LOYALTY_ICON[o.id] ?? 'gift'} size={18} color={R.coral} /></div>
-                          <span style={{ fontFamily: R.display, fontWeight: 700, fontSize: 15.5, color: R.ink }}>{o.label}</span>
-                          {isActive && <span style={{ marginLeft: 'auto', fontSize: 10.5, fontWeight: 700, color: '#16614c', background: R.jadeTint, padding: '3px 8px', borderRadius: 999 }}>Activa</span>}
+                          <span style={{ fontFamily: R.display, fontWeight: 700, fontSize: 15.5, color: R.ink }}>{en ? (o.labelEn ?? o.label) : o.label}</span>
+                          {isActive && <span style={{ marginLeft: 'auto', fontSize: 10.5, fontWeight: 700, color: '#16614c', background: R.jadeTint, padding: '3px 8px', borderRadius: 999 }}>{t('Activa', 'Active')}</span>}
                         </div>
-                        <div style={{ fontSize: 13, color: R.inkSoft }}>{o.desc}</div>
-                        {isActive && cfg && <div style={{ fontSize: 12.5, color: R.ink, fontWeight: 600, marginTop: 6 }}>{ci?.label}: <span style={{ color: R.coralPress }}>{cfg}</span></div>}
+                        <div style={{ fontSize: 13, color: R.inkSoft }}>{en ? (o.descEn ?? o.desc) : o.desc}</div>
+                        {isActive && cfg && <div style={{ fontSize: 12.5, color: R.ink, fontWeight: 600, marginTop: 6 }}>{en ? ci?.labelEn : ci?.label}: <span style={{ color: R.coralPress }}>{cfg}</span></div>}
                         <div style={{ marginTop: 'auto', paddingTop: 12 }}>
                           {!bm.connected ? (
-                            <button disabled style={{ width: '100%', padding: '10px', border: `1px solid ${R.line}`, borderRadius: 10, background: R.bgAlt, color: R.inkFaint, cursor: 'not-allowed', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5 }}>Disponible al conectar</button>
+                            <button disabled style={{ width: '100%', padding: '10px', border: `1px solid ${R.line}`, borderRadius: 10, background: R.bgAlt, color: R.inkFaint, cursor: 'not-allowed', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5 }}>{t('Disponible al conectar', 'Available once connected')}</button>
                           ) : isActive ? (
                             <div style={{ display: 'flex', gap: 8 }}>
-                              <button onClick={() => openActivate(o)} style={{ flex: 1, padding: '10px', border: `1px solid ${R.line}`, borderRadius: 10, background: R.surface, color: R.ink, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5 }}>Editar</button>
-                              <button onClick={() => deactivate(o.id)} style={{ padding: '10px 14px', border: `1px solid ${R.line}`, borderRadius: 10, background: 'transparent', color: R.coralPress, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5 }}>Desactivar</button>
+                              <button onClick={() => openActivate(o)} style={{ flex: 1, padding: '10px', border: `1px solid ${R.line}`, borderRadius: 10, background: R.surface, color: R.ink, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5 }}>{t('Editar', 'Edit')}</button>
+                              <button onClick={() => deactivate(o.id)} style={{ padding: '10px 14px', border: `1px solid ${R.line}`, borderRadius: 10, background: 'transparent', color: R.coralPress, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5 }}>{t('Desactivar', 'Deactivate')}</button>
                             </div>
                           ) : (
-                            <button onClick={() => openActivate(o)} style={{ width: '100%', padding: '10px', border: 'none', borderRadius: 10, background: R.coral, color: '#fff', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5 }}>Activar</button>
+                            <button onClick={() => openActivate(o)} style={{ width: '100%', padding: '10px', border: 'none', borderRadius: 10, background: R.coral, color: '#fff', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5 }}>{t('Activar', 'Activate')}</button>
                           )}
                         </div>
                       </BCard>
@@ -4449,9 +4559,9 @@ function PromosView({ vert, metrics }: { vert: Vert; metrics?: BizMetrics | null
                 </div>
               </>
             ) : (
-              <BCard style={{ textAlign: 'center', padding: '32px 0', color: R.inkSoft }}>Aún no hay más opciones de lealtad habilitadas por la plataforma.</BCard>
+              <BCard style={{ textAlign: 'center', padding: '32px 0', color: R.inkSoft }}>{t('Aún no hay más opciones de lealtad habilitadas por la plataforma.', 'No more loyalty options enabled by the platform yet.')}</BCard>
             )}
-            <div style={{ fontSize: 12.5, color: R.inkFaint, marginTop: 14 }}>Las opciones disponibles las define Reva (plataforma) vía BoomerangMe. Reva sella automáticamente al confirmar cada visita.</div>
+            <div style={{ fontSize: 12.5, color: R.inkFaint, marginTop: 14 }}>{t('Las opciones disponibles las define Reva (plataforma) vía BoomerangMe. Reva sella automáticamente al confirmar cada visita.', 'Available options are set by Reva (platform) via BoomerangMe. Reva stamps automatically when each visit is confirmed.')}</div>
         </>
       )}
 
@@ -4463,17 +4573,17 @@ function PromosView({ vert, metrics }: { vert: Vert; metrics?: BizMetrics | null
             <div onClick={e => e.stopPropagation()} style={{ width: '100%', maxWidth: 400, background: R.bg, borderRadius: 20, padding: 24, boxShadow: '0 30px 80px rgba(0,0,0,.4)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 11, marginBottom: 6 }}>
                 <div style={{ width: 38, height: 38, borderRadius: 10, background: R.coralTint, display: 'grid', placeItems: 'center', flexShrink: 0 }}><Icon n={LOYALTY_ICON[actOpt.id] ?? 'gift'} size={19} color={R.coral} /></div>
-                <span style={{ fontFamily: R.display, fontWeight: 800, fontSize: 19, color: R.ink }}>Activar {actOpt.label}</span>
+                <span style={{ fontFamily: R.display, fontWeight: 800, fontSize: 19, color: R.ink }}>{t('Activar', 'Activate')} {en ? (actOpt.labelEn ?? actOpt.label) : actOpt.label}</span>
               </div>
-              <p style={{ fontSize: 13.5, color: R.inkSoft, marginBottom: 16 }}>{actOpt.desc}</p>
-              <div style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 8 }}>{ci?.label ?? 'Configuración'}</div>
-              <input value={cfgVal} onChange={e => setCfgVal(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') confirmActivate() }} placeholder={ci?.placeholder ?? ''} style={fieldStyle} />
+              <p style={{ fontSize: 13.5, color: R.inkSoft, marginBottom: 16 }}>{en ? (actOpt.descEn ?? actOpt.desc) : actOpt.desc}</p>
+              <div style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 8 }}>{(en ? ci?.labelEn : ci?.label) ?? t('Configuración', 'Configuration')}</div>
+              <input value={cfgVal} onChange={e => setCfgVal(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') confirmActivate() }} placeholder={(en ? ci?.placeholderEn : ci?.placeholder) ?? ''} style={fieldStyle} />
               <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12.5, color: R.inkSoft, margin: '14px 0 16px' }}>
-                <Icon n="spark" size={14} color={R.jade} /> Reva la ofrecerá a tus clientes vía BoomerangMe.
+                <Icon n="spark" size={14} color={R.jade} /> {t('Reva la ofrecerá a tus clientes vía BoomerangMe.', 'Reva will offer it to your customers via BoomerangMe.')}
               </div>
               <div style={{ display: 'flex', gap: 10 }}>
-                <button onClick={() => setActOpt(null)} style={{ padding: '12px 16px', border: `1px solid ${R.line}`, borderRadius: 12, background: 'transparent', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14, color: R.inkSoft }}>Cancelar</button>
-                <button onClick={confirmActivate} style={{ flex: 1, padding: '12px', border: 'none', borderRadius: 12, background: R.jade, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14.5, color: '#fff' }}>Activar para clientes</button>
+                <button onClick={() => setActOpt(null)} style={{ padding: '12px 16px', border: `1px solid ${R.line}`, borderRadius: 12, background: 'transparent', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14, color: R.inkSoft }}>{t('Cancelar', 'Cancel')}</button>
+                <button onClick={confirmActivate} style={{ flex: 1, padding: '12px', border: 'none', borderRadius: 12, background: R.jade, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14.5, color: '#fff' }}>{t('Activar para clientes', 'Activate for customers')}</button>
               </div>
             </div>
           </div>
@@ -4485,32 +4595,32 @@ function PromosView({ vert, metrics }: { vert: Vert; metrics?: BizMetrics | null
         <div onClick={() => setEditing(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(34,28,25,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 20 }}>
           <div onClick={e => e.stopPropagation()} style={{ width: '100%', maxWidth: 420, maxHeight: 'calc(100vh - 40px)', overflowY: 'auto', background: R.bg, borderRadius: 20, padding: 24, boxShadow: '0 30px 80px rgba(0,0,0,.4)' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-              <span style={{ fontFamily: R.display, fontWeight: 800, fontSize: 19, color: R.ink }}>{editing === 'new' ? 'Nueva promoción' : 'Editar promoción'}</span>
-              <button onClick={() => setEditing(null)} aria-label="Cerrar" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: R.inkFaint, fontSize: 22, lineHeight: 1, padding: 0 }}>×</button>
+              <span style={{ fontFamily: R.display, fontWeight: 800, fontSize: 19, color: R.ink }}>{editing === 'new' ? t('Nueva promoción', 'New promotion') : t('Editar promoción', 'Edit promotion')}</span>
+              <button onClick={() => setEditing(null)} aria-label={t('Cerrar', 'Close')} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: R.inkFaint, fontSize: 22, lineHeight: 1, padding: 0 }}>×</button>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <input value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="Título (ej. 2x1 en mezcal)" style={fieldStyle} />
+              <input value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder={t('Título (ej. 2x1 en mezcal)', 'Title (e.g. 2-for-1 mezcal)')} style={fieldStyle} />
               <div>
-                <div style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 8 }}>Tipo</div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 8 }}>{t('Tipo', 'Type')}</div>
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                  {PROMO_TYPES.map(t => {
-                    const on = form.type === t
-                    return <button key={t} onClick={() => setForm({ ...form, type: t })} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 12px', borderRadius: 999, border: `1px solid ${on ? R.coral : R.line}`, background: on ? R.coralTint : R.surface, color: on ? R.coralPress : R.inkSoft, fontFamily: R.ui, fontWeight: 700, fontSize: 13, cursor: 'pointer' }}><Icon n={PROMO_ICON[t]} size={14} color={on ? R.coralPress : R.inkSoft} /> {t}</button>
+                  {PROMO_TYPES.map(pt => {
+                    const on = form.type === pt
+                    return <button key={pt} onClick={() => setForm({ ...form, type: pt })} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 12px', borderRadius: 999, border: `1px solid ${on ? R.coral : R.line}`, background: on ? R.coralTint : R.surface, color: on ? R.coralPress : R.inkSoft, fontFamily: R.ui, fontWeight: 700, fontSize: 13, cursor: 'pointer' }}><Icon n={PROMO_ICON[pt]} size={14} color={on ? R.coralPress : R.inkSoft} /> {en ? PROMO_TYPE_EN[pt] : pt}</button>
                   })}
                 </div>
               </div>
-              <input value={form.detail} onChange={e => setForm({ ...form, detail: e.target.value })} placeholder="Condición (ej. lunes a miércoles)" style={fieldStyle} />
-              <input value={form.vig} onChange={e => setForm({ ...form, vig: e.target.value })} placeholder="Vigencia (ej. Permanente o Hasta 30 jun)" style={fieldStyle} />
+              <input value={form.detail} onChange={e => setForm({ ...form, detail: e.target.value })} placeholder={t('Condición (ej. lunes a miércoles)', 'Condition (e.g. Monday to Wednesday)')} style={fieldStyle} />
+              <input value={form.vig} onChange={e => setForm({ ...form, vig: e.target.value })} placeholder={t('Vigencia (ej. Permanente o Hasta 30 jun)', 'Validity (e.g. Permanent or Until Jun 30)')} style={fieldStyle} />
               <button onClick={() => setForm({ ...form, active: !form.active })} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', border: `1px solid ${R.line}`, borderRadius: 10, background: R.surface, cursor: 'pointer', fontFamily: R.ui }}>
-                <span style={{ fontSize: 14, fontWeight: 600, color: R.ink }}>Activa</span>
+                <span style={{ fontSize: 14, fontWeight: 600, color: R.ink }}>{t('Activa', 'Active')}</span>
                 <span style={{ width: 34, height: 20, borderRadius: 999, background: form.active ? R.jade : R.inkFaint, position: 'relative', flexShrink: 0 }}>
                   <span style={{ position: 'absolute', top: 2, left: form.active ? 16 : 2, width: 16, height: 16, borderRadius: '50%', background: '#fff' }} />
                 </span>
               </button>
             </div>
             <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
-              {editing !== null && editing !== 'new' && <button onClick={removePromo} style={{ padding: '12px 16px', border: `1px solid ${R.line}`, borderRadius: 12, background: 'transparent', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14, color: R.coralPress }}>Eliminar</button>}
-              <button onClick={savePromo} disabled={!form.title.trim()} style={{ flex: 1, padding: '12px', border: 'none', borderRadius: 12, background: form.title.trim() ? R.coral : R.coralTint, cursor: form.title.trim() ? 'pointer' : 'not-allowed', fontFamily: R.ui, fontWeight: 700, fontSize: 14.5, color: form.title.trim() ? '#fff' : R.coralPress }}>{editing === 'new' ? 'Crear promoción' : 'Guardar cambios'}</button>
+              {editing !== null && editing !== 'new' && <button onClick={removePromo} style={{ padding: '12px 16px', border: `1px solid ${R.line}`, borderRadius: 12, background: 'transparent', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14, color: R.coralPress }}>{t('Eliminar', 'Delete')}</button>}
+              <button onClick={savePromo} disabled={!form.title.trim()} style={{ flex: 1, padding: '12px', border: 'none', borderRadius: 12, background: form.title.trim() ? R.coral : R.coralTint, cursor: form.title.trim() ? 'pointer' : 'not-allowed', fontFamily: R.ui, fontWeight: 700, fontSize: 14.5, color: form.title.trim() ? '#fff' : R.coralPress }}>{editing === 'new' ? t('Crear promoción', 'Create promotion') : t('Guardar cambios', 'Save changes')}</button>
             </div>
           </div>
         </div>
@@ -4520,10 +4630,10 @@ function PromosView({ vert, metrics }: { vert: Vert; metrics?: BizMetrics | null
       {editLoyal && (
         <div onClick={() => setEditLoyal(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(34,28,25,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 20 }}>
           <div onClick={e => e.stopPropagation()} style={{ width: '100%', maxWidth: 400, background: R.bg, borderRadius: 20, padding: 24, boxShadow: '0 30px 80px rgba(0,0,0,.4)' }}>
-            <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 19, color: R.ink, marginBottom: 16 }}>Editar programa Reva+</div>
+            <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 19, color: R.ink, marginBottom: 16 }}>{t('Editar programa Reva+', 'Edit Reva+ program')}</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               <div>
-                <div style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 8 }}>Sellos para la recompensa</div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 8 }}>{t('Sellos para la recompensa', 'Stamps for the reward')}</div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                   <button onClick={() => setLform(f => ({ ...f, stamps: Math.max(3, f.stamps - 1) }))} style={{ width: 38, height: 38, borderRadius: 10, border: `1px solid ${R.line}`, background: R.surface, cursor: 'pointer', fontSize: 20, color: R.ink }}>−</button>
                   <span style={{ fontFamily: R.display, fontWeight: 800, fontSize: 24, color: R.ink, width: 36, textAlign: 'center' }}>{lform.stamps}</span>
@@ -4531,13 +4641,13 @@ function PromosView({ vert, metrics }: { vert: Vert; metrics?: BizMetrics | null
                 </div>
               </div>
               <div>
-                <div style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 8 }}>Recompensa</div>
-                <input value={lform.reward} onChange={e => { const v = e.target.value; setLform(f => ({ ...f, reward: v })) }} placeholder="Ej. Postre de cortesía" style={fieldStyle} />
+                <div style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 8 }}>{t('Recompensa', 'Reward')}</div>
+                <input value={lform.reward} onChange={e => { const v = e.target.value; setLform(f => ({ ...f, reward: v })) }} placeholder={t('Ej. Postre de cortesía', 'e.g. Complimentary dessert')} style={fieldStyle} />
               </div>
             </div>
             <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
-              <button onClick={() => setEditLoyal(false)} style={{ padding: '12px 16px', border: `1px solid ${R.line}`, borderRadius: 12, background: 'transparent', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14, color: R.inkSoft }}>Cancelar</button>
-              <button onClick={() => { setLoyalty(lform); setEditLoyal(false) }} style={{ flex: 1, padding: '12px', border: 'none', borderRadius: 12, background: R.coral, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14.5, color: '#fff' }}>Guardar</button>
+              <button onClick={() => setEditLoyal(false)} style={{ padding: '12px 16px', border: `1px solid ${R.line}`, borderRadius: 12, background: 'transparent', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14, color: R.inkSoft }}>{t('Cancelar', 'Cancel')}</button>
+              <button onClick={() => { setLoyalty(lform); setEditLoyal(false) }} style={{ flex: 1, padding: '12px', border: 'none', borderRadius: 12, background: R.coral, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14.5, color: '#fff' }}>{t('Guardar', 'Save')}</button>
             </div>
           </div>
         </div>
@@ -4548,21 +4658,23 @@ function PromosView({ vert, metrics }: { vert: Vert; metrics?: BizMetrics | null
 
 // ── Rove Marketplace: proponer recompensas ─────────────────
 
-const REWARD_CATEGORIES: { id: RewardCategory; label: string; emoji: string }[] = [
-  { id: 'food',       label: 'Comida & bebida', emoji: '🍽️' },
-  { id: 'experience', label: 'Experiencia',     emoji: '🌅' },
-  { id: 'discount',   label: 'Descuento',       emoji: '🏷️' },
-  { id: 'upgrade',    label: 'Upgrade',         emoji: '⭐' },
+const REWARD_CATEGORIES: { id: RewardCategory; label: string; labelEn: string; emoji: string }[] = [
+  { id: 'food',       label: 'Comida & bebida', labelEn: 'Food & drink', emoji: '🍽️' },
+  { id: 'experience', label: 'Experiencia',     labelEn: 'Experience',   emoji: '🌅' },
+  { id: 'discount',   label: 'Descuento',       labelEn: 'Discount',     emoji: '🏷️' },
+  { id: 'upgrade',    label: 'Upgrade',         labelEn: 'Upgrade',      emoji: '⭐' },
 ]
 
-const STATUS_LABEL: Record<string, { label: string; color: string; bg: string }> = {
-  pending:  { label: 'En revisión', color: '#9A6C1C', bg: '#FBEFD7' },
-  active:   { label: 'Activa',      color: '#16614c', bg: '#DDF0E8' },
-  paused:   { label: 'Pausada',     color: '#6B615A', bg: '#F1EADF' },
-  rejected: { label: 'Rechazada',   color: '#D23B47', bg: '#FCE9E7' },
+const STATUS_LABEL: Record<string, { label: string; labelEn: string; color: string; bg: string }> = {
+  pending:  { label: 'En revisión', labelEn: 'In review', color: '#9A6C1C', bg: '#FBEFD7' },
+  active:   { label: 'Activa',      labelEn: 'Active',    color: '#16614c', bg: '#DDF0E8' },
+  paused:   { label: 'Pausada',     labelEn: 'Paused',    color: '#6B615A', bg: '#F1EADF' },
+  rejected: { label: 'Rechazada',   labelEn: 'Rejected',  color: '#D23B47', bg: '#FCE9E7' },
 }
 
 function RoveRewardsSection({ bizId, bizName, bizColor }: { bizId: string; bizName: string; bizColor: string }) {
+  const t = useT()
+  const en = useEn()
   const [rewards, setRewards] = useState<RoveReward[]>([])
   const [showForm, setShowForm] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -4606,19 +4718,19 @@ function RoveRewardsSection({ bizId, bizName, bizColor }: { bizId: string; bizNa
     <div style={{ marginTop: 28 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
         <div>
-          <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink }}>Recompensas Reva+</div>
-          <div style={{ fontSize: 13, color: R.inkSoft, marginTop: 2 }}>Propón recompensas que los clientes canjean con boletos Reva+. Reva las aprueba antes de publicar.</div>
+          <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink }}>{t('Recompensas Reva+', 'Reva+ rewards')}</div>
+          <div style={{ fontSize: 13, color: R.inkSoft, marginTop: 2 }}>{t('Propón recompensas que los clientes canjean con boletos Reva+. Reva las aprueba antes de publicar.', 'Propose rewards customers redeem with Reva+ tickets. Reva approves them before publishing.')}</div>
         </div>
         <button onClick={() => setShowForm(true)} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '10px 16px', background: R.ink, color: '#fff', border: 'none', borderRadius: 999, fontFamily: R.ui, fontWeight: 700, fontSize: 13, cursor: 'pointer', flexShrink: 0, marginLeft: 16 }}>
-          <Icon n="plus" size={15} color="#fff" /> Proponer
+          <Icon n="plus" size={15} color="#fff" /> {t('Proponer', 'Propose')}
         </button>
       </div>
 
       {rewards.length === 0 ? (
         <BCard style={{ padding: '28px 20px', textAlign: 'center', color: R.inkSoft }}>
           <div style={{ fontSize: 28, marginBottom: 8 }}>🎁</div>
-          <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 4 }}>Sin recompensas todavía</div>
-          <div style={{ fontSize: 13 }}>Propón una recompensa para aparecer en el marketplace de Reva+.</div>
+          <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 4 }}>{t('Sin recompensas todavía', 'No rewards yet')}</div>
+          <div style={{ fontSize: 13 }}>{t('Propón una recompensa para aparecer en el marketplace de Reva+.', 'Propose a reward to appear in the Reva+ marketplace.')}</div>
         </BCard>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(280px,1fr))', gap: 12 }}>
@@ -4635,13 +4747,13 @@ function RoveRewardsSection({ bizId, bizName, bizColor }: { bizId: string; bizNa
                   </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: 11.5, fontWeight: 700, color: st.color, background: st.bg, padding: '3px 9px', borderRadius: 999 }}>{st.label}</span>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: R.amberDeep, background: R.amberTint, padding: '3px 9px', borderRadius: 999 }}>{r.ticketCost} boletos</span>
+                  <span style={{ fontSize: 11.5, fontWeight: 700, color: st.color, background: st.bg, padding: '3px 9px', borderRadius: 999 }}>{en ? st.labelEn : st.label}</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: R.amberDeep, background: R.amberTint, padding: '3px 9px', borderRadius: 999 }}>{r.ticketCost} {t('boletos', 'tickets')}</span>
                   {r.stock !== null && <span style={{ fontSize: 12, color: R.inkFaint }}>Stock: {r.stock}</span>}
                 </div>
                 {r.status === 'rejected' && r.rejectionReason && (
                   <div style={{ marginTop: 8, fontSize: 12.5, color: R.coralPress, background: R.coralTint, borderRadius: 8, padding: '7px 10px' }}>
-                    Motivo: {r.rejectionReason}
+                    {t('Motivo', 'Reason')}: {r.rejectionReason}
                   </div>
                 )}
               </BCard>
@@ -4655,28 +4767,28 @@ function RoveRewardsSection({ bizId, bizName, bizColor }: { bizId: string; bizNa
         <div onClick={() => setShowForm(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(34,28,25,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 20 }}>
           <div onClick={e => e.stopPropagation()} style={{ width: '100%', maxWidth: 440, maxHeight: 'calc(100vh - 40px)', overflowY: 'auto', background: R.bg, borderRadius: 20, padding: 24, boxShadow: '0 30px 80px rgba(0,0,0,.4)' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-              <span style={{ fontFamily: R.display, fontWeight: 800, fontSize: 19, color: R.ink }}>Proponer recompensa</span>
+              <span style={{ fontFamily: R.display, fontWeight: 800, fontSize: 19, color: R.ink }}>{t('Proponer recompensa', 'Propose reward')}</span>
               <button onClick={() => setShowForm(false)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: R.inkFaint, fontSize: 22, lineHeight: 1, padding: 0 }}>×</button>
             </div>
-            <div style={{ fontSize: 13, color: R.inkSoft, marginBottom: 16 }}>Reva revisará tu propuesta antes de publicarla en el marketplace de boletos.</div>
+            <div style={{ fontSize: 13, color: R.inkSoft, marginBottom: 16 }}>{t('Reva revisará tu propuesta antes de publicarla en el marketplace de boletos.', 'Reva will review your proposal before publishing it in the tickets marketplace.')}</div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               <div>
-                <div style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 6 }}>Título *</div>
-                <input value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="Ej. Bebida de cortesía" style={fieldStyle} />
+                <div style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 6 }}>{t('Título *', 'Title *')}</div>
+                <input value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder={t('Ej. Bebida de cortesía', 'e.g. Complimentary drink')} style={fieldStyle} />
               </div>
               <div>
-                <div style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 6 }}>Descripción</div>
-                <textarea value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="Cuéntale al cliente qué incluye y cuándo aplica." rows={3} style={{ ...fieldStyle, resize: 'vertical' }} />
+                <div style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 6 }}>{t('Descripción', 'Description')}</div>
+                <textarea value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder={t('Cuéntale al cliente qué incluye y cuándo aplica.', 'Tell the customer what’s included and when it applies.')} rows={3} style={{ ...fieldStyle, resize: 'vertical' }} />
               </div>
               <div>
-                <div style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 6 }}>Categoría</div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 6 }}>{t('Categoría', 'Category')}</div>
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   {REWARD_CATEGORIES.map(c => {
                     const on = form.category === c.id
                     return (
                       <button key={c.id} onClick={() => setForm({ ...form, category: c.id })} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '7px 12px', borderRadius: 999, border: `1px solid ${on ? R.coral : R.line}`, background: on ? R.coralTint : R.surface, color: on ? R.coralPress : R.inkSoft, fontFamily: R.ui, fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
-                        {c.emoji} {c.label}
+                        {c.emoji} {en ? c.labelEn : c.label}
                       </button>
                     )
                   })}
@@ -4684,24 +4796,24 @@ function RoveRewardsSection({ bizId, bizName, bizColor }: { bizId: string; bizNa
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                 <div>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 6 }}>Boletos sugeridos *</div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 6 }}>{t('Boletos sugeridos *', 'Suggested tickets *')}</div>
                   <input type="number" min={1} max={50} value={form.ticketCost} onChange={e => setForm({ ...form, ticketCost: Number(e.target.value) })} style={fieldStyle} />
                 </div>
                 <div>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 6 }}>Días de validez</div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 6 }}>{t('Días de validez', 'Valid days')}</div>
                   <input type="number" min={1} max={365} value={form.validDays} onChange={e => setForm({ ...form, validDays: Number(e.target.value) })} style={fieldStyle} />
                 </div>
               </div>
               <div>
-                <div style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 6 }}>Stock disponible <span style={{ fontWeight: 500, textTransform: 'none' }}>(dejar vacío = ilimitado)</span></div>
-                <input type="number" min={1} value={form.stock} onChange={e => setForm({ ...form, stock: e.target.value })} placeholder="Ilimitado" style={fieldStyle} />
+                <div style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 6 }}>{t('Stock disponible', 'Available stock')} <span style={{ fontWeight: 500, textTransform: 'none' }}>{t('(dejar vacío = ilimitado)', '(leave empty = unlimited)')}</span></div>
+                <input type="number" min={1} value={form.stock} onChange={e => setForm({ ...form, stock: e.target.value })} placeholder={t('Ilimitado', 'Unlimited')} style={fieldStyle} />
               </div>
             </div>
 
             <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
-              <button onClick={() => setShowForm(false)} style={{ padding: '12px 16px', border: `1px solid ${R.line}`, borderRadius: 12, background: 'transparent', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14, color: R.inkSoft }}>Cancelar</button>
+              <button onClick={() => setShowForm(false)} style={{ padding: '12px 16px', border: `1px solid ${R.line}`, borderRadius: 12, background: 'transparent', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14, color: R.inkSoft }}>{t('Cancelar', 'Cancel')}</button>
               <button onClick={submit} disabled={saving || !form.title.trim()} style={{ flex: 1, padding: '12px', border: 'none', borderRadius: 12, background: form.title.trim() ? R.coral : R.coralTint, color: form.title.trim() ? '#fff' : R.coralPress, cursor: form.title.trim() ? 'pointer' : 'not-allowed', fontFamily: R.ui, fontWeight: 700, fontSize: 14.5, opacity: saving ? .7 : 1 }}>
-                {saving ? 'Enviando…' : 'Enviar a revisión'}
+                {saving ? t('Enviando…', 'Sending…') : t('Enviar a revisión', 'Send for review')}
               </button>
             </div>
           </div>
@@ -4734,6 +4846,7 @@ const ROVE_MEMBERS: Record<string, RoveMember[]> = {
 
 // Valida códigos de canje del marketplace Rove (independiente de BoomerangMe).
 function RoveCodeValidator({ bizId, onToast }: { bizId: string; onToast: (t: { msg: string; tone: 'ok' | 'warn' }) => void }) {
+  const t = useT()
   const [code, setCode] = useState('')
   const [busy, setBusy] = useState(false)
   const [validated, setValidated] = useState<{ title: string; bizName: string; code: string } | null>(null)
@@ -4751,23 +4864,23 @@ function RoveCodeValidator({ bizId, onToast }: { bizId: string; onToast: (t: { m
       const data = await res.json()
       if (!res.ok) {
         const msgs: Record<string, string> = {
-          not_found: 'Código no encontrado. Verifica que esté bien escrito.',
-          already_used: 'Este código ya fue canjeado anteriormente.',
-          expired: 'El código expiró. El cliente deberá solicitar uno nuevo.',
+          not_found: t('Código no encontrado. Verifica que esté bien escrito.', 'Code not found. Check that it’s spelled correctly.'),
+          already_used: t('Este código ya fue canjeado anteriormente.', 'This code was already redeemed.'),
+          expired: t('El código expiró. El cliente deberá solicitar uno nuevo.', 'The code expired. The customer must request a new one.'),
         }
-        onToast({ msg: msgs[data.error] ?? 'No se pudo validar el código', tone: 'warn' })
+        onToast({ msg: msgs[data.error] ?? t('No se pudo validar el código', 'Could not validate the code'), tone: 'warn' })
         return
       }
       setValidated({ title: data.redemption.reward.title, bizName: data.redemption.reward.bizName, code: c })
       setCode('')
-      onToast({ msg: `✓ Código válido · ${data.redemption.reward.title}`, tone: 'ok' })
+      onToast({ msg: `${t('✓ Código válido', '✓ Valid code')} · ${data.redemption.reward.title}`, tone: 'ok' })
     } finally { setBusy(false) }
   }
 
   return (
     <div style={{ marginTop: 16, paddingTop: 16, borderTop: `1px solid ${R.lineSoft}` }}>
-      <div style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 8 }}>Validar código de recompensa Reva+</div>
-      <div style={{ fontSize: 12.5, color: R.inkSoft, marginBottom: 10 }}>El cliente muestra un código de 6 caracteres desde su app.</div>
+      <div style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 8 }}>{t('Validar código de recompensa Reva+', 'Validate Reva+ reward code')}</div>
+      <div style={{ fontSize: 12.5, color: R.inkSoft, marginBottom: 10 }}>{t('El cliente muestra un código de 6 caracteres desde su app.', 'The customer shows a 6-character code from their app.')}</div>
       <div style={{ display: 'flex', gap: 8 }}>
         <input
           value={code}
@@ -4778,7 +4891,7 @@ function RoveCodeValidator({ bizId, onToast }: { bizId: string; onToast: (t: { m
           style={{ flex: 1, boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 10, padding: '11px 13px', fontSize: 16, fontWeight: 700, color: R.ink, outline: 'none', fontFamily: 'monospace', background: R.surface, letterSpacing: '.12em', textTransform: 'uppercase' }}
         />
         <button onClick={validate} disabled={busy || code.trim().length < 4} style={{ padding: '0 16px', border: 'none', borderRadius: 10, background: code.trim().length >= 4 ? R.jade : R.bgAlt, color: code.trim().length >= 4 ? '#fff' : R.inkFaint, cursor: code.trim().length >= 4 ? 'pointer' : 'not-allowed', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5, opacity: busy ? .7 : 1 }}>
-          {busy ? '…' : 'Validar'}
+          {busy ? '…' : t('Validar', 'Validate')}
         </button>
       </div>
       {validated && (
@@ -4786,7 +4899,7 @@ function RoveCodeValidator({ bizId, onToast }: { bizId: string; onToast: (t: { m
           <Icon n="check" size={18} color={R.jade} stroke={3} />
           <div>
             <div style={{ fontWeight: 700, fontSize: 14, color: R.ink }}>{validated.title}</div>
-            <div style={{ fontSize: 12.5, color: R.inkSoft }}>Código <strong>{validated.code}</strong> marcado como usado</div>
+            <div style={{ fontSize: 12.5, color: R.inkSoft }}>{t('Código', 'Code')} <strong>{validated.code}</strong> {t('marcado como usado', 'marked as used')}</div>
           </div>
         </div>
       )}
@@ -4797,6 +4910,8 @@ function RoveCodeValidator({ bizId, onToast }: { bizId: string; onToast: (t: { m
 type Detector = { detect: (s: CanvasImageSource) => Promise<{ rawValue: string }[]> }
 
 function ScannerView({ vert }: { vert: Vert }) {
+  const t = useT()
+  const en = useEn()
   const [members, setMembers] = useState<RoveMember[]>(ROVE_MEMBERS[vert.id] ?? ROVE_MEMBERS.resto)
   const [result, setResult] = useState<RoveMember | null>(null)
   const [scanning, setScanning] = useState(false)
@@ -4810,13 +4925,13 @@ function ScannerView({ vert }: { vert: Vert }) {
   const membersRef = useRef(members); membersRef.current = members
 
   useEffect(() => { const sync = () => setBm(loadBMConfig()); sync(); window.addEventListener('storage', sync); return () => window.removeEventListener('storage', sync) }, [])
-  useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 3200); return () => clearTimeout(t) }, [toast])
+  useEffect(() => { if (!toast) return; const to = setTimeout(() => setToast(null), 3200); return () => clearTimeout(to) }, [toast])
 
   function resolve(raw: string) {
     const tok = parseRoveToken(raw)
-    if (!tok) { setToast({ msg: 'Código no reconocido. Intenta de nuevo.', tone: 'warn' }); return false }
+    if (!tok) { setToast({ msg: t('Código no reconocido. Intenta de nuevo.', 'Code not recognized. Try again.'), tone: 'warn' }); return false }
     const m = membersRef.current.find(x => x.serial.toUpperCase() === tok.serial.toUpperCase())
-    if (!m) { setToast({ msg: `Folio ${tok.serial} sin tarjeta en ${vert.name}.`, tone: 'warn' }); return false }
+    if (!m) { setToast({ msg: en ? `Serial ${tok.serial} has no card at ${vert.name}.` : `Folio ${tok.serial} sin tarjeta en ${vert.name}.`, tone: 'warn' }); return false }
     setScanning(false); setResult(m); setSerial(''); setToast(null)
     return true
   }
@@ -4870,10 +4985,10 @@ function ScannerView({ vert }: { vert: Vert }) {
         body: JSON.stringify({ action, serial: result.serial, businessId: vert.id, ...extra }),
       })
       const data = await res.json() as { ok: boolean; simulated?: boolean; error?: string }
-      if (!data.ok) { setToast({ msg: data.error || 'No se pudo procesar', tone: 'warn' }); return null }
+      if (!data.ok) { setToast({ msg: data.error || t('No se pudo procesar', 'Could not process'), tone: 'warn' }); return null }
       return data
     } catch {
-      setToast({ msg: 'Sin conexión con el servidor', tone: 'warn' }); return null
+      setToast({ msg: t('Sin conexión con el servidor', 'No connection to the server'), tone: 'warn' }); return null
     }
   }
   async function addStamp() {
@@ -4882,11 +4997,11 @@ function ScannerView({ vert }: { vert: Vert }) {
     const data = await runScan('stamp', { count: 1 })
     setBusy(false)
     if (!data) return
-    const sfx = data.simulated ? ' (simulado)' : ''
+    const sfx = data.simulated ? (en ? ' (simulated)' : ' (simulado)') : ''
     const next = Math.min(result.total ?? 10, (result.stamps ?? 0) + 1)
     patch(result.serial, { stamps: next })
     const done = next >= (result.total ?? 10)
-    setToast({ msg: done ? `¡Sello ${next}/${result.total}! Recompensa lista para canjear 🎁${sfx}` : `Sello agregado · ${next}/${result.total} · pase actualizado${sfx}`, tone: 'ok' })
+    setToast({ msg: done ? (en ? `Stamp ${next}/${result.total}! Reward ready to redeem 🎁${sfx}` : `¡Sello ${next}/${result.total}! Recompensa lista para canjear 🎁${sfx}`) : (en ? `Stamp added · ${next}/${result.total} · pass updated${sfx}` : `Sello agregado · ${next}/${result.total} · pase actualizado${sfx}`), tone: 'ok' })
   }
   async function addPoints() {
     if (!result || busy) return
@@ -4894,9 +5009,9 @@ function ScannerView({ vert }: { vert: Vert }) {
     const data = await runScan('points', { count: pts })
     setBusy(false)
     if (!data) return
-    const sfx = data.simulated ? ' (simulado)' : ''
+    const sfx = data.simulated ? (en ? ' (simulated)' : ' (simulado)') : ''
     patch(result.serial, { pts: (result.pts ?? 0) + pts })
-    setToast({ msg: `+${pts} puntos · pase actualizado${sfx}`, tone: 'ok' })
+    setToast({ msg: en ? `+${pts} points · pass updated${sfx}` : `+${pts} puntos · pase actualizado${sfx}`, tone: 'ok' })
   }
   async function redeem() {
     if (!result || busy) return
@@ -4904,9 +5019,9 @@ function ScannerView({ vert }: { vert: Vert }) {
     const data = await runScan('redeem', { rewardId: result.reward })
     setBusy(false)
     if (!data) return
-    const sfx = data.simulated ? ' (simulado)' : ''
-    if (result.program === 'stamps') { patch(result.serial, { stamps: 0 }); setToast({ msg: `Recompensa canjeada: ${result.reward}. Tarjeta reiniciada${sfx}`, tone: 'ok' }) }
-    else { patch(result.serial, { pts: Math.max(0, (result.pts ?? 0) - 50) }); setToast({ msg: `Recompensa canjeada · −50 pts${sfx}`, tone: 'ok' }) }
+    const sfx = data.simulated ? (en ? ' (simulated)' : ' (simulado)') : ''
+    if (result.program === 'stamps') { patch(result.serial, { stamps: 0 }); setToast({ msg: en ? `Reward redeemed: ${result.reward}. Card reset${sfx}` : `Recompensa canjeada: ${result.reward}. Tarjeta reiniciada${sfx}`, tone: 'ok' }) }
+    else { patch(result.serial, { pts: Math.max(0, (result.pts ?? 0) - 50) }); setToast({ msg: en ? `Reward redeemed · −50 pts${sfx}` : `Recompensa canjeada · −50 pts${sfx}`, tone: 'ok' }) }
   }
   const stampReady = result?.program === 'stamps' && (result.stamps ?? 0) >= (result.total ?? 10)
   const pointsReady = result?.program === 'points' && (result.pts ?? 0) >= 50
@@ -4915,27 +5030,27 @@ function ScannerView({ vert }: { vert: Vert }) {
     <div style={{ padding: '24px 28px', maxWidth: 1000 }}>
       {/* KPIs */}
       <div style={{ display: 'flex', gap: 14, marginBottom: 18, flexWrap: 'wrap' }}>
-        <BMetric label="Sellos hoy" value={28} tint={R.jadeTint} icon={<Icon n="check" size={20} color={R.jade} />} />
-        <BMetric label="Puntos otorgados (sem.)" value="1.4k" tint={R.amberTint} icon={<Icon n="spark" size={20} color={R.amber} />} />
-        <BMetric label="Recompensas canjeadas" value={6} tint={R.coralTint} icon={<Icon n="gift" size={20} color={R.coral} />} />
+        <BMetric label={t('Sellos hoy', 'Stamps today')} value={28} tint={R.jadeTint} icon={<Icon n="check" size={20} color={R.jade} />} />
+        <BMetric label={t('Puntos otorgados (sem.)', 'Points awarded (wk)')} value="1.4k" tint={R.amberTint} icon={<Icon n="spark" size={20} color={R.amber} />} />
+        <BMetric label={t('Recompensas canjeadas', 'Rewards redeemed')} value={6} tint={R.coralTint} icon={<Icon n="gift" size={20} color={R.coral} />} />
       </div>
 
       {/* Connection banner */}
       {bm.connected ? (
         <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 12.5, fontWeight: 600, color: '#16614c', background: R.jadeTint, padding: '6px 12px', borderRadius: 999, marginBottom: 16 }}>
-          <Icon n="spark" size={13} color={R.jade} fill={R.jade} /> Escáner en vivo · powered by BoomerangMe
+          <Icon n="spark" size={13} color={R.jade} fill={R.jade} /> {t('Escáner en vivo · powered by BoomerangMe', 'Live scanner · powered by BoomerangMe')}
         </div>
       ) : (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: R.amberDeep, background: R.amberTint, padding: '10px 14px', borderRadius: 12, marginBottom: 16 }}>
-          <Icon n="clock" size={15} color={R.amberDeep} /> La plataforma está conectando BoomerangMe. El escáner funciona en modo demostración mientras tanto.
+          <Icon n="clock" size={15} color={R.amberDeep} /> {t('La plataforma está conectando BoomerangMe. El escáner funciona en modo demostración mientras tanto.', 'The platform is connecting BoomerangMe. The scanner works in demo mode meanwhile.')}
         </div>
       )}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(320px, 1fr) minmax(320px, 1.1fr)', gap: 18, alignItems: 'start' }}>
         {/* ── Scanner panel ── */}
         <BCard style={{ padding: 18 }}>
-          <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink, marginBottom: 4 }}>Escanea la tarjeta del cliente</div>
-          <div style={{ fontSize: 13, color: R.inkSoft, marginBottom: 14 }}>Apunta la cámara al código QR que el cliente muestra en su app Reva (pestaña Reva+).</div>
+          <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink, marginBottom: 4 }}>{t('Escanea la tarjeta del cliente', 'Scan the customer’s card')}</div>
+          <div style={{ fontSize: 13, color: R.inkSoft, marginBottom: 14 }}>{t('Apunta la cámara al código QR que el cliente muestra en su app Reva (pestaña Reva+).', 'Point the camera at the QR code the customer shows in their Reva app (Reva+ tab).')}</div>
 
           {/* Viewport */}
           <div style={{ position: 'relative', width: '100%', aspectRatio: '1 / 1', borderRadius: 16, overflow: 'hidden', background: R.dusk, display: 'grid', placeItems: 'center' }}>
@@ -4956,13 +5071,13 @@ function ScannerView({ vert }: { vert: Vert }) {
                 {camErr ? (
                   <>
                     <Icon n="camera" size={34} color="rgba(255,255,255,.7)" />
-                    <div style={{ fontWeight: 700, fontSize: 14.5, marginTop: 10 }}>{camErr === 'unsupported' ? 'Cámara no disponible aquí' : 'Sin acceso a la cámara'}</div>
-                    <div style={{ fontSize: 12.5, opacity: .8, marginTop: 4, maxWidth: 220, marginInline: 'auto' }}>{camErr === 'unsupported' ? 'Este navegador no soporta escaneo. Usa el folio o la lista de abajo.' : 'Permite la cámara o usa el folio manual.'}</div>
+                    <div style={{ fontWeight: 700, fontSize: 14.5, marginTop: 10 }}>{camErr === 'unsupported' ? t('Cámara no disponible aquí', 'Camera not available here') : t('Sin acceso a la cámara', 'No camera access')}</div>
+                    <div style={{ fontSize: 12.5, opacity: .8, marginTop: 4, maxWidth: 220, marginInline: 'auto' }}>{camErr === 'unsupported' ? t('Este navegador no soporta escaneo. Usa el folio o la lista de abajo.', 'This browser doesn’t support scanning. Use the serial or the list below.') : t('Permite la cámara o usa el folio manual.', 'Allow the camera or use the manual serial.')}</div>
                   </>
                 ) : (
                   <>
                     <Icon n="qr" size={40} color="rgba(255,255,255,.7)" />
-                    <div style={{ fontWeight: 700, fontSize: 14.5, marginTop: 10 }}>Listo para escanear</div>
+                    <div style={{ fontWeight: 700, fontSize: 14.5, marginTop: 10 }}>{t('Listo para escanear', 'Ready to scan')}</div>
                   </>
                 )}
               </div>
@@ -4970,15 +5085,15 @@ function ScannerView({ vert }: { vert: Vert }) {
           </div>
 
           <button onClick={() => scanning ? setScanning(false) : startScan()} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, width: '100%', marginTop: 14, padding: '13px', border: 'none', borderRadius: 13, background: scanning ? R.bgAlt : R.coral, color: scanning ? R.ink : '#fff', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14.5 }}>
-            <Icon n={scanning ? 'x' : 'camera'} size={18} color={scanning ? R.ink : '#fff'} /> {scanning ? 'Detener' : 'Escanear código'}
+            <Icon n={scanning ? 'x' : 'camera'} size={18} color={scanning ? R.ink : '#fff'} /> {scanning ? t('Detener', 'Stop') : t('Escanear código', 'Scan code')}
           </button>
 
           {/* Manual entry */}
           <div style={{ marginTop: 16, paddingTop: 16, borderTop: `1px solid ${R.lineSoft}` }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 8 }}>O busca por folio de tarjeta</div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 8 }}>{t('O busca por folio de tarjeta', 'Or search by card serial')}</div>
             <div style={{ display: 'flex', gap: 8 }}>
               <input value={serial} onChange={e => setSerial(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && serial.trim()) resolve(serial.trim()) }} placeholder="Ej. RV-LUP-7F3K9" style={{ flex: 1, boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 10, padding: '11px 13px', fontSize: 14, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.surface, textTransform: 'uppercase' }} />
-              <button onClick={() => serial.trim() && resolve(serial.trim())} disabled={!serial.trim()} style={{ padding: '0 16px', border: 'none', borderRadius: 10, background: serial.trim() ? R.ink : R.bgAlt, color: serial.trim() ? '#fff' : R.inkFaint, cursor: serial.trim() ? 'pointer' : 'not-allowed', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5 }}>Buscar</button>
+              <button onClick={() => serial.trim() && resolve(serial.trim())} disabled={!serial.trim()} style={{ padding: '0 16px', border: 'none', borderRadius: 10, background: serial.trim() ? R.ink : R.bgAlt, color: serial.trim() ? '#fff' : R.inkFaint, cursor: serial.trim() ? 'pointer' : 'not-allowed', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5 }}>{t('Buscar', 'Search')}</button>
             </div>
           </div>
 
@@ -4987,14 +5102,14 @@ function ScannerView({ vert }: { vert: Vert }) {
 
           {/* Demo quick-pick */}
           <div style={{ marginTop: 16 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 8 }}>Demostración · simula un escaneo</div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 8 }}>{t('Demostración · simula un escaneo', 'Demo · simulate a scan')}</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {members.map(m => (
                 <button key={m.serial} onClick={() => resolve(m.serial)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 11px', border: `1px solid ${R.line}`, borderRadius: 11, background: result?.serial === m.serial ? R.coralTint : R.surface, cursor: 'pointer', fontFamily: R.ui, textAlign: 'left' }}>
                   <GuestAvatar name={m.name} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontWeight: 700, fontSize: 13.5, color: R.ink }}>{m.name}</div>
-                    <div style={{ fontSize: 11.5, color: R.inkFaint }}>{m.serial} · {m.program === 'stamps' ? `${m.stamps}/${m.total} sellos` : `${m.pts} pts`}</div>
+                    <div style={{ fontSize: 11.5, color: R.inkFaint }}>{m.serial} · {m.program === 'stamps' ? `${m.stamps}/${m.total} ${t('sellos', 'stamps')}` : `${m.pts} pts`}</div>
                   </div>
                   <Icon n="qr" size={16} color={R.inkFaint} />
                 </button>
@@ -5014,7 +5129,7 @@ function ScannerView({ vert }: { vert: Vert }) {
                     <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 19 }}>{result.name}</div>
                     <div style={{ fontSize: 12.5, opacity: .82 }}>{result.card} · {result.serial}</div>
                   </div>
-                  <button onClick={() => setResult(null)} aria-label="Cerrar" style={{ width: 32, height: 32, borderRadius: '50%', border: 'none', background: 'rgba(255,255,255,.16)', cursor: 'pointer', display: 'grid', placeItems: 'center', flexShrink: 0 }}><Icon n="x" size={15} color="#fff" /></button>
+                  <button onClick={() => setResult(null)} aria-label={t('Cerrar', 'Close')} style={{ width: 32, height: 32, borderRadius: '50%', border: 'none', background: 'rgba(255,255,255,.16)', cursor: 'pointer', display: 'grid', placeItems: 'center', flexShrink: 0 }}><Icon n="x" size={15} color="#fff" /></button>
                 </div>
               </div>
 
@@ -5022,7 +5137,7 @@ function ScannerView({ vert }: { vert: Vert }) {
                 {result.program === 'stamps' ? (
                   <>
                     <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 12 }}>
-                      <span style={{ fontSize: 13, color: R.inkSoft }}>Sellos</span>
+                      <span style={{ fontSize: 13, color: R.inkSoft }}>{t('Sellos', 'Stamps')}</span>
                       <span style={{ fontFamily: R.display, fontWeight: 800, fontSize: 20, color: R.ink }}>{result.stamps}<span style={{ fontSize: 14, color: R.inkFaint }}> / {result.total}</span></span>
                     </div>
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16 }}>
@@ -5034,41 +5149,41 @@ function ScannerView({ vert }: { vert: Vert }) {
                       ))}
                     </div>
                     <div style={{ fontSize: 12.5, color: R.inkSoft, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <Icon n="gift" size={14} color={R.amber} /> Recompensa: <strong style={{ color: R.ink }}>{result.reward}</strong>
+                      <Icon n="gift" size={14} color={R.amber} /> {t('Recompensa', 'Reward')}: <strong style={{ color: R.ink }}>{result.reward}</strong>
                     </div>
                     <button onClick={addStamp} disabled={stampReady || busy} style={{ width: '100%', padding: '13px', border: 'none', borderRadius: 13, background: (stampReady || busy) ? R.bgAlt : R.jade, color: (stampReady || busy) ? R.inkFaint : '#fff', cursor: (stampReady || busy) ? 'not-allowed' : 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14.5, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-                      <Icon n="check" size={18} color={(stampReady || busy) ? R.inkFaint : '#fff'} stroke={3} /> {busy ? 'Procesando…' : 'Sellar visita'}
+                      <Icon n="check" size={18} color={(stampReady || busy) ? R.inkFaint : '#fff'} stroke={3} /> {busy ? t('Procesando…', 'Processing…') : t('Sellar visita', 'Stamp visit')}
                     </button>
                   </>
                 ) : (
                   <>
                     <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 14 }}>
-                      <span style={{ fontSize: 13, color: R.inkSoft }}>Saldo de puntos</span>
+                      <span style={{ fontSize: 13, color: R.inkSoft }}>{t('Saldo de puntos', 'Points balance')}</span>
                       <span style={{ fontFamily: R.display, fontWeight: 800, fontSize: 26, color: R.ink }}>{result.pts} <span style={{ fontSize: 14, color: R.inkFaint }}>pts</span></span>
                     </div>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 8 }}>Sumar puntos</div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 8 }}>{t('Sumar puntos', 'Add points')}</div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
                       <button onClick={() => setPts(p => Math.max(1, p - 5))} style={{ width: 38, height: 38, borderRadius: 10, border: `1px solid ${R.line}`, background: R.surface, cursor: 'pointer', fontSize: 20, color: R.ink }}>−</button>
                       <span style={{ fontFamily: R.display, fontWeight: 800, fontSize: 22, color: R.ink, width: 48, textAlign: 'center' }}>{pts}</span>
                       <button onClick={() => setPts(p => p + 5)} style={{ width: 38, height: 38, borderRadius: 10, border: `1px solid ${R.line}`, background: R.surface, cursor: 'pointer', fontSize: 20, color: R.ink }}>+</button>
-                      <button onClick={addPoints} disabled={busy} style={{ flex: 1, padding: '11px', border: 'none', borderRadius: 11, background: busy ? R.bgAlt : R.amber, color: busy ? R.inkFaint : '#fff', cursor: busy ? 'not-allowed' : 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7 }}><Icon n="plus" size={16} color={busy ? R.inkFaint : '#fff'} /> {busy ? '…' : `Sumar ${pts}`}</button>
+                      <button onClick={addPoints} disabled={busy} style={{ flex: 1, padding: '11px', border: 'none', borderRadius: 11, background: busy ? R.bgAlt : R.amber, color: busy ? R.inkFaint : '#fff', cursor: busy ? 'not-allowed' : 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7 }}><Icon n="plus" size={16} color={busy ? R.inkFaint : '#fff'} /> {busy ? '…' : `${t('Sumar', 'Add')} ${pts}`}</button>
                     </div>
                   </>
                 )}
 
                 {(() => { const canRedeem = (result.program === 'stamps' ? stampReady : pointsReady) && !busy; return (
                 <button onClick={redeem} disabled={!canRedeem} style={{ width: '100%', marginTop: 10, padding: '12px', border: `1.5px solid ${canRedeem ? R.coral : R.line}`, borderRadius: 13, background: canRedeem ? R.coralTint : 'transparent', color: canRedeem ? R.coralPress : R.inkFaint, cursor: canRedeem ? 'pointer' : 'not-allowed', fontFamily: R.ui, fontWeight: 700, fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-                  <Icon n="gift" size={17} color={canRedeem ? R.coralPress : R.inkFaint} /> Canjear recompensa
+                  <Icon n="gift" size={17} color={canRedeem ? R.coralPress : R.inkFaint} /> {t('Canjear recompensa', 'Redeem reward')}
                 </button>
                 ) })()}
-                <div style={{ fontSize: 11.5, color: R.inkFaint, textAlign: 'center', marginTop: 10 }}>Última actividad: {result.last}</div>
+                <div style={{ fontSize: 11.5, color: R.inkFaint, textAlign: 'center', marginTop: 10 }}>{t('Última actividad', 'Last activity')}: {result.last}</div>
               </div>
             </BCard>
           ) : (
             <BCard style={{ padding: '48px 28px', textAlign: 'center', color: R.inkSoft, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
               <div style={{ width: 56, height: 56, borderRadius: 16, background: R.bgAlt, display: 'grid', placeItems: 'center' }}><Icon n="scan" size={28} color={R.inkFaint} /></div>
-              <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16.5, color: R.ink }}>Sin cliente todavía</div>
-              <div style={{ fontSize: 13, color: R.inkSoft, maxWidth: 260, lineHeight: 1.5 }}>Escanea un código Reva+, busca por folio o elige uno de la lista de demostración para sellar, sumar puntos o canjear.</div>
+              <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16.5, color: R.ink }}>{t('Sin cliente todavía', 'No customer yet')}</div>
+              <div style={{ fontSize: 13, color: R.inkSoft, maxWidth: 260, lineHeight: 1.5 }}>{t('Escanea un código Reva+, busca por folio o elige uno de la lista de demostración para sellar, sumar puntos o canjear.', 'Scan a Reva+ code, search by serial or pick one from the demo list to stamp, add points or redeem.')}</div>
             </BCard>
           )}
         </div>
@@ -5087,11 +5202,12 @@ function ScannerView({ vert }: { vert: Vert }) {
 }
 
 function PlaceholderView({ title }: { title: string }) {
+  const t = useT()
   return (
     <div style={{ display: 'flex', flex: 1, alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12, color: R.inkSoft, padding: 40 }}>
       <Icon n="spark" size={36} color={R.inkFaint} />
       <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 18, color: R.ink }}>{title}</div>
-      <div style={{ fontSize: 13.5, color: R.inkSoft }}>Próximamente en esta versión.</div>
+      <div style={{ fontSize: 13.5, color: R.inkSoft }}>{t('Próximamente en esta versión.', 'Coming soon in this version.')}</div>
     </div>
   )
 }
@@ -5108,6 +5224,12 @@ export default function BizPage() {
   const [onboardBiz, setOnboardBiz] = useState<OwnerBusiness | null>(null)
   const [vertIdx, setVertIdx] = useState(0)
   const [view, setView] = useState('requests')
+  // Idioma del panel — toggle propio del negocio, persistido en el dispositivo.
+  const [lang, setLang] = useState<Lang>('es')
+  useEffect(() => { try { const s = localStorage.getItem('reva-biz-lang'); if (s === 'en' || s === 'es') setLang(s) } catch {} }, [])
+  const setLangPersist = (l: Lang) => { setLang(l); try { localStorage.setItem('reva-biz-lang', l) } catch {} }
+  const en = lang === 'en'
+  const t = (es: string, enTxt: string) => (en ? enTxt : es)
   // Config del Agente de IA (tono, instrucciones, límite de descuento, on/off).
   // Es por negocio y se persiste; la consumen Ajustes y la pestaña Mensajes.
   const [agentCfg, setAgentCfgState] = useState<BizAgentConfig>(DEFAULT_AGENT_CONFIG)
@@ -5251,15 +5373,15 @@ export default function BizPage() {
   if (!ownerReady) {
     return (
       <div style={{ minHeight: '100vh', background: R.bg, display: 'grid', placeItems: 'center', fontFamily: R.ui, color: R.inkSoft, fontSize: 14 }}>
-        Cargando tu panel…
+        {t('Cargando tu panel…', 'Loading your panel…')}
       </div>
     )
   }
-  if (needsOnboarding) return <BizOnboarding biz={onboardBiz} onDone={reloadOwner} />
+  if (needsOnboarding) return <LangContext.Provider value={lang}><BizOnboarding biz={onboardBiz} onDone={reloadOwner} /></LangContext.Provider>
   if (!verts || verts.length === 0) {
     return (
       <div style={{ minHeight: '100vh', background: R.bg, display: 'grid', placeItems: 'center', fontFamily: R.ui, color: R.inkSoft, fontSize: 14 }}>
-        Cargando tu panel…
+        {t('Cargando tu panel…', 'Loading your panel…')}
       </div>
     )
   }
@@ -5270,22 +5392,22 @@ export default function BizPage() {
 
   // Inyecta las métricas reales en la forma que ya consumen las vistas.
   const fmtK = (n: number) => n >= 1000 ? `$${(n / 1000).toFixed(1)}k` : `$${Math.round(n)}`
-  const dayLetters = ['D', 'L', 'M', 'M', 'J', 'V', 'S']
+  const dayLetters = en ? ['S', 'M', 'T', 'W', 'T', 'F', 'S'] : ['D', 'L', 'M', 'M', 'J', 'V', 'S']
   const last7Labels = Array.from({ length: 7 }, (_, i) => { const d = new Date(); d.setDate(d.getDate() - (6 - i)); return dayLetters[d.getDay()] })
   const vertM: Vert = bizMetrics
     ? { ...vert, metrics: { ...vert.metrics, reservasHoy: bizMetrics.reservasHoy, ingreso: fmtK(bizMetrics.ingreso7), viaReva: bizMetrics.viaReva, rove: bizMetrics.rove, trend: bizMetrics.resSeries.d7, trendLabels: last7Labels } }
     : vert
 
-  const [mainTitle, mainSub] = VIEW_TITLES[view] ?? ['', '']
+  const [mainTitle, mainSub] = (en ? VIEW_TITLES_EN[view] : VIEW_TITLES[view]) ?? ['', '']
   const unreadMsgs = vert.messages.filter(m => m.unread).length
 
   // Notificaciones de la operación, derivadas de la actividad en vivo
   const notifs = [
     ...panelRequests
-      .map(r => ({ id: `act-${r.id}`, icon: 'bolt', tint: R.coralTint, color: R.coralPress, title: 'Acción requerida', sub: `${r.who} · ${r.party} personas · ${r.when} ${r.time}`, time: r.when === 'Hoy' ? r.time : r.when, view: 'requests' })),
+      .map(r => ({ id: `act-${r.id}`, icon: 'bolt', tint: R.coralTint, color: R.coralPress, title: t('Acción requerida', 'Action required'), sub: `${r.who} · ${r.party} ${t('personas', 'people')} · ${r.when} ${r.time}`, time: r.when === 'Hoy' ? r.time : r.when, view: 'requests' })),
     ...vert.messages
       .filter(m => m.unread)
-      .map(m => ({ id: `msg-${m.who}`, icon: 'chat', tint: R.jadeTint, color: '#16614c', title: `Nuevo mensaje · ${m.who}`, sub: m.last, time: m.time, view: 'messages' })),
+      .map(m => ({ id: `msg-${m.who}`, icon: 'chat', tint: R.jadeTint, color: '#16614c', title: `${t('Nuevo mensaje', 'New message')} · ${m.who}`, sub: m.last, time: m.time, view: 'messages' })),
   ]
 
   function openNotif(v: string) {
@@ -5306,11 +5428,12 @@ export default function BizPage() {
     if (view === 'destacado') return <DestacadoView vert={vert} />
     if (view === 'promos') return <PromosView vert={vert} metrics={bizMetrics} />
     if (view === 'scanner') return <ScannerView key={vert.id} vert={vert} />
-    if (view === 'settings') return <SettingsView agentCfg={agentCfg} setAgentCfg={setAgentCfg} taxMode={taxMode} setTaxMode={persistTaxMode} bizInfo={bizInfo} setBizInfo={persistBizInfo} vert={vert} onGo={setView} />
+    if (view === 'settings') return <SettingsView agentCfg={agentCfg} setAgentCfg={setAgentCfg} taxMode={taxMode} setTaxMode={persistTaxMode} bizInfo={bizInfo} setBizInfo={persistBizInfo} vert={vert} onGo={setView} lang={lang} setLang={setLangPersist} />
     return <PlaceholderView title={VIEW_TITLES[view]?.[0] ?? view} />
   }
 
   return (
+    <LangContext.Provider value={lang}>
     <div style={{ display: 'flex', height: '100vh', fontFamily: R.ui, background: R.bg, color: R.ink, position: 'relative', overflow: 'hidden' }}>
       {/* ── Sidebar ── */}
       <div style={{ width: 236, flexShrink: 0, background: R.surface, borderRight: `1px solid ${R.line}`, display: 'flex', flexDirection: 'column', padding: '22px 16px' }}>
@@ -5321,7 +5444,7 @@ export default function BizPage() {
           </div>
           <div>
             <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 17, color: R.ink, lineHeight: 1 }}>Reva</div>
-            <div style={{ fontSize: 10.5, color: R.inkFaint, fontWeight: 700, letterSpacing: '.05em' }}>NEGOCIOS</div>
+            <div style={{ fontSize: 10.5, color: R.inkFaint, fontWeight: 700, letterSpacing: '.05em' }}>{t('NEGOCIOS', 'BUSINESS')}</div>
           </div>
         </div>
 
@@ -5333,7 +5456,7 @@ export default function BizPage() {
             return (
               <button key={it.id} onClick={() => setView(it.id)} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 14px', borderRadius: 12, cursor: 'pointer', border: 'none', width: '100%', textAlign: 'left', background: on ? R.coralTint : 'transparent', color: on ? R.coralPress : R.inkSoft, fontWeight: on ? 700 : 500, fontSize: 14.5, fontFamily: R.ui }}>
                 <Icon n={it.icon} size={20} color={on ? R.coral : R.inkFaint} stroke={on ? 2.3 : 2} />
-                <span style={{ flex: 1 }}>{it.label}</span>
+                <span style={{ flex: 1 }}>{t(it.label, NAV_EN[it.id] ?? it.label)}</span>
                 {badge > 0 && <span style={{ fontSize: 11.5, fontWeight: 700, color: '#fff', background: R.coral, borderRadius: 999, padding: '1px 7px', minWidth: 20, textAlign: 'center' }}>{badge}</span>}
               </button>
             )
@@ -5380,7 +5503,7 @@ export default function BizPage() {
             <div style={{ position: 'relative' }}>
               <button
                 onClick={() => setNotifOpen(o => !o)}
-                aria-label="Notificaciones"
+                aria-label={t('Notificaciones', 'Notifications')}
                 style={{ position: 'relative', display: 'grid', placeItems: 'center', width: 40, height: 40, background: notifOpen ? R.coralTint : R.bgAlt, border: 'none', borderRadius: 999, cursor: 'pointer' }}
               >
                 <Icon n="bell" size={18} color={notifOpen ? R.coralPress : R.inkSoft} />
@@ -5393,13 +5516,13 @@ export default function BizPage() {
                   <div onClick={() => setNotifOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 40 }} />
                   <div style={{ position: 'absolute', top: 'calc(100% + 10px)', right: 0, width: 340, maxHeight: 420, overflowY: 'auto', background: R.surface, border: `1px solid ${R.line}`, borderRadius: 16, boxShadow: '0 18px 48px rgba(34,28,25,.16)', zIndex: 41 }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px 10px', borderBottom: `1px solid ${R.lineSoft}`, position: 'sticky', top: 0, background: R.surface }}>
-                      <span style={{ fontFamily: R.display, fontWeight: 800, fontSize: 15, color: R.ink }}>Notificaciones</span>
-                      {notifs.length > 0 && <span style={{ fontSize: 11.5, fontWeight: 700, color: R.coralPress, background: R.coralTint, padding: '2px 9px', borderRadius: 999 }}>{notifs.length} nuevas</span>}
+                      <span style={{ fontFamily: R.display, fontWeight: 800, fontSize: 15, color: R.ink }}>{t('Notificaciones', 'Notifications')}</span>
+                      {notifs.length > 0 && <span style={{ fontSize: 11.5, fontWeight: 700, color: R.coralPress, background: R.coralTint, padding: '2px 9px', borderRadius: 999 }}>{notifs.length} {t('nuevas', 'new')}</span>}
                     </div>
                     {notifs.length === 0 ? (
                       <div style={{ textAlign: 'center', padding: '32px 20px', color: R.inkSoft, fontSize: 13 }}>
                         <Icon n="check" size={26} color={R.jade} />
-                        <div style={{ marginTop: 8 }}>Todo al día — sin pendientes.</div>
+                        <div style={{ marginTop: 8 }}>{t('Todo al día — sin pendientes.', 'All caught up — nothing pending.')}</div>
                       </div>
                     ) : (
                       <div style={{ display: 'flex', flexDirection: 'column' }}>
@@ -5424,14 +5547,14 @@ export default function BizPage() {
               )}
             </div>
             <button onClick={() => setView('settings')} style={{ display: 'flex', alignItems: 'center', gap: 7, background: view === 'settings' ? R.coralTint : R.bgAlt, border: 'none', borderRadius: 999, padding: '9px 14px', cursor: 'pointer', fontFamily: R.ui, fontWeight: 600, fontSize: 13, color: view === 'settings' ? R.coralPress : R.inkSoft }}>
-              <Icon n="settings" size={16} color={view === 'settings' ? R.coralPress : R.inkSoft} /> Ajustes
+              <Icon n="settings" size={16} color={view === 'settings' ? R.coralPress : R.inkSoft} /> {t('Ajustes', 'Settings')}
             </button>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', background: agentOn ? R.jadeTint : R.bgAlt, borderRadius: 999 }}>
               <span style={{ position: 'relative', display: 'inline-block', width: 9, height: 9 }}>
                 <span style={{ position: 'absolute', inset: 0, borderRadius: '50%', background: agentOn ? R.jade : R.inkFaint }} />
                 {agentOn && <span style={{ position: 'absolute', inset: -4, borderRadius: '50%', border: `2px solid ${R.jade}`, opacity: .4, animation: 'ping 1.6s infinite' }} />}
               </span>
-              <span style={{ fontSize: 13.5, fontWeight: 700, color: agentOn ? '#16614c' : R.inkSoft, whiteSpace: 'nowrap' }}>Agente {agentOn ? 'activo' : 'pausado'}</span>
+              <span style={{ fontSize: 13.5, fontWeight: 700, color: agentOn ? '#16614c' : R.inkSoft, whiteSpace: 'nowrap' }}>{t('Agente', 'Agent')} {agentOn ? t('activo', 'active') : t('pausado', 'paused')}</span>
               <button onClick={() => setAgentOn(!agentOn)} style={{ width: 34, height: 20, borderRadius: 999, border: 'none', cursor: 'pointer', background: agentOn ? R.jade : R.inkFaint, position: 'relative', flexShrink: 0 }}>
                 <span style={{ position: 'absolute', top: 2, left: agentOn ? 16 : 2, width: 16, height: 16, borderRadius: '50%', background: '#fff', transition: 'left .18s' }} />
               </button>
@@ -5447,5 +5570,6 @@ export default function BizPage() {
 
       <style>{`@keyframes ping{0%{transform:scale(1);opacity:.5}100%{transform:scale(2.2);opacity:0}}`}</style>
     </div>
+    </LangContext.Provider>
   )
 }
