@@ -12,7 +12,7 @@ export async function GET() {
   const db = createAdminClient()
   const { data: biz, error } = await db
     .from('businesses')
-    .select('id,name,type,kind,hood,municipio,estado,featured,tier,agent_active,onboarded,grad_from,grad_to,mono,created_at')
+    .select('id,name,type,kind,hood,municipio,estado,featured,tier,featured_until,agent_active,onboarded,grad_from,grad_to,mono,created_at')
     .order('created_at', { ascending: false })
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 

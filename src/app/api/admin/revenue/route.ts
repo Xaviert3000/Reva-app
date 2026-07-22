@@ -55,8 +55,8 @@ export async function GET() {
   const now = new Date()
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime()
 
-  // Agregados.
-  const byType: Record<string, { count: number; gross: number; revenue: number }> = {}
+  // Agregados. `*Month` = solo lo cobrado en el mes en curso.
+  const byType: Record<string, { count: number; gross: number; revenue: number; revenueMonth: number; countMonth: number }> = {}
   let gmv = 0            // volumen total procesado por el sistema
   let platform = 0       // ingreso real de Reva (todo el histórico)
   let platformMonth = 0  // ingreso real de Reva (mes en curso)
@@ -65,14 +65,16 @@ export async function GET() {
     const amount = Number(r.amount) || 0
     const type = r.type || 'otro'
     const revenue = revaCut(r.type, amount)
+    const inMonth = new Date(r.created_at).getTime() >= monthStart
     gmv += amount
     platform += revenue
-    if (new Date(r.created_at).getTime() >= monthStart) platformMonth += revenue
+    if (inMonth) platformMonth += revenue
 
-    const t = byType[type] ?? (byType[type] = { count: 0, gross: 0, revenue: 0 })
+    const t = byType[type] ?? (byType[type] = { count: 0, gross: 0, revenue: 0, revenueMonth: 0, countMonth: 0 })
     t.count += 1
     t.gross += amount
     t.revenue += revenue
+    if (inMonth) { t.revenueMonth += revenue; t.countMonth += 1 }
 
     return {
       id: r.id,

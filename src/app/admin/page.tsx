@@ -85,32 +85,9 @@ const INTEGRATIONS: { id: string; name: string; tag: string; desc: string; grad:
 
 type Niv = 'Premium' | 'Destacado'
 
-const INVENTORY: { cat: string; mun: string; premium: [number, number]; destacado: [number, number]; wait: number }[] = [
-  { cat: 'Restaurantes', mun: 'San José del Cabo', premium: [2, 2], destacado: [6, 8], wait: 3 },
-  { cat: 'Restaurantes', mun: 'Cabo San Lucas', premium: [1, 2], destacado: [8, 8], wait: 5 },
-  { cat: 'Spa & Bienestar', mun: 'San José del Cabo', premium: [1, 2], destacado: [3, 8], wait: 0 },
-  { cat: 'Bar / Vida nocturna', mun: 'Cabo San Lucas', premium: [2, 2], destacado: [7, 8], wait: 2 },
-  { cat: 'Tours & Experiencias', mun: 'Cabo San Lucas', premium: [0, 2], destacado: [4, 8], wait: 0 },
-]
-
-const ACTIVE: { biz: string; mono: string; cat: string; mun: string; nivel: Niv; que: string; dias: number; ingreso: string; mrr: number; grad: [string, string] }[] = [
-  { biz: 'Sereno Spa', mono: 'S', cat: 'Spa & Bienestar', mun: 'San José del Cabo', nivel: 'Premium', que: 'Masaje en pareja', dias: 22, ingreso: '$2,790', mrr: 2790, grad: ['#C9A2B4', '#6E4A63'] },
-  { biz: 'Cabo Azul Rooftop', mono: 'C', cat: 'Bar / Vida nocturna', mun: 'Cabo San Lucas', nivel: 'Premium', que: 'Área VIP', dias: 8, ingreso: '$1,590', mrr: 1590, grad: ['#E9A24A', '#C25C3C'] },
-  { biz: 'La Lupita', mono: 'L', cat: 'Restaurantes', mun: 'San José del Cabo', nivel: 'Destacado', que: 'Mezcal flight', dias: 15, ingreso: '$690', mrr: 690, grad: ['#E27A52', '#B5472F'] },
-  { biz: 'Huerta del Mar', mono: 'H', cat: 'Restaurantes', mun: 'San José del Cabo', nivel: 'Destacado', que: 'Menú degustación', dias: 12, ingreso: '$690', mrr: 690, grad: ['#5FA6B0', '#2E6E78'] },
-  { biz: 'Comal Costero', mono: 'C', cat: 'Restaurantes', mun: 'Cabo San Lucas', nivel: 'Destacado', que: 'Todo el negocio', dias: 5, ingreso: '$390', mrr: 390, grad: ['#8B6CB0', '#4A3370'] },
-  { biz: 'Cabo Adventures', mono: 'C', cat: 'Tours & Experiencias', mun: 'Cabo San Lucas', nivel: 'Destacado', que: 'Tour en yate', dias: 19, ingreso: '$1,190', mrr: 1190, grad: ['#6E8FB0', '#33507A'] },
-]
-
-const WAITLIST: { biz: string; cat: string; mun: string; nivel: Niv }[] = [
-  { biz: 'Mariscos El Faro', cat: 'Restaurantes', mun: 'Cabo San Lucas', nivel: 'Destacado' },
-  { biz: 'Taquería Don Beto', cat: 'Restaurantes', mun: 'Cabo San Lucas', nivel: 'Destacado' },
-  { biz: 'Lounge 22', cat: 'Bar / Vida nocturna', mun: 'Cabo San Lucas', nivel: 'Premium' },
-]
-
-type Biz = { name: string; mono: string; cat: string; mun: string; plan: string; estado: 'Activo' | 'Pausado'; dest: string; reservas: number; grad: [string, string]; email?: string; invitePending?: boolean }
+type Biz = { id?: string; name: string; mono: string; cat: string; mun: string; plan: string; estado: 'Activo' | 'Pausado'; dest: string; reservas: number; grad: [string, string]; email?: string; invitePending?: boolean }
 // Fila cruda de /api/admin/businesses (Fase 9).
-type AdminBizRow = { name: string; mono: string | null; kind: string | null; type: string | null; municipio: string | null; agent_active: boolean | null; tier: string | null; grad_from: string | null; grad_to: string | null }
+type AdminBizRow = { id: string; name: string; mono: string | null; kind: string | null; type: string | null; municipio: string | null; agent_active: boolean | null; tier: string | null; featured_until: string | null; grad_from: string | null; grad_to: string | null }
 const BIZES_INIT: Biz[] = [
   { name: 'La Lupita', mono: 'L', cat: 'Restaurantes', mun: 'San José del Cabo', plan: 'Reva', estado: 'Activo', dest: 'Destacado', reservas: 142, grad: ['#E27A52', '#B5472F'] },
   { name: 'Sereno Spa', mono: 'S', cat: 'Spa & Bienestar', mun: 'San José del Cabo', plan: 'Reva', estado: 'Activo', dest: 'Premium', reservas: 96, grad: ['#C9A2B4', '#6E4A63'] },
@@ -171,11 +148,16 @@ function mapAdminReservation(r: AdminResRow): ResaItem {
 }
 
 type PaymentItem = { id: string; created_at: string; type: string; amount: number; revenue: number; currency: string; biz_name: string; mono: string; grad: [string, string]; guest_name: string }
-type RevenueTypeAgg = { count: number; gross: number; revenue: number }
+type RevenueTypeAgg = { count: number; gross: number; revenue: number; revenueMonth: number; countMonth: number }
 type RevenueData = {
   payments: PaymentItem[]
   totals: { gmv: number; platform: number; platformMonth: number; count: number; byType: Record<string, RevenueTypeAgg>; commissionRate: number }
 }
+
+// Datos reales del módulo Destacados (/api/admin/featured).
+type FeatInvRow = { categoria: string; municipio: string; premiumSold: number; premiumCap: number; destacadoSold: number; destacadoCap: number; waitlist: number }
+type FeatActive = { id: string; biz: string; mono: string; cat: string; mun: string; nivel: Niv; que: string; dias: number | null; amount: number; grad: [string, string] }
+type FeaturedData = { inventory: FeatInvRow[]; active: FeatActive[]; totals: { premiumSold: number; premiumCap: number; destacadoSold: number; destacadoCap: number; waitlist: number } }
 
 type ModItem = { id: string; biz: string; mono: string; nivel: Niv; tipo: 'Servicio' | 'Negocio' | 'Promoción'; que: string; enviado: string; grad: [string, string] }
 const MOD_INIT: ModItem[] = [
@@ -208,29 +190,6 @@ type Ticket = {
   email: string; phone?: string; memberSince: string; reservasTotal: number; lang: string
   prevTickets: { id: string; issue: string; status: string; date: string }[]
 }
-
-const TICKETS_INIT: Ticket[] = [
-  { id: 'SOP-001', user: 'Emily W.', city: 'Los Cabos', mode: 'Explorer', issue: 'No puedo cancelar mi reserva en Sereno Spa', time: 'hace 8 min', status: 'nuevo',
-    email: 'emily.w@gmail.com', phone: '+1 (619) 882-4401', memberSince: 'Mar 2026', reservasTotal: 3, lang: 'English',
-    prevTickets: [],
-    thread: [{ from: 'user', txt: 'Hi, I booked a couples massage for today at 4pm but need to cancel. The cancellation button is grayed out.', time: '10:22' }] },
-  { id: 'SOP-002', user: 'Daniela R.', city: 'Los Cabos', mode: 'Vecino', issue: 'No llegó la confirmación de mi reserva', time: 'hace 22 min', status: 'en_progreso',
-    email: 'daniela.rios@hotmail.com', memberSince: 'Ene 2025', reservasTotal: 18, lang: 'Español',
-    prevTickets: [{ id: 'SOP-044', issue: 'Error al pagar con Mercado Pago', status: 'Resuelto', date: 'Feb 2026' }],
-    thread: [{ from: 'user', txt: 'Hice una reserva en La Lupita y nunca llegó la confirmación por push.', time: '10:08' }, { from: 'agent', txt: 'Hola Daniela, revisamos tu reserva. La confirmación se envió a las 10:09, puede estar en spam. ¿Puedes verificar?', time: '10:11' }] },
-  { id: 'SOP-003', user: 'Marcus T.', city: 'Los Cabos', mode: 'Explorer', issue: 'Double charge on my card', time: 'hace 1 h', status: 'en_progreso',
-    email: 'marcus.t@outlook.com', phone: '+1 (312) 559-0034', memberSince: 'Jun 2026', reservasTotal: 1, lang: 'English',
-    prevTickets: [],
-    thread: [{ from: 'user', txt: 'I see two charges of $180 USD from Reva on my card statement for the same booking.', time: '09:28' }, { from: 'agent', txt: 'Hi Marcus, I can see your booking. I only see one charge on our end — can you share a screenshot of your statement?', time: '09:35' }] },
-  { id: 'SOP-004', user: 'Ana G.', city: 'Los Cabos', mode: 'Vecino', issue: '¿Cómo cambio mis puntos Reva+?', time: 'hace 2 h', status: 'resuelto',
-    email: 'ana.garcia.cabo@gmail.com', memberSince: 'Ago 2024', reservasTotal: 31, lang: 'Español',
-    prevTickets: [{ id: 'SOP-021', issue: 'Boletos Reva+ no aparecen', status: 'Resuelto', date: 'Nov 2025' }, { id: 'SOP-008', issue: 'Reserva duplicada', status: 'Resuelto', date: 'Sep 2024' }],
-    thread: [{ from: 'user', txt: '¿Cómo canjeo mis boletos Reva+? Tengo 12 y no sé dónde usarlos.', time: '08:45' }, { from: 'agent', txt: 'Hola Ana, tus boletos Reva+ se usan en la pestaña Reva+ → Sorteo de esta semana. ¡Suerte!', time: '08:48' }] },
-  { id: 'SOP-005', user: 'Tom R.', city: 'Los Cabos', mode: 'Explorer', issue: 'Reva is not responding in chat', time: 'hace 3 h', status: 'resuelto',
-    email: 'tom.r@icloud.com', phone: '+44 7700 900456', memberSince: 'Jun 2026', reservasTotal: 2, lang: 'English',
-    prevTickets: [],
-    thread: [{ from: 'user', txt: 'The Reva chat is not loading, it just shows a spinning indicator.', time: '07:30' }, { from: 'agent', txt: 'Hi Tom, we had a brief API issue this morning. It\'s now resolved — please try again!', time: '08:15' }] },
-]
 
 const RES_COLOR: Record<Estado, [string, string]> = {
   'Confirmada': [R.jade, R.jadeTint], 'Sentados': [R.dusk, '#EAECEF'],
@@ -557,20 +516,33 @@ export default function AdminPage() {
     fetch('/api/admin/businesses').then(r => r.ok ? r.json() : null).then(d => {
       if (!d?.businesses) return
       setBizes(d.businesses.map((b: AdminBizRow): Biz => ({
+        id: b.id,
         name: b.name,
         mono: b.mono || (b.name || 'R').charAt(0).toUpperCase(),
         cat: b.kind || b.type || '—',
         mun: b.municipio || '—',
         plan: 'Reva',
         estado: b.agent_active ? 'Activo' : 'Pausado',
-        dest: b.tier === 'premium' ? 'Premium' : b.tier === 'destacado' ? 'Destacado' : '—',
+        // Solo cuenta como destacado si el plan no ha vencido (igual que /app).
+        dest: (b.featured_until && new Date(b.featured_until).getTime() < Date.now())
+          ? '—'
+          : b.tier === 'premium' ? 'Premium' : b.tier === 'destacado' ? 'Destacado' : '—',
         reservas: 0,
         grad: [b.grad_from || '#5FA6B0', b.grad_to || '#2E6E78'],
       })))
     }).catch(() => {})
-    // Reservas reales de la plataforma.
+    // Reservas reales de la plataforma + agregados (total del mes, conteo por negocio).
     fetch('/api/admin/reservations').then(r => r.ok ? r.json() : null).then(d => {
       if (d?.reservations) setReservasList(d.reservations.map(mapAdminReservation))
+      if (d?.stats) setResStats(d.stats)
+    }).catch(() => {})
+    // Tickets de soporte reales.
+    fetch('/api/admin/support').then(r => r.ok ? r.json() : null).then(d => {
+      if (d?.tickets) setTickets(d.tickets)
+    }).catch(() => {})
+    // Destacados reales: inventario de cupos + campañas vigentes.
+    fetch('/api/admin/featured').then(r => r.ok ? r.json() : null).then((d: FeaturedData | null) => {
+      if (d?.inventory) setFeatured(d)
     }).catch(() => {})
     // Cola de moderación real.
     fetch('/api/admin/moderation').then(r => r.ok ? r.json() : null).then(d => {
@@ -637,18 +609,25 @@ export default function AdminPage() {
   const [rq, setRq] = useState('')
   const [rf, setRf] = useState('Todas')
   const [reservasList, setReservasList] = useState<ResaItem[]>(RESERVAS)
+  // Agregados reales de reservas: total del mes + conteo por negocio (biz_id → n).
+  const [resStats, setResStats] = useState<{ month: number; total: number; byBiz: Record<string, number> }>({ month: 0, total: 0, byBiz: {} })
 
   // Ingresos (pagos reales desde la tabla `payments` vía /api/admin/revenue)
   const [revenue, setRevenue] = useState<RevenueData | null>(null)
   const [revLoaded, setRevLoaded] = useState(false)
   const [revFilter, setRevFilter] = useState<'Todos' | 'Destacados' | 'Depósitos'>('Todos')
 
+  // Destacados (inventario de cupos + campañas vigentes reales, vía /api/admin/featured)
+  const [featured, setFeatured] = useState<FeaturedData | null>(null)
+  const [capEdit, setCapEdit] = useState<string | null>(null) // "categoria|||municipio" en edición
+  const [capDraft, setCapDraft] = useState<{ premium: number; destacado: number }>({ premium: 0, destacado: 0 })
+
   // Moderación
   const [modQueue, setModQueue] = useState<ModItem[]>(MOD_INIT)
   const [resolved, setResolved] = useState<{ aprobadas: number; rechazadas: number }>({ aprobadas: 0, rechazadas: 0 })
 
   // Soporte
-  const [tickets, setTickets] = useState<Ticket[]>(TICKETS_INIT)
+  const [tickets, setTickets] = useState<Ticket[]>([])
   const [selTicket, setSelTicket] = useState<string | null>(null)
   const [replyText, setReplyText] = useState('')
   const [statusFilter, setStatusFilter] = useState<'todos'|'nuevo'|'en_progreso'|'resuelto'>('todos')
@@ -762,16 +741,39 @@ export default function AdminPage() {
 
   if (!authed) return <AdminLogin onAuth={login} />
 
-  // Derivados Destacados
-  const soldP = INVENTORY.reduce((a, r) => a + r.premium[0], 0)
-  const capP = INVENTORY.reduce((a, r) => a + r.premium[1], 0)
-  const soldD = INVENTORY.reduce((a, r) => a + r.destacado[0], 0)
-  const capD = INVENTORY.reduce((a, r) => a + r.destacado[1], 0)
-  const soldTotal = soldP + soldD, capTotal = capP + capD
-  const occ = capTotal ? Math.round((soldTotal / capTotal) * 100) : 0
-  const waitTotal = INVENTORY.reduce((a, r) => a + r.wait, 0)
-  const mrr = ACTIVE.reduce((a, r) => a + r.mrr, 0)
   const fmt = (n: number) => '$' + n.toLocaleString('es-MX')
+
+  // ── Derivados reales para el Resumen (base de datos) ──
+  // Reservas por negocio (biz_id → n) desde /api/admin/reservations.
+  const bizReservas = (b: Biz) => (b.id ? resStats.byBiz[b.id] : undefined) ?? b.reservas
+  // Destacados activos por nivel (real, desde businesses.tier).
+  const premiumLive = bizes.filter(b => b.dest === 'Premium').length
+  const destacadoLive = bizes.filter(b => b.dest === 'Destacado').length
+  // "Lista de espera" real: negocios activos sin visibilidad pagada (demanda potencial de cupo).
+  const sinDestacar = bizes.filter(b => b.estado === 'Activo' && b.dest === '—').length
+  // Ingresos reales desde /api/admin/revenue (payments).
+  const platformMonth = revenue?.totals.platformMonth ?? 0
+  const featuredMonth = revenue?.totals.byType?.featured?.revenueMonth ?? 0
+  const featuredActive = premiumLive + destacadoLive
+
+  // ── Módulo Destacados (cupos reales) ──
+  const featInventory = featured?.inventory ?? []
+  const featActive = featured?.active ?? []
+  const featTotals = featured?.totals ?? { premiumSold: 0, premiumCap: 0, destacadoSold: 0, destacadoCap: 0, waitlist: 0 }
+  const featSoldTotal = featTotals.premiumSold + featTotals.destacadoSold
+  const featCapTotal = featTotals.premiumCap + featTotals.destacadoCap
+  const featOcc = featCapTotal ? Math.round((featSoldTotal / featCapTotal) * 100) : 0
+
+  // Guarda un cupo (capacidad) editado y refresca el inventario en vivo.
+  async function saveCap(categoria: string, municipio: string, premium_cap: number, destacado_cap: number) {
+    setFeatured(prev => prev ? { ...prev, inventory: prev.inventory.map(r => r.categoria === categoria && r.municipio === municipio ? { ...r, premiumCap: premium_cap, destacadoCap: destacado_cap } : r) } : prev)
+    setCapEdit(null)
+    try {
+      await fetch('/api/admin/featured', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ categoria, municipio, premium_cap, destacado_cap }) })
+      const d = await fetch('/api/admin/featured').then(r => r.ok ? r.json() : null)
+      if (d?.inventory) setFeatured(d)
+    } catch {}
+  }
 
   // Negocios filtrados
   const bizRows = bizes.map((b, idx) => ({ b, idx })).filter(({ b }) =>
@@ -990,7 +992,7 @@ export default function AdminPage() {
           {view === 'overview' && (() => {
             const pendingMod = modQueue.length
             const pendingTickets = tickets.filter(t => t.status !== 'resuelto').length
-            const topBizes = [...bizes].filter(b => b.estado === 'Activo').sort((a, b) => b.reservas - a.reservas).slice(0, 5)
+            const topBizes = [...bizes].filter(b => b.estado === 'Activo').sort((a, b) => bizReservas(b) - bizReservas(a)).slice(0, 5)
             const nextReservas = reservasList.filter(r => r.estado !== 'Cancelada').slice(0, 5)
             const pausedBizes = bizes.filter(b => b.estado === 'Pausado').length
             return (
@@ -1023,20 +1025,20 @@ export default function AdminPage() {
 
                 <div style={{ display: 'flex', gap: 14, marginBottom: 22, flexWrap: 'wrap' }}>
                   <KPI label="Negocios activos" value={`${bizes.filter(b => b.estado === 'Activo').length}`} sub={pausedBizes ? `${pausedBizes} pausados · ${bizes.length} en total` : `${bizes.length} en total`} tint={R.coralTint} icon={<Icon n="grid" size={20} color={R.coral} />} />
-                  <KPI label="Reservas (mes)" value="3,412" sub="vía Reva" tint={R.jadeTint} icon={<Icon n="cal" size={20} color={R.jade} />} />
-                  <KPI label="Ingreso plataforma (mes)" value="$182k" sub="comisiones + destacados" tint={R.amberTint} icon={<Icon n="coins" size={20} color={R.amber} />} />
-                  <KPI label="Ingreso por Destacados" value={fmt(mrr)} sub={`${ACTIVE.length} campañas activas`} tint={R.coralTint} icon={<Icon n="spark" size={20} color={R.coral} />} />
+                  <KPI label="Reservas (mes)" value={resStats.month.toLocaleString('es-MX')} sub="vía Reva" tint={R.jadeTint} icon={<Icon n="cal" size={20} color={R.jade} />} />
+                  <KPI label="Ingreso plataforma (mes)" value={fmt(platformMonth)} sub="comisiones + destacados" tint={R.amberTint} icon={<Icon n="coins" size={20} color={R.amber} />} />
+                  <KPI label="Ingreso por Destacados (mes)" value={fmt(featuredMonth)} sub={`${featuredActive} ${featuredActive === 1 ? 'campaña activa' : 'campañas activas'}`} tint={R.coralTint} icon={<Icon n="spark" size={20} color={R.coral} />} />
                 </div>
 
                 <Card style={{ marginBottom: 22 }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-                    <span style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink }}>Destacados — ocupación global</span>
+                    <span style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink }}>Destacados — negocios activos</span>
                     <button onClick={() => setView('destacados')} style={{ background: 'none', border: 'none', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5, color: R.coral, cursor: 'pointer' }}>Ver módulo →</button>
                   </div>
                   <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
-                    <div style={{ flex: 1, minWidth: 200 }}><div style={{ fontSize: 12.5, color: R.inkSoft, marginBottom: 6 }}>★ Premium</div><Bar sold={soldP} total={capP} color={R.amber} /></div>
-                    <div style={{ flex: 1, minWidth: 200 }}><div style={{ fontSize: 12.5, color: R.inkSoft, marginBottom: 6 }}>✦ Destacado</div><Bar sold={soldD} total={capD} color={R.coral} /></div>
-                    <div style={{ flex: 1, minWidth: 200 }}><div style={{ fontSize: 12.5, color: R.inkSoft, marginBottom: 6 }}>En lista de espera</div><div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 22, color: R.ink }}>{waitTotal} negocios</div></div>
+                    <div style={{ flex: 1, minWidth: 160 }}><div style={{ fontSize: 12.5, color: R.inkSoft, marginBottom: 6 }}>★ Premium</div><div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 22, color: R.ink }}>{premiumLive} <span style={{ fontSize: 13, fontWeight: 600, color: R.inkFaint }}>{premiumLive === 1 ? 'negocio' : 'negocios'}</span></div></div>
+                    <div style={{ flex: 1, minWidth: 160 }}><div style={{ fontSize: 12.5, color: R.inkSoft, marginBottom: 6 }}>✦ Destacado</div><div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 22, color: R.ink }}>{destacadoLive} <span style={{ fontSize: 13, fontWeight: 600, color: R.inkFaint }}>{destacadoLive === 1 ? 'negocio' : 'negocios'}</span></div></div>
+                    <div style={{ flex: 1, minWidth: 160 }}><div style={{ fontSize: 12.5, color: R.inkSoft, marginBottom: 6 }}>Sin destacar</div><div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 22, color: R.ink }}>{sinDestacar} <span style={{ fontSize: 13, fontWeight: 600, color: R.inkFaint }}>{sinDestacar === 1 ? 'negocio' : 'negocios'}</span></div></div>
                   </div>
                 </Card>
 
@@ -1055,7 +1057,7 @@ export default function AdminPage() {
                             <div style={{ fontWeight: 700, fontSize: 13.5, color: R.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{b.name}</div>
                             <div style={{ fontSize: 12, color: R.inkSoft }}>{b.cat} · {b.mun}</div>
                           </div>
-                          <span style={{ fontFamily: R.display, fontWeight: 800, fontSize: 14, color: R.ink, flexShrink: 0 }}>{b.reservas}</span>
+                          <span style={{ fontFamily: R.display, fontWeight: 800, fontSize: 14, color: R.ink, flexShrink: 0 }}>{bizReservas(b)}</span>
                         </div>
                       ))}
                     </Card>
@@ -1112,47 +1114,78 @@ export default function AdminPage() {
           {view === 'destacados' && (
             <>
               <div style={{ display: 'flex', gap: 14, marginBottom: 24, flexWrap: 'wrap' }}>
-                <KPI label="Ingreso por Destacados (mes)" value={fmt(mrr)} sub={`${ACTIVE.length} campañas activas`} tint={R.coralTint} icon={<Icon n="coins" size={20} color={R.coral} />} />
-                <KPI label="Ocupación de cupos" value={`${occ}%`} sub={`${soldTotal} de ${capTotal} vendidos`} tint={R.jadeTint} icon={<Icon n="spark" size={20} color={R.jade} />} />
-                <KPI label="En lista de espera" value={`${waitTotal}`} sub="demanda sin cupo" tint={R.amberTint} icon={<Icon n="clock" size={20} color={R.amber} />} />
+                <KPI label="Ingreso por Destacados (mes)" value={fmt(featuredMonth)} sub={`${featuredActive} ${featuredActive === 1 ? 'campaña activa' : 'campañas activas'}`} tint={R.coralTint} icon={<Icon n="coins" size={20} color={R.coral} />} />
+                <KPI label="Ocupación de cupos" value={`${featOcc}%`} sub={`${featSoldTotal} de ${featCapTotal} vendidos`} tint={R.jadeTint} icon={<Icon n="spark" size={20} color={R.jade} />} />
+                <KPI label="En lista de espera" value={`${featTotals.waitlist}`} sub="activos sin cupo" tint={R.amberTint} icon={<Icon n="clock" size={20} color={R.amber} />} />
               </div>
               <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink, marginBottom: 12 }}>Inventario por categoría × municipio</div>
               <Card style={{ padding: 0, overflow: 'hidden', marginBottom: 26 }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr 1fr 90px', gap: 14, padding: '12px 18px', borderBottom: `1px solid ${R.line}`, background: R.bgAlt, fontSize: 11.5, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.04em' }}>
-                  <span>Categoría · Municipio</span><span>★ Premium</span><span>✦ Destacado</span><span style={{ textAlign: 'right' }}>Espera</span>
+                <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr 1fr 70px 64px', gap: 14, padding: '12px 18px', borderBottom: `1px solid ${R.line}`, background: R.bgAlt, fontSize: 11.5, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.04em' }}>
+                  <span>Categoría · Municipio</span><span>★ Premium</span><span>✦ Destacado</span><span style={{ textAlign: 'right' }}>Espera</span><span style={{ textAlign: 'right' }}>Cupos</span>
                 </div>
-                {INVENTORY.map((r, i) => (
-                  <div key={i} style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr 1fr 90px', gap: 14, alignItems: 'center', padding: '14px 18px', borderTop: i ? `1px solid ${R.lineSoft}` : 'none' }}>
-                    <div style={{ minWidth: 0 }}><div style={{ fontWeight: 600, fontSize: 14, color: R.ink }}>{r.cat}</div><div style={{ fontSize: 12.5, color: R.inkSoft }}>{r.mun}</div></div>
-                    <Bar sold={r.premium[0]} total={r.premium[1]} color={R.amber} />
-                    <Bar sold={r.destacado[0]} total={r.destacado[1]} color={R.coral} />
-                    <span style={{ textAlign: 'right', fontSize: 13.5, fontWeight: 700, color: r.wait ? R.amberDeep : R.inkFaint }}>{r.wait || '—'}</span>
+                {featInventory.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '40px 0', color: R.inkSoft, fontSize: 14 }}>
+                    {featured ? 'Aún no hay negocios destacados ni cupos configurados.' : 'Cargando inventario…'}
                   </div>
-                ))}
-              </Card>
-              <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink, marginBottom: 12 }}>Negocios destacados ahora</div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 14 }}>
-                {ACTIVE.map((a, i) => {
-                  const nc = nivColor(a.nivel)
+                ) : featInventory.map((r, i) => {
+                  const k = `${r.categoria}|||${r.municipio}`
+                  const editing = capEdit === k
                   return (
-                    <Card key={i} style={{ padding: 16, display: 'flex', gap: 13, alignItems: 'flex-start' }}>
-                      <div style={{ width: 44, height: 44, borderRadius: 12, background: `linear-gradient(140deg, ${a.grad[0]}, ${a.grad[1]})`, display: 'grid', placeItems: 'center', fontFamily: R.display, fontWeight: 800, color: '#fff', flexShrink: 0 }}>{a.mono}</div>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                          <span style={{ fontFamily: R.display, fontWeight: 700, fontSize: 15.5, color: R.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{a.biz}</span>
-                          <span style={{ fontSize: 10.5, fontWeight: 700, color: nc.press, background: nc.tint, padding: '3px 8px', borderRadius: 999, flexShrink: 0 }}>{nc.badge}</span>
-                        </div>
-                        <div style={{ fontSize: 12.5, color: R.inkSoft, marginTop: 2 }}>{a.cat} · {a.mun}</div>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginTop: 10 }}>
-                          <span style={{ fontSize: 12.5, color: R.ink }}>Destaca: <strong style={{ fontWeight: 700 }}>{a.que}</strong></span>
-                          <span style={{ fontFamily: R.display, fontWeight: 700, fontSize: 14, color: nc.press }}>{a.ingreso}</span>
-                        </div>
-                        <div style={{ fontSize: 12, color: R.inkFaint, marginTop: 4 }}>{a.dias} días restantes · en rotación</div>
-                      </div>
-                    </Card>
+                    <div key={k} style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr 1fr 70px 64px', gap: 14, alignItems: 'center', padding: '14px 18px', borderTop: i ? `1px solid ${R.lineSoft}` : 'none' }}>
+                      <div style={{ minWidth: 0 }}><div style={{ fontWeight: 600, fontSize: 14, color: R.ink }}>{r.categoria}</div><div style={{ fontSize: 12.5, color: R.inkSoft }}>{r.municipio}</div></div>
+                      {editing ? (
+                        <>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ fontSize: 13, fontWeight: 700, color: R.ink }}>{r.premiumSold}/</span><input type="number" min={0} value={capDraft.premium} onChange={e => setCapDraft(d => ({ ...d, premium: Math.max(0, Number(e.target.value) || 0) }))} style={{ width: 46, border: `1px solid ${R.line}`, borderRadius: 8, padding: '5px 6px', fontFamily: R.ui, fontSize: 13, color: R.ink, outline: 'none' }} /></div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ fontSize: 13, fontWeight: 700, color: R.ink }}>{r.destacadoSold}/</span><input type="number" min={0} value={capDraft.destacado} onChange={e => setCapDraft(d => ({ ...d, destacado: Math.max(0, Number(e.target.value) || 0) }))} style={{ width: 46, border: `1px solid ${R.line}`, borderRadius: 8, padding: '5px 6px', fontFamily: R.ui, fontSize: 13, color: R.ink, outline: 'none' }} /></div>
+                          <span style={{ textAlign: 'right', fontSize: 13.5, fontWeight: 700, color: r.waitlist ? R.amberDeep : R.inkFaint }}>{r.waitlist || '—'}</span>
+                          <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                            <button onClick={() => saveCap(r.categoria, r.municipio, capDraft.premium, capDraft.destacado)} aria-label="Guardar" style={{ width: 28, height: 28, borderRadius: 8, border: 'none', background: R.jade, cursor: 'pointer', display: 'grid', placeItems: 'center' }}><Icon n="check" size={14} color="#fff" stroke={3} /></button>
+                            <button onClick={() => setCapEdit(null)} aria-label="Cancelar" style={{ width: 28, height: 28, borderRadius: 8, border: `1px solid ${R.line}`, background: R.surface, cursor: 'pointer', color: R.inkSoft, fontSize: 15, lineHeight: 1 }}>×</button>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <Bar sold={r.premiumSold} total={r.premiumCap} color={R.amber} />
+                          <Bar sold={r.destacadoSold} total={r.destacadoCap} color={R.coral} />
+                          <span style={{ textAlign: 'right', fontSize: 13.5, fontWeight: 700, color: r.waitlist ? R.amberDeep : R.inkFaint }}>{r.waitlist || '—'}</span>
+                          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                            <button onClick={() => { setCapDraft({ premium: r.premiumCap, destacado: r.destacadoCap }); setCapEdit(k) }} style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 12.5, color: R.coral }}>Editar</button>
+                          </div>
+                        </>
+                      )}
+                    </div>
                   )
                 })}
-              </div>
+              </Card>
+              <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink, marginBottom: 12 }}>Negocios destacados ahora</div>
+              {featActive.length === 0 ? (
+                <Card style={{ textAlign: 'center', padding: '32px 0', color: R.inkSoft, fontSize: 14 }}>
+                  {featured ? 'Ningún negocio tiene un Destacado vigente. Cuando un negocio compre una campaña, aparecerá aquí.' : 'Cargando campañas…'}
+                </Card>
+              ) : (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 14 }}>
+                  {featActive.map(a => {
+                    const nc = nivColor(a.nivel)
+                    return (
+                      <Card key={a.id} style={{ padding: 16, display: 'flex', gap: 13, alignItems: 'flex-start' }}>
+                        <div style={{ width: 44, height: 44, borderRadius: 12, background: `linear-gradient(140deg, ${a.grad[0]}, ${a.grad[1]})`, display: 'grid', placeItems: 'center', fontFamily: R.display, fontWeight: 800, color: '#fff', flexShrink: 0 }}>{a.mono}</div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                            <span style={{ fontFamily: R.display, fontWeight: 700, fontSize: 15.5, color: R.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{a.biz}</span>
+                            <span style={{ fontSize: 10.5, fontWeight: 700, color: nc.press, background: nc.tint, padding: '3px 8px', borderRadius: 999, flexShrink: 0 }}>{nc.badge}</span>
+                          </div>
+                          <div style={{ fontSize: 12.5, color: R.inkSoft, marginTop: 2 }}>{a.cat} · {a.mun}</div>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginTop: 10 }}>
+                            <span style={{ fontSize: 12.5, color: R.ink }}>Destaca: <strong style={{ fontWeight: 700 }}>{a.que}</strong></span>
+                            <span style={{ fontFamily: R.display, fontWeight: 700, fontSize: 14, color: nc.press }}>{a.amount ? fmt(a.amount) : '—'}</span>
+                          </div>
+                          <div style={{ fontSize: 12, color: R.inkFaint, marginTop: 4 }}>{a.dias === null ? 'Sin fecha de expiración' : `${a.dias} ${a.dias === 1 ? 'día restante' : 'días restantes'}`} · en rotación</div>
+                        </div>
+                      </Card>
+                    )
+                  })}
+                </div>
+              )}
             </>
           )}
 
@@ -1342,11 +1375,19 @@ export default function AdminPage() {
 
             function sendReply() {
               if (!replyText.trim() || !selTicket) return
+              const txt = replyText.trim()
               setTickets(prev => prev.map(t => t.id === selTicket
-                ? { ...t, status: 'en_progreso', thread: [...t.thread, { from: 'agent', txt: replyText.trim(), time: new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }) }] }
+                ? { ...t, status: 'en_progreso', thread: [...t.thread, { from: 'agent', txt, time: new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }) }] }
                 : t
               ))
               setReplyText('')
+              // Persiste la respuesta en la base (agrega al hilo + marca en_progreso).
+              fetch('/api/admin/support', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: selTicket, txt }) }).catch(() => {})
+            }
+            // Cambia el estado del ticket y lo persiste en la base.
+            function setTicketStatus(id: string, status: Ticket['status']) {
+              setTickets(prev => prev.map(t => t.id === id ? { ...t, status } : t))
+              fetch('/api/admin/support', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, status }) }).catch(() => {})
             }
 
             return ticket ? (
@@ -1377,7 +1418,7 @@ export default function AdminPage() {
                             <span style={{ width: 10, height: 10, borderRadius: '50%', background: stColor(ticket.status)[0], flexShrink: 0 }} />
                             <select
                               value={ticket.status}
-                              onChange={e => setTickets(prev => prev.map(t => t.id === ticket.id ? { ...t, status: e.target.value as Ticket['status'] } : t))}
+                              onChange={e => setTicketStatus(ticket.id, e.target.value as Ticket['status'])}
                               style={{ border: `1px solid ${R.line}`, borderRadius: 10, padding: '8px 12px', fontSize: 13.5, fontFamily: R.ui, fontWeight: 600, color: stColor(ticket.status)[0], background: stColor(ticket.status)[1], cursor: 'pointer', outline: 'none', appearance: 'none', WebkitAppearance: 'none', paddingRight: 28 }}>
                               <option value="nuevo">Nuevo</option>
                               <option value="en_progreso">En progreso</option>
@@ -1491,7 +1532,7 @@ export default function AdminPage() {
                           <Icon n="cal" size={15} color={R.inkSoft} /> Ver reservas
                         </button>
                         {ticket.status !== 'resuelto' && (
-                          <button onClick={() => setTickets(prev => prev.map(t => t.id === ticket.id ? { ...t, status: 'resuelto' } : t))} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '9px 12px', border: 'none', borderRadius: 11, background: R.jadeTint, cursor: 'pointer', fontFamily: R.ui, fontSize: 13, color: R.jade, fontWeight: 700, textAlign: 'left' }}>
+                          <button onClick={() => setTicketStatus(ticket.id, 'resuelto')} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '9px 12px', border: 'none', borderRadius: 11, background: R.jadeTint, cursor: 'pointer', fontFamily: R.ui, fontSize: 13, color: R.jade, fontWeight: 700, textAlign: 'left' }}>
                             <Icon n="check" size={15} color={R.jade} stroke={3} /> Marcar resuelto
                           </button>
                         )}
@@ -2369,7 +2410,7 @@ export default function AdminPage() {
             <div style={{ background: R.surface, border: `1px solid ${R.line}`, borderRadius: 12, overflow: 'hidden', marginBottom: 16 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '11px 14px' }}><span style={{ fontSize: 13, color: R.inkSoft }}>Plan</span><span style={{ fontSize: 13.5, fontWeight: 600, color: R.ink }}>{detail.plan}</span></div>
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '11px 14px', borderTop: `1px solid ${R.lineSoft}` }}><span style={{ fontSize: 13, color: R.inkSoft }}>Destacado</span><span style={{ fontSize: 13.5, fontWeight: 600, color: R.ink }}>{detail.dest === '—' ? 'No' : detail.dest}</span></div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '11px 14px', borderTop: `1px solid ${R.lineSoft}` }}><span style={{ fontSize: 13, color: R.inkSoft }}>Reservas (mes)</span><span style={{ fontSize: 13.5, fontWeight: 600, color: R.ink }}>{detail.reservas}</span></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '11px 14px', borderTop: `1px solid ${R.lineSoft}` }}><span style={{ fontSize: 13, color: R.inkSoft }}>Reservas</span><span style={{ fontSize: 13.5, fontWeight: 600, color: R.ink }}>{bizReservas(detail)}</span></div>
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '11px 14px', borderTop: `1px solid ${R.lineSoft}` }}><span style={{ fontSize: 13, color: R.inkSoft }}>Estado</span><span style={{ fontSize: 13.5, fontWeight: 700, color: detail.estado === 'Activo' ? R.jade : R.inkFaint }}>{detail.estado}</span></div>
             </div>
             {detail.invitePending && detail.email && (
