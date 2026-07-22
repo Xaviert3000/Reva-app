@@ -52,6 +52,9 @@ function Icon({ n, size = 20, color = 'currentColor', stroke = 2, fill = 'none' 
     globe: <><circle cx="12" cy="12" r="8.5" /><path d="M3.5 12h17M12 3.5c2.5 2.4 2.5 14.6 0 17M12 3.5c-2.5 2.4-2.5 14.6 0 17" /></>,
     credit: <><rect x="2" y="6" width="20" height="13" rx="2.5" /><path d="M2 11h20M6 15.5h4" /></>,
     info: <><circle cx="12" cy="12" r="8.5" /><path d="M12 11v5M12 8h.01" /></>,
+    report: <><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z" /><path d="M14 3v5h5M9 13h6M9 17h6M9 9h1" /></>,
+    ticket: <><path d="M4 8.5A2.5 2.5 0 016.5 6h11A2.5 2.5 0 0120 8.5v1a2 2 0 000 4v1a2.5 2.5 0 01-2.5 2.5h-11A2.5 2.5 0 014 14.5v-1a2 2 0 000-4z" /><path d="M14 6v12" /></>,
+    download: <><path d="M12 3v12M7 11l5 4 5-4M5 20h14" /></>,
   }
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill={fill} stroke={color}
@@ -69,6 +72,7 @@ const NAV = [
   { id: 'negocios', label: 'Negocios', icon: 'grid' },
   { id: 'reservas', label: 'Reservas', icon: 'cal' },
   { id: 'moderacion', label: 'Moderación', icon: 'flag' },
+  { id: 'informes', label: 'Informes', icon: 'report' },
   { id: 'rove', label: 'Reva+ Rewards', icon: 'ticket' },
   { id: 'soporte', label: 'Soporte', icon: 'chat' },
   { id: 'integraciones', label: 'Integraciones', icon: 'link' },
@@ -244,6 +248,39 @@ function SearchBox({ value, onChange, placeholder }: { value: string; onChange: 
       {value && <button onClick={() => onChange('')} aria-label="Limpiar" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: R.inkFaint, fontSize: 16, lineHeight: 1, padding: 0 }}>×</button>}
     </div>
   )
+}
+
+// ── Informes: tipos + utilidades ───────────────────────────
+type ReportKey = 'negocios' | 'reservas' | 'ingresos' | 'destacados' | 'moderacion' | 'soporte' | 'rove'
+
+// Definición de un reporte: columnas para la tabla + generador de filas.
+type RepCol = { label: string; align?: 'right' | 'center' }
+type RepRow = { search: string; filter: string; cells: ReactNode[]; csv: (string | number)[] }
+type RepKpi = { label: string; value: string; tint: string; icon: ReactNode }
+type ReportDef = { columns: RepCol[]; filters: string[]; rows: RepRow[]; kpis: RepKpi[] }
+
+// Escapa un valor para CSV (comillas + separador) y arma el archivo.
+function toCSV(headers: string[], rows: (string | number)[][]): string {
+  const esc = (v: string | number) => {
+    const s = String(v ?? '')
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+  }
+  const lines = [headers.map(esc).join(','), ...rows.map(r => r.map(esc).join(','))]
+  // BOM para que Excel lea acentos correctamente.
+  return '﻿' + lines.join('\r\n')
+}
+
+// Dispara la descarga de un archivo CSV en el navegador.
+function downloadCSV(filename: string, headers: string[], rows: (string | number)[][]) {
+  const blob = new Blob([toCSV(headers, rows)], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
 // ── Login del super admin ──────────────────────────────────
@@ -617,6 +654,11 @@ export default function AdminPage() {
   const [revLoaded, setRevLoaded] = useState(false)
   const [revFilter, setRevFilter] = useState<'Todos' | 'Destacados' | 'Depósitos'>('Todos')
 
+  // Informes (reportes descargables de cada módulo)
+  const [repType, setRepType] = useState<ReportKey>('negocios')
+  const [repQuery, setRepQuery] = useState('')
+  const [repFilter, setRepFilter] = useState('Todos')
+
   // Destacados (inventario de cupos + campañas vigentes reales, vía /api/admin/featured)
   const [featured, setFeatured] = useState<FeaturedData | null>(null)
   const [capEdit, setCapEdit] = useState<string | null>(null) // "categoria|||municipio" en edición
@@ -878,6 +920,7 @@ export default function AdminPage() {
     negocios: ['Negocios', 'Todos los negocios en Reva'],
     reservas: ['Reservas', 'Reservas en toda la plataforma'],
     moderacion: ['Moderación', 'Aprueba el contenido destacado'],
+    informes: ['Informes', 'Genera y descarga reportes de cada módulo'],
     rove: ['Reva+ Rewards', 'Aprueba recompensas y monitorea boletos'],
     soporte: ['Soporte', 'Conversaciones de usuarios con el equipo Reva'],
     integraciones: ['Integraciones', 'Conexiones de la plataforma'],
@@ -1364,6 +1407,256 @@ export default function AdminPage() {
               )}
             </>
           )}
+
+          {view === 'informes' && (() => {
+            const money = (n: number) => '$' + n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+            const dateShort = (iso: string) => { const d = new Date(iso); return isNaN(d.getTime()) ? '—' : d.toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' }) }
+            const badge = (txt: string, color: string, bg: string) => <span style={{ fontSize: 11, fontWeight: 700, color, background: bg, padding: '3px 9px', borderRadius: 999, whiteSpace: 'nowrap' }}>{txt}</span>
+            const monoAvatar = (mono: string, grad: [string, string]) => <div style={{ width: 28, height: 28, borderRadius: 8, background: `linear-gradient(140deg, ${grad[0]}, ${grad[1]})`, display: 'grid', placeItems: 'center', fontFamily: R.display, fontWeight: 800, color: '#fff', fontSize: 12, flexShrink: 0 }}>{mono}</div>
+            const nameCell = (name: string, mono: string, grad: [string, string]) => <div style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>{monoAvatar(mono, grad)}<span style={{ fontWeight: 600, fontSize: 13.5, color: R.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{name}</span></div>
+            const txt = (v: ReactNode, style?: CSSProperties) => <span style={{ fontSize: 13, color: R.inkSoft, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', ...style }}>{v}</span>
+            // Celdas alineadas a la derecha (helpers en vez de JSX suelto en arrays).
+            const rt = (v: ReactNode, style?: CSSProperties) => <span style={{ textAlign: 'right', display: 'block', fontSize: 13, color: R.ink, whiteSpace: 'nowrap', ...style }}>{v}</span>
+            const rtNum = (v: ReactNode) => rt(v, { fontFamily: R.display, fontWeight: 700, fontSize: 13.5 })
+            const bold = (v: ReactNode) => <span style={{ fontFamily: R.display, fontWeight: 700, fontSize: 13.5, color: R.ink }}>{v}</span>
+
+            const STATUS_LABEL: Record<string, string> = { nuevo: 'Nuevo', en_progreso: 'En progreso', resuelto: 'Resuelto' }
+            const ROVE_LABEL: Record<string, string> = { pending: 'En revisión', active: 'Activa', paused: 'Pausada', rejected: 'Rechazada' }
+
+            // Definiciones de cada reporte (columnas, filtros, filas y KPIs) desde datos reales.
+            const REPORTS: Record<ReportKey, ReportDef> = {
+              negocios: {
+                columns: [{ label: 'Negocio' }, { label: 'Categoría' }, { label: 'Municipio' }, { label: 'Plan' }, { label: 'Destacado' }, { label: 'Reservas', align: 'right' }, { label: 'Estado', align: 'right' }],
+                filters: ['Todos', 'Activo', 'Pausado'],
+                kpis: [
+                  { label: 'Negocios totales', value: `${bizes.length}`, tint: R.coralTint, icon: <Icon n="grid" size={20} color={R.coral} /> },
+                  { label: 'Activos', value: `${bizes.filter(b => b.estado === 'Activo').length}`, tint: R.jadeTint, icon: <Icon n="check" size={20} color={R.jade} /> },
+                  { label: 'Destacados vigentes', value: `${featuredActive}`, tint: R.amberTint, icon: <Icon n="spark" size={20} color={R.amber} /> },
+                ],
+                rows: bizes.map(b => {
+                  const n = bizReservas(b)
+                  return {
+                    search: `${b.name} ${b.cat} ${b.mun} ${b.dest}`.toLowerCase(),
+                    filter: b.estado,
+                    cells: [
+                      nameCell(b.name, b.mono, b.grad), txt(b.cat), txt(b.mun), txt(b.plan),
+                      b.dest === '—' ? txt('—') : badge(nivColor(b.dest as Niv).badge, nivColor(b.dest as Niv).press, nivColor(b.dest as Niv).tint),
+                      rtNum(n),
+                      rt(`● ${b.estado}`, { fontSize: 12, fontWeight: 700, color: b.estado === 'Activo' ? R.jade : R.inkFaint }),
+                    ],
+                    csv: [b.name, b.cat, b.mun, b.plan, b.dest === '—' ? '' : b.dest, n, b.estado],
+                  }
+                }),
+              },
+              reservas: {
+                columns: [{ label: 'Cuándo' }, { label: 'Cliente' }, { label: 'Negocio' }, { label: 'Vía' }, { label: 'Personas', align: 'right' }, { label: 'Estado', align: 'right' }],
+                filters: ['Todos', 'Confirmada', 'Sentados', 'Por confirmar', 'Cancelada'],
+                kpis: [
+                  { label: 'Reservas listadas', value: `${reservasList.length}`, tint: R.coralTint, icon: <Icon n="cal" size={20} color={R.coral} /> },
+                  { label: 'Confirmadas', value: `${reservasList.filter(r => r.estado === 'Confirmada').length}`, tint: R.jadeTint, icon: <Icon n="check" size={20} color={R.jade} /> },
+                  { label: 'Canceladas', value: `${reservasList.filter(r => r.estado === 'Cancelada').length}`, tint: R.amberTint, icon: <Icon n="x" size={20} color={R.amber} /> },
+                ],
+                rows: reservasList.map(r => ({
+                  search: `${r.guest} ${r.biz} ${r.via} ${r.estado}`.toLowerCase(),
+                  filter: r.estado,
+                  cells: [
+                    bold(r.cuando),
+                    txt(r.guest, { color: R.ink }), txt(r.biz), txt(r.via),
+                    rt(r.party),
+                    rt(badge(r.estado, RES_COLOR[r.estado][0], RES_COLOR[r.estado][1])),
+                  ],
+                  csv: [r.cuando, r.guest, r.biz, r.via, r.party, r.estado],
+                })),
+              },
+              ingresos: (() => {
+                const pays = revenue?.payments ?? []
+                const conceptOf = (ty: string) => ty === 'featured' ? 'Destacado' : ty === 'deposit' ? 'Depósito' : ty === 'subscription' ? 'Suscripción' : ty
+                return {
+                  columns: [{ label: 'Fecha' }, { label: 'Negocio' }, { label: 'Concepto' }, { label: 'Monto', align: 'right' }, { label: 'Ingreso Reva', align: 'right' }],
+                  filters: ['Todos', 'Destacado', 'Depósito', 'Suscripción'],
+                  kpis: [
+                    { label: 'Ingreso Reva (total)', value: fmt(Math.round(revenue?.totals.platform ?? 0)), tint: R.coralTint, icon: <Icon n="coins" size={20} color={R.coral} /> },
+                    { label: 'GMV procesado', value: fmt(Math.round(revenue?.totals.gmv ?? 0)), tint: R.jadeTint, icon: <Icon n="chart" size={20} color={R.jade} /> },
+                    { label: 'Pagos cobrados', value: `${revenue?.totals.count ?? 0}`, tint: R.amberTint, icon: <Icon n="card" size={20} color={R.amber} /> },
+                  ],
+                  rows: pays.map(p => ({
+                    search: `${p.biz_name} ${conceptOf(p.type)} ${p.guest_name ?? ''}`.toLowerCase(),
+                    filter: conceptOf(p.type),
+                    cells: [
+                      txt(dateShort(p.created_at)), nameCell(p.biz_name, p.mono, p.grad),
+                      badge(conceptOf(p.type), p.type === 'featured' ? R.coralPress : R.jade, p.type === 'featured' ? R.coralTint : R.jadeTint),
+                      rt(money(p.amount), { color: R.inkSoft, fontSize: 13.5 }),
+                      rtNum(money(p.revenue)),
+                    ],
+                    csv: [dateShort(p.created_at), p.biz_name, conceptOf(p.type), p.amount, p.revenue],
+                  })),
+                }
+              })(),
+              destacados: {
+                columns: [{ label: 'Negocio' }, { label: 'Categoría' }, { label: 'Municipio' }, { label: 'Nivel' }, { label: 'Contenido' }, { label: 'Días', align: 'right' }, { label: 'Monto', align: 'right' }],
+                filters: ['Todos', 'Premium', 'Destacado'],
+                kpis: [
+                  { label: 'Campañas vigentes', value: `${featActive.length}`, tint: R.coralTint, icon: <Icon n="spark" size={20} color={R.coral} /> },
+                  { label: 'Ocupación de cupos', value: `${featOcc}%`, tint: R.jadeTint, icon: <Icon n="chart" size={20} color={R.jade} /> },
+                  { label: 'Ingreso destacados', value: fmt(Math.round(revenue?.totals.byType?.featured?.revenue ?? 0)), tint: R.amberTint, icon: <Icon n="coins" size={20} color={R.amber} /> },
+                ],
+                rows: featActive.map(f => ({
+                  search: `${f.biz} ${f.cat} ${f.mun} ${f.nivel} ${f.que}`.toLowerCase(),
+                  filter: f.nivel,
+                  cells: [
+                    nameCell(f.biz, f.mono, f.grad), txt(f.cat), txt(f.mun),
+                    badge(nivColor(f.nivel).badge, nivColor(f.nivel).press, nivColor(f.nivel).tint), txt(f.que, { color: R.ink }),
+                    rt(f.dias ?? '—'),
+                    rtNum(fmt(Math.round(f.amount))),
+                  ],
+                  csv: [f.biz, f.cat, f.mun, f.nivel, f.que, f.dias ?? '', Math.round(f.amount)],
+                })),
+              },
+              moderacion: {
+                columns: [{ label: 'Negocio' }, { label: 'Nivel' }, { label: 'Tipo' }, { label: 'Contenido' }, { label: 'Enviado', align: 'right' }],
+                filters: ['Todos', 'Servicio', 'Negocio', 'Promoción'],
+                kpis: [
+                  { label: 'En cola', value: `${modQueue.length}`, tint: R.amberTint, icon: <Icon n="flag" size={20} color={R.amber} /> },
+                  { label: 'Aprobadas hoy', value: `${resolved.aprobadas}`, tint: R.jadeTint, icon: <Icon n="check" size={20} color={R.jade} /> },
+                  { label: 'Rechazadas hoy', value: `${resolved.rechazadas}`, tint: R.coralTint, icon: <Icon n="x" size={20} color={R.coral} /> },
+                ],
+                rows: modQueue.map(m => ({
+                  search: `${m.biz} ${m.nivel} ${m.tipo} ${m.que}`.toLowerCase(),
+                  filter: m.tipo,
+                  cells: [
+                    nameCell(m.biz, m.mono, m.grad), badge(nivColor(m.nivel).badge, nivColor(m.nivel).press, nivColor(m.nivel).tint),
+                    badge(m.tipo, R.inkSoft, R.bgAlt), txt(m.que, { color: R.ink }),
+                    rt(m.enviado, { fontSize: 12.5, color: R.inkFaint }),
+                  ],
+                  csv: [m.biz, m.nivel, m.tipo, m.que, m.enviado],
+                })),
+              },
+              soporte: {
+                columns: [{ label: 'Usuario' }, { label: 'Ciudad' }, { label: 'Modo' }, { label: 'Asunto' }, { label: 'Recibido' }, { label: 'Estado', align: 'right' }],
+                filters: ['Todos', 'Nuevo', 'En progreso', 'Resuelto'],
+                kpis: [
+                  { label: 'Tickets totales', value: `${tickets.length}`, tint: R.coralTint, icon: <Icon n="chat" size={20} color={R.coral} /> },
+                  { label: 'Nuevos', value: `${tickets.filter(t => t.status === 'nuevo').length}`, tint: R.amberTint, icon: <Icon n="bell" size={20} color={R.amber} /> },
+                  { label: 'Resueltos', value: `${tickets.filter(t => t.status === 'resuelto').length}`, tint: R.jadeTint, icon: <Icon n="check" size={20} color={R.jade} /> },
+                ],
+                rows: tickets.map(t => {
+                  const sc = t.status === 'resuelto' ? [R.jade, R.jadeTint] : t.status === 'en_progreso' ? [R.amberDeep, R.amberTint] : [R.coralPress, R.coralTint]
+                  return {
+                    search: `${t.user} ${t.city} ${t.mode} ${t.issue}`.toLowerCase(),
+                    filter: STATUS_LABEL[t.status] ?? t.status,
+                    cells: [
+                      txt(t.user, { color: R.ink, fontWeight: 600 }), txt(t.city), txt(t.mode), txt(t.issue, { color: R.ink }), txt(t.time),
+                      rt(badge(STATUS_LABEL[t.status] ?? t.status, sc[0], sc[1])),
+                    ],
+                    csv: [t.user, t.city, t.mode, t.issue, t.time, STATUS_LABEL[t.status] ?? t.status],
+                  }
+                }),
+              },
+              rove: {
+                columns: [{ label: 'Recompensa' }, { label: 'Negocio' }, { label: 'Categoría' }, { label: 'Costo', align: 'right' }, { label: 'Stock', align: 'right' }, { label: 'Estado', align: 'right' }],
+                filters: ['Todos', 'En revisión', 'Activa', 'Pausada', 'Rechazada'],
+                kpis: [
+                  { label: 'Recompensas', value: `${roveRewards.length}`, tint: R.coralTint, icon: <Icon n="ticket" size={20} color={R.coral} /> },
+                  { label: 'Activas', value: `${roveRewards.filter(r => r.status === 'active').length}`, tint: R.jadeTint, icon: <Icon n="check" size={20} color={R.jade} /> },
+                  { label: 'En revisión', value: `${roveRewards.filter(r => r.status === 'pending').length}`, tint: R.amberTint, icon: <Icon n="clock" size={20} color={R.amber} /> },
+                ],
+                rows: roveRewards.map(r => {
+                  const meta = ROVE_STATUS_META[r.status]
+                  return {
+                    search: `${r.title} ${r.bizName} ${r.category} ${ROVE_LABEL[r.status] ?? r.status}`.toLowerCase(),
+                    filter: ROVE_LABEL[r.status] ?? r.status,
+                    cells: [
+                      txt(r.title, { color: R.ink, fontWeight: 600 }),
+                      nameCell(r.bizName, r.bizLetter, [r.bizColor, r.bizColor]),
+                      txt(`${ROVE_CAT_EMOJI[r.category] ?? ''} ${r.category}`),
+                      rtNum(`${r.ticketCost} 🎟️`),
+                      rt(r.stock ?? '∞'),
+                      rt(badge(meta?.label ?? r.status, meta?.color ?? R.inkSoft, meta?.bg ?? R.bgAlt)),
+                    ],
+                    csv: [r.title, r.bizName, r.category, r.ticketCost, r.stock ?? 'ilimitado', ROVE_LABEL[r.status] ?? r.status],
+                  }
+                }),
+              },
+            }
+
+            const REPORT_TABS: { key: ReportKey; label: string; icon: string }[] = [
+              { key: 'negocios', label: 'Negocios', icon: 'grid' },
+              { key: 'reservas', label: 'Reservas', icon: 'cal' },
+              { key: 'ingresos', label: 'Ingresos', icon: 'coins' },
+              { key: 'destacados', label: 'Destacados', icon: 'spark' },
+              { key: 'moderacion', label: 'Moderación', icon: 'flag' },
+              { key: 'soporte', label: 'Soporte', icon: 'chat' },
+              { key: 'rove', label: 'Reva+ Rewards', icon: 'ticket' },
+            ]
+
+            const def = REPORTS[repType]
+            const q = repQuery.trim().toLowerCase()
+            const filtered = def.rows.filter(row =>
+              (repFilter === 'Todos' || row.filter === repFilter) && (!q || row.search.includes(q)))
+            const activeTab = REPORT_TABS.find(t => t.key === repType)!
+            const gridCols = def.columns.map(c => c.align ? '0.9fr' : '1.3fr').join(' ')
+
+            function exportReport() {
+              const headers = def.columns.map(c => c.label)
+              const rows = filtered.map(r => r.csv)
+              const stamp = new Date().toISOString().slice(0, 10)
+              downloadCSV(`reva-informe-${repType}-${stamp}.csv`, headers, rows)
+            }
+
+            return (
+              <>
+                {/* Selector de reporte por módulo */}
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 20 }}>
+                  {REPORT_TABS.map(t => {
+                    const on = t.key === repType
+                    return (
+                      <button key={t.key} onClick={() => { setRepType(t.key); setRepFilter('Todos'); setRepQuery('') }} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 15px', borderRadius: 999, border: `1px solid ${on ? R.coral : R.line}`, background: on ? R.coralTint : R.surface, color: on ? R.coralPress : R.inkSoft, fontFamily: R.ui, fontWeight: 700, fontSize: 13.5, cursor: 'pointer' }}>
+                        <Icon n={t.icon} size={16} color={on ? R.coralPress : R.inkFaint} /> {t.label}
+                      </button>
+                    )
+                  })}
+                </div>
+
+                {/* KPIs del reporte activo */}
+                <div style={{ display: 'flex', gap: 14, marginBottom: 20, flexWrap: 'wrap' }}>
+                  {def.kpis.map((k, i) => <KPI key={i} label={k.label} value={k.value} tint={k.tint} icon={k.icon} />)}
+                </div>
+
+                {/* Buscador + filtros + descarga */}
+                <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <SearchBox value={repQuery} onChange={setRepQuery} placeholder={`Buscar en ${activeTab.label.toLowerCase()}…`} />
+                  <Chips options={def.filters} value={repFilter} onChange={setRepFilter} />
+                  <button onClick={exportReport} disabled={filtered.length === 0} style={{ display: 'flex', alignItems: 'center', gap: 7, marginLeft: 'auto', padding: '10px 16px', border: 'none', borderRadius: 12, background: filtered.length === 0 ? R.bgAlt : R.ink, color: filtered.length === 0 ? R.inkFaint : '#fff', cursor: filtered.length === 0 ? 'default' : 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5 }}>
+                    <Icon n="download" size={16} color={filtered.length === 0 ? R.inkFaint : '#fff'} /> Descargar CSV
+                  </button>
+                </div>
+
+                <div style={{ fontSize: 12.5, color: R.inkFaint, marginBottom: 10 }}>
+                  {filtered.length} {filtered.length === 1 ? 'registro' : 'registros'}{filtered.length !== def.rows.length ? ` de ${def.rows.length}` : ''} · el CSV incluye solo lo filtrado
+                </div>
+
+                {/* Tabla del reporte */}
+                <Card style={{ padding: 0, overflow: 'hidden' }}>
+                  <div style={{ overflowX: 'auto' }}>
+                    <div style={{ minWidth: def.columns.length * 130 }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: gridCols, gap: 14, padding: '12px 18px', borderBottom: `1px solid ${R.line}`, background: R.bgAlt, fontSize: 11.5, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.04em' }}>
+                        {def.columns.map((c, i) => <span key={i} style={{ textAlign: c.align ?? 'left' }}>{c.label}</span>)}
+                      </div>
+                      {filtered.length === 0 ? (
+                        <div style={{ textAlign: 'center', padding: '40px 0', color: R.inkSoft, fontSize: 14 }}>
+                          {def.rows.length === 0 ? 'Aún no hay datos para este reporte.' : 'Sin resultados para tu búsqueda.'}
+                        </div>
+                      ) : filtered.map((row, i) => (
+                        <div key={i} style={{ display: 'grid', gridTemplateColumns: gridCols, gap: 14, alignItems: 'center', padding: '13px 18px', borderTop: i ? `1px solid ${R.lineSoft}` : 'none' }}>
+                          {row.cells.map((cell, j) => <div key={j} style={{ minWidth: 0 }}>{cell}</div>)}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </Card>
+              </>
+            )
+          })()}
 
           {view === 'soporte' && (() => {
             const ticket = tickets.find(t => t.id === selTicket) ?? null
