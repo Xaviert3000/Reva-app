@@ -2679,7 +2679,7 @@ function Profile({ mode, userName, userPhone, homeState, homeCity, currentCity, 
   if (!isRegistered) {
     return (
       <div style={{ height: '100%', background: '#FAF5EE', display: 'flex', flexDirection: 'column' }}>
-        <AppHeader mode={mode} title={en ? 'You' : 'Tu perfil'} hasNotif={false} onModeToggle={onModeSwitch} onBell={onBell} onMsg={onMsg} />
+        <AppHeader mode={mode} title={en ? 'You' : 'Tu perfil'} hasNotif={false} showModeBadge={false} onModeToggle={onModeSwitch} onBell={onBell} onMsg={onMsg} />
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '0 32px 48px', gap: 20, textAlign: 'center' }}>
           {/* Avatar placeholder */}
           <div style={{ width: 72, height: 72, borderRadius: '50%', background: '#EDE6DC', display: 'grid', placeItems: 'center' }}>
@@ -2753,7 +2753,7 @@ function Profile({ mode, userName, userPhone, homeState, homeCity, currentCity, 
   return (
     <div style={{ height: '100%', background: '#FAF5EE', position: 'relative', overflow: 'hidden' }}>
       <div style={{ overflowY: 'auto', height: '100%' }}>
-      <AppHeader mode={mode} title={en ? 'You' : 'Tu perfil'} hasNotif={false} onModeToggle={onModeSwitch} onBell={onBell} onMsg={onMsg} />
+      <AppHeader mode={mode} title={en ? 'You' : 'Tu perfil'} hasNotif={false} showModeBadge={false} onModeToggle={onModeSwitch} onBell={onBell} onMsg={onMsg} />
       <div style={{ padding: '0 16px 32px', display: 'flex', flexDirection: 'column', gap: 14 }}>
         {/* avatar row */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '2px 0 6px' }}>
