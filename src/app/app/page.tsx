@@ -1540,7 +1540,7 @@ function CartSheet({ onClose, onCheckout, defaultName, defaultPhone }: { onClose
   const inputStyle: React.CSSProperties = { width: '100%', padding: '12px 14px', borderRadius: 12, border: '1px solid #E9E0D5', background: '#fff', fontFamily: 'var(--font-ui)', fontSize: 14.5, color: '#221C19', outline: 'none' }
 
   return (
-    <div style={{ position: 'absolute', inset: 0, zIndex: 60, background: 'rgba(0,0,0,.5)', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }} onClick={onClose}>
+    <div style={{ position: 'absolute', inset: 0, zIndex: 80, background: 'rgba(0,0,0,.5)', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }} onClick={onClose}>
       <div style={{ background: '#FAF5EE', borderRadius: '30px 30px 0 0', padding: '20px 20px calc(28px + env(safe-area-inset-bottom, 0px))', maxHeight: '88%', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
           <div>
