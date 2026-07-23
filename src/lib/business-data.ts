@@ -5,7 +5,7 @@
 // (e.g. before migrations run). Rows are mapped onto the Business/Service
 // interfaces so the UI doesn't branch on source.
 import { createClient } from './supabase/client'
-import { BIZ, CATALOG, slotsFromHours, type Business, type FeaturedTier, type Service, type ProactiveAlert, type AlertType } from './data'
+import { BIZ, CATALOG, slotsFromHours, type Business, type FeaturedTier, type Service, type ProactiveAlert, type AlertType, type BizOffer } from './data'
 
 interface DbBusiness {
   id: string
@@ -60,6 +60,20 @@ interface DbAlert {
   active: boolean | null
 }
 
+interface DbOffer {
+  id: string
+  biz_id: string
+  title: string
+  body: string | null
+  discount: string | null
+  image_url: string | null
+  start_date: string | null
+  end_date: string | null
+  start_time: string | null
+  end_time: string | null
+  days: number[] | null
+}
+
 function mapService(s: DbService, grad: [string, string]): Service {
   return {
     id: s.id,
@@ -96,11 +110,27 @@ function mapAlert(a: DbAlert): ProactiveAlert {
   }
 }
 
+function mapOffer(o: DbOffer): BizOffer {
+  return {
+    id: o.id,
+    type: o.discount || 'Descuento',
+    title: o.title,
+    detail: o.body || '',
+    imageUrl: o.image_url || null,
+    startDate: o.start_date || null,
+    endDate: o.end_date || null,
+    days: o.days ?? [],
+    startTime: o.start_time || null,
+    endTime: o.end_time || null,
+  }
+}
+
 function mapBusiness(
   b: DbBusiness,
   grad: [string, string],
   reviews: Business['reviews'],
   alerts: ProactiveAlert[],
+  offers: BizOffer[],
   img?: string,
 ): Business {
   const hours = b.hours || '09:00 – 21:00'
@@ -133,6 +163,7 @@ function mapBusiness(
     reviews,
     slots: slots.length > 0 ? slots : ['12:00', '14:00', '19:00'],
     alerts: alerts.length > 0 ? alerts : undefined,
+    offers: offers.length > 0 ? offers : undefined,
   }
 }
 
@@ -160,7 +191,7 @@ export async function fetchCityData(municipio: string): Promise<CityData> {
   }
 
   const ids = bizRows.map(b => b.id)
-  const [{ data: svcRows }, { data: revRows }, { data: alertRows }] = await Promise.all([
+  const [{ data: svcRows }, { data: revRows }, { data: alertRows }, { data: offerRows }] = await Promise.all([
     supabase
       .from('services')
       .select('id,biz_id,name,description,price,price_label,category,duration_min,stock,scheduled,image_url')
@@ -176,6 +207,12 @@ export async function fetchCityData(municipio: string): Promise<CityData> {
       .in('biz_id', ids)
       .eq('kind', 'alerta')
       .eq('active', true),
+    supabase
+      .from('promotions')
+      .select('id,biz_id,title,body,discount,image_url,start_date,end_date,start_time,end_time,days')
+      .in('biz_id', ids)
+      .eq('kind', 'oferta')
+      .eq('active', true),
   ])
 
   const catalog: Record<string, Service[]> = {}
@@ -184,6 +221,7 @@ export async function fetchCityData(municipio: string): Promise<CityData> {
     catalog[b.id] = (svcRows ?? []).filter(s => s.biz_id === b.id).map(s => mapService(s as DbService, grad))
     const reviews = (revRows ?? []).filter(r => r.biz_id === b.id).map(mapReview)
     const alerts = (alertRows ?? []).filter(a => a.biz_id === b.id).map(a => mapAlert(a as DbAlert))
+    const offers = (offerRows ?? []).filter(o => o.biz_id === b.id).map(o => mapOffer(o as DbOffer))
     // Portada de la tarjeta en Discover: la imagen del producto que el negocio
     // eligió destacar; si no eligió uno (o no tiene imagen), cae a la primera
     // imagen del catálogo.
@@ -191,7 +229,7 @@ export async function fetchCityData(municipio: string): Promise<CityData> {
       ? catalog[b.id].find(s => s.id === b.featured_service_id)?.img
       : undefined
     const cover = featuredImg ?? catalog[b.id].find(s => s.img)?.img
-    return mapBusiness(b, grad, reviews, alerts, cover)
+    return mapBusiness(b, grad, reviews, alerts, offers, cover)
   })
 
   return { businesses, catalog }

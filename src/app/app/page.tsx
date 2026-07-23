@@ -13,6 +13,7 @@ import QRCode from 'qrcode'
 import { type Mode, type Business, type Service, BIZ, CATALOG, CITIES, STATES_DATA, COPY, slotsFromHours, upcomingDays, slotAvailability, isScheduled, inStock, tracksStock, dayOffered, findService, localSearch, servicesForSearch, activeAlert, findMunicipio, featuredBadge } from '@/lib/data'
 import { fetchCityData, type CityData } from '@/lib/business-data'
 import { createClient } from '@/lib/supabase/client'
+import { promoWindowLabel } from '@/lib/promotions'
 import { roveToken, ROVE_SERIALS, type RoveProgram } from '@/lib/rove'
 import { type RoveReward, type RoveRedemption as RoveRedemptionResult } from '@/lib/rove-rewards'
 import { clsx } from 'clsx'
@@ -1029,6 +1030,12 @@ function Discovery({ mode, onOpen, onBook, onModeToggle, onBell, onMsg }: { mode
 }
 
 // ── Business Detail (full-screen) ──────────────────────────
+// Etiqueta bilingüe del tipo de oferta (los valores viven en español en la BD).
+function OFFER_TYPE_LABEL(type: string, en: boolean): string {
+  const map: Record<string, string> = { 'Descuento': 'Discount', '2x1': '2-for-1', 'Regalo': 'Gift', 'Precio especial': 'Special price' }
+  return en ? (map[type] ?? type) : type
+}
+
 function BizDetail({ biz, mode, onClose, onBook, onMessage }: { biz: Business; mode: Mode; onClose: () => void; onBook: (service?: Service) => void; onMessage: () => void }) {
   const en = useContext(LangContext) === 'en'
   const { catalog } = useContext(BizDataContext)
@@ -1078,6 +1085,33 @@ function BizDetail({ biz, mode, onClose, onBook, onMessage }: { biz: Business; m
           <div style={{ display: 'flex', gap: 8, marginTop: 16, flexWrap: 'wrap' }}>
             {biz.tags.map(t => <span key={t} style={{ fontSize: 13, fontWeight: 600, color: '#6B615A', background: '#F3EADD', padding: '7px 13px', borderRadius: 999 }}>{t}</span>)}
           </div>
+
+          {/* promociones/ofertas del negocio */}
+          {biz.offers && biz.offers.length > 0 && (
+            <div style={{ marginTop: 24 }}>
+              <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 18, color: '#221C19', marginBottom: 12 }}>
+                {en ? 'Promotions' : 'Promociones'}
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {biz.offers.map(o => (
+                  <div key={o.id} style={{ background: '#fff', border: '1px solid #E9E0D5', borderRadius: 16, overflow: 'hidden' }}>
+                    {o.imageUrl && <div style={{ height: 130, background: `center/cover no-repeat url(${o.imageUrl})` }} />}
+                    <div style={{ padding: 14 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: '#B5472F', background: '#FCE9E7', padding: '3px 9px', borderRadius: 999 }}>{OFFER_TYPE_LABEL(o.type, en)}</span>
+                      </div>
+                      <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 16, color: '#221C19' }}>{o.title}</div>
+                      {o.detail && <div style={{ fontSize: 13.5, color: '#6B615A', marginTop: 3 }}>{o.detail}</div>}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 10, color: '#A89E94' }}>
+                        <Icon n="clock" size={14} color="#A89E94" />
+                        <span style={{ fontSize: 12.5, color: '#6B615A' }}>{promoWindowLabel(o, en)}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* services — selectable */}
           {services.length > 0 && (

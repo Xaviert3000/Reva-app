@@ -88,6 +88,20 @@ export interface ProactiveAlert {
   active: boolean
 }
 
+// Oferta/promoción que el negocio publica y el cliente ve en su ficha.
+export interface BizOffer {
+  id: string
+  type: string        // Descuento | 2x1 | Regalo | Precio especial
+  title: string
+  detail: string      // descripción
+  imageUrl: string | null
+  startDate: string | null   // 'YYYY-MM-DD' ; null = sin fecha de inicio
+  endDate: string | null
+  days: number[]      // 0=Dom..6=Sáb ; vacío = todos
+  startTime: string | null   // 'HH:MM' ; null = todo el día
+  endTime: string | null
+}
+
 export interface Business {
   id: string
   name: string
@@ -116,6 +130,7 @@ export interface Business {
   reviews: Array<{ who: string; txt: string; es: boolean }>
   slots: string[]
   alerts?: ProactiveAlert[]
+  offers?: BizOffer[]
 }
 
 // Niveles de visibilidad pagada, alineados con DEST_TIERS del panel de negocios.

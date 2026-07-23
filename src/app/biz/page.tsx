@@ -8,7 +8,7 @@ import { saveStock, decrementStock as decrementStockDB, fetchStock } from '@/lib
 import { recordSale } from '@/lib/pos'
 import { saveService, deleteService, uploadServiceImage, removeServiceImage, parsePrice } from '@/lib/catalog'
 import { clearFeatured } from '@/lib/featured'
-import { fetchPromotions, createPromotion, updatePromotion, setPromotionActive, deletePromotion, type Promo, fetchAlerts, createAlert, updateAlert, setAlertActive, deleteAlert, type BizAlert, type AlertInput } from '@/lib/promotions'
+import { fetchPromotions, createPromotion, updatePromotion, setPromotionActive, deletePromotion, promoWindowLabel, type Promo, type PromoInput, fetchAlerts, createAlert, updateAlert, setAlertActive, deleteAlert, type BizAlert, type AlertInput } from '@/lib/promotions'
 import { loadAgentConfig, saveAgentConfig, parseAgentConfig, DEFAULT_AGENT_CONFIG, type BizAgentConfig } from '@/lib/biz-agent-config'
 import { loadOwnerSession, type OwnerBusiness } from '@/lib/biz-session'
 import type { Service as CatalogService } from '@/lib/data'
@@ -4265,10 +4265,10 @@ type PromoType = 'Descuento' | '2x1' | 'Regalo' | 'Precio especial'
 const PROMO_TYPES: PromoType[] = ['Descuento', '2x1', 'Regalo', 'Precio especial']
 const PROMO_TYPE_EN: Record<PromoType, string> = { 'Descuento': 'Discount', '2x1': '2-for-1', 'Regalo': 'Gift', 'Precio especial': 'Special price' }
 const PROMO_ICON: Record<PromoType, string> = { 'Descuento': 'bolt', '2x1': 'ticket', 'Regalo': 'gift', 'Precio especial': 'spark' }
-const promoSeed = () => ([
-  { title: '15% en tu primera visita', type: 'Descuento' as PromoType, detail: 'Clientes nuevos que llegan vía Reva', vig: 'Permanente', active: true, canjes: 24 },
-  { title: '2x1 entre semana', type: '2x1' as PromoType, detail: 'Lunes a miércoles', vig: 'Hasta 30 jun', active: true, canjes: 38 },
-  { title: 'Cortesía de bienvenida', type: 'Regalo' as PromoType, detail: 'En tu cumpleaños', vig: 'Permanente', active: false, canjes: 9 },
+const promoSeed = (): Omit<Promo, 'id'>[] => ([
+  { title: '15% en tu primera visita', type: 'Descuento', detail: 'Clientes nuevos que llegan vía Reva', imageUrl: null, startDate: null, endDate: null, days: [], startTime: null, endTime: null, active: true, canjes: 24 },
+  { title: '2x1 entre semana', type: '2x1', detail: 'Válido en toda la carta de bebidas', imageUrl: null, startDate: null, endDate: null, days: [1, 2, 3], startTime: '17:00', endTime: '20:00', active: true, canjes: 38 },
+  { title: 'Cortesía de bienvenida', type: 'Regalo', detail: 'En tu cumpleaños', imageUrl: null, startDate: null, endDate: null, days: [], startTime: null, endTime: null, active: false, canjes: 9 },
 ])
 
 const LOYALTY_ICON: Record<string, string> = { stamps: 'spark', cashback: 'bolt', coupons: 'ticket', discount: 'bolt', membership: 'shield', multipass: 'grid', referral: 'user', giftcard: 'gift' }
@@ -4289,6 +4289,7 @@ const ALERT_TYPES: { id: AlertType; label: string; labelEn: string }[] = [
   { id: 'ultimos_lugares', label: 'Últimos lugares', labelEn: 'Last spots' },
 ]
 const ALERT_DEFAULT: AlertInput = { alertType: 'happy_hour', title: '', body: '', cta: 'Échale un ojo', startTime: '18:00', endTime: '20:00', days: [], active: true }
+const PROMO_FORM_DEFAULT: PromoInput = { title: '', type: 'Descuento', detail: '', imageUrl: null, startDate: null, endDate: null, days: [], startTime: null, endTime: null, active: true }
 
 function PromosView({ vert, metrics }: { vert: Vert; metrics?: BizMetrics | null }) {
   const t = useT()
@@ -4301,7 +4302,8 @@ function PromosView({ vert, metrics }: { vert: Vert; metrics?: BizMetrics | null
   const [alertForm, setAlertForm] = useState<AlertInput>(ALERT_DEFAULT)
   const [alertBusy, setAlertBusy] = useState(false)
   const [editing, setEditing] = useState<Promo | 'new' | null>(null)
-  const [form, setForm] = useState({ title: '', type: 'Descuento' as PromoType, detail: '', vig: 'Permanente', active: true })
+  const [form, setForm] = useState<PromoInput>(PROMO_FORM_DEFAULT)
+  const [promoImgFile, setPromoImgFile] = useState<File | null>(null)
   const [savingPromo, setSavingPromo] = useState(false)
   const [loyalty, setLoyalty] = useState({ stamps: 6, reward: 'Postre o bebida de cortesía' })
   const [editLoyal, setEditLoyal] = useState(false)
@@ -4330,21 +4332,43 @@ function PromosView({ vert, metrics }: { vert: Vert; metrics?: BizMetrics | null
 
   const fieldStyle: CSSProperties = { width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 10, padding: '11px 13px', fontSize: 14, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.surface }
 
-  function openNew() { setForm({ title: '', type: 'Descuento', detail: '', vig: 'Permanente', active: true }); setEditing('new') }
-  function openEdit(p: Promo) { setForm({ title: p.title, type: p.type, detail: p.detail, vig: p.vig, active: p.active }); setEditing(p) }
+  function openNew() { setForm(PROMO_FORM_DEFAULT); setPromoImgFile(null); setEditing('new') }
+  function openEdit(p: Promo) { setForm({ title: p.title, type: p.type, detail: p.detail, imageUrl: p.imageUrl, startDate: p.startDate, endDate: p.endDate, days: p.days, startTime: p.startTime, endTime: p.endTime, active: p.active }); setPromoImgFile(null); setEditing(p) }
+  function onPickPromoImage(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setPromoImgFile(file) // se sube a Storage al guardar
+    const reader = new FileReader()
+    reader.onload = () => setForm(f => ({ ...f, imageUrl: reader.result as string })) // vista previa (data URL)
+    reader.readAsDataURL(file)
+  }
+  function togglePromoDay(d: number) { setForm(f => ({ ...f, days: f.days.includes(d) ? f.days.filter(x => x !== d) : [...f.days, d].sort((a, b) => a - b) })) }
   async function savePromo() {
     if (!form.title.trim() || savingPromo) return
-    const payload = { title: form.title.trim(), type: form.type, detail: form.detail.trim(), vig: form.vig.trim() || 'Permanente', active: form.active }
     setSavingPromo(true)
+    // Imagen: sube el archivo nuevo a Storage; conserva la URL existente; el data
+    // URL de vista previa nunca se persiste (si la subida falla queda local).
+    let storedImg: string | null = null
+    if (promoImgFile) storedImg = await uploadServiceImage(vert.id, promoImgFile)
+    else if (form.imageUrl && !form.imageUrl.startsWith('data:')) storedImg = form.imageUrl
+    const localImg = storedImg || (form.imageUrl && !form.imageUrl.startsWith('data:') ? form.imageUrl : null)
+    const payload: PromoInput = {
+      title: form.title.trim(), type: form.type, detail: form.detail.trim(),
+      imageUrl: storedImg, startDate: form.startDate, endDate: form.endDate,
+      days: form.days, startTime: form.startTime, endTime: form.endTime, active: form.active,
+    }
     if (editing === 'new') {
       const created = await createPromotion(vert.id, payload)
-      setPromos(prev => [...prev, created ?? { ...payload, id: `local-${Date.now()}`, canjes: 0 }])
+      setPromos(prev => [...prev, created ?? { ...payload, imageUrl: localImg, id: `local-${Date.now()}`, canjes: 0 }])
     } else if (editing) {
       const id = editing.id
+      // Reemplazó una imagen de Storage: borra la anterior (best-effort).
+      if (editing.imageUrl && editing.imageUrl !== storedImg && editing.imageUrl.includes('/service-images/')) void removeServiceImage(editing.imageUrl)
       await updatePromotion(id, payload)
-      setPromos(prev => prev.map(p => p.id === id ? { ...p, ...payload } : p))
+      setPromos(prev => prev.map(p => p.id === id ? { ...p, ...payload, imageUrl: localImg } : p))
     }
     setSavingPromo(false)
+    setPromoImgFile(null)
     setEditing(null)
   }
   async function removePromo() {
@@ -4394,11 +4418,7 @@ function PromosView({ vert, metrics }: { vert: Vert; metrics?: BizMetrics | null
     <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 12.5, fontWeight: 600, color: '#16614c', background: R.jadeTint, padding: '6px 12px', borderRadius: 999, marginBottom: 16 }}>
       <Icon n="spark" size={13} color={R.jade} fill={R.jade} /> {t('Lealtad activa · powered by BoomerangMe', 'Loyalty active · powered by BoomerangMe')}
     </div>
-  ) : (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: R.amberDeep, background: R.amberTint, padding: '10px 14px', borderRadius: 12, marginBottom: 16 }}>
-      <Icon n="clock" size={15} color={R.amberDeep} /> {t('La plataforma está conectando BoomerangMe. Tus opciones se activarán muy pronto.', 'The platform is connecting BoomerangMe. Your options will activate very soon.')}
-    </div>
-  )
+  ) : null
 
   return (
     <div style={{ padding: '24px 28px', maxWidth: 960 }}>
@@ -4429,7 +4449,9 @@ function PromosView({ vert, metrics }: { vert: Vert; metrics?: BizMetrics | null
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 14 }}>
               {promos.map(p => (
-                <BCard key={p.id} style={{ padding: 16, opacity: p.active ? 1 : .6 }}>
+                <BCard key={p.id} style={{ padding: 0, overflow: 'hidden', opacity: p.active ? 1 : .6 }}>
+                  {p.imageUrl && <div style={{ height: 120, background: `center/cover no-repeat url(${p.imageUrl})` }} />}
+                  <div style={{ padding: 16 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
                     <div style={{ width: 36, height: 36, borderRadius: 10, background: R.coralTint, display: 'grid', placeItems: 'center', flexShrink: 0 }}>
                       <Icon n={PROMO_ICON[p.type]} size={18} color={R.coral} />
@@ -4440,12 +4462,13 @@ function PromosView({ vert, metrics }: { vert: Vert; metrics?: BizMetrics | null
                     </button>
                   </div>
                   <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink }}>{p.title}</div>
-                  <div style={{ fontSize: 13, color: R.inkSoft, marginTop: 3 }}>{p.detail}</div>
+                  {p.detail && <div style={{ fontSize: 13, color: R.inkSoft, marginTop: 3 }}>{p.detail}</div>}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, paddingTop: 12, borderTop: `1px solid ${R.lineSoft}` }}>
                     <Icon n="clock" size={14} color={R.inkFaint} />
-                    <span style={{ fontSize: 12.5, color: R.inkSoft }}>{p.vig}</span>
+                    <span style={{ fontSize: 12.5, color: R.inkSoft }}>{promoWindowLabel(p, en)}</span>
                     <span style={{ fontSize: 12.5, color: R.inkFaint }}>· {p.canjes} {t('canjes', 'redemptions')}</span>
                     <button onClick={() => openEdit(p)} style={{ marginLeft: 'auto', border: 'none', background: 'transparent', cursor: 'pointer', display: 'grid', placeItems: 'center', padding: 4 }} aria-label={t('Editar', 'Edit')}><Icon n="edit" size={16} color={R.inkSoft} /></button>
+                  </div>
                   </div>
                 </BCard>
               ))}
@@ -4664,8 +4687,53 @@ function PromosView({ vert, metrics }: { vert: Vert; metrics?: BizMetrics | null
                   })}
                 </div>
               </div>
-              <input value={form.detail} onChange={e => setForm({ ...form, detail: e.target.value })} placeholder={t('Condición (ej. lunes a miércoles)', 'Condition (e.g. Monday to Wednesday)')} style={fieldStyle} />
-              <input value={form.vig} onChange={e => setForm({ ...form, vig: e.target.value })} placeholder={t('Vigencia (ej. Permanente o Hasta 30 jun)', 'Validity (e.g. Permanent or Until Jun 30)')} style={fieldStyle} />
+              <textarea value={form.detail} onChange={e => setForm({ ...form, detail: e.target.value })} rows={2} placeholder={t('Descripción (ej. 2x1 en toda la carta de bebidas)', 'Description (e.g. 2-for-1 on the whole drinks menu)')} style={{ ...fieldStyle, resize: 'vertical' }} />
+
+              {/* Imagen de la promoción */}
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 8 }}>{t('Imagen', 'Image')}</div>
+                {form.imageUrl ? (
+                  <div style={{ position: 'relative', height: 130, borderRadius: 12, overflow: 'hidden', background: `center/cover no-repeat url(${form.imageUrl})` }}>
+                    <button onClick={() => { setForm(f => ({ ...f, imageUrl: null })); setPromoImgFile(null) }} aria-label={t('Quitar imagen', 'Remove image')} style={{ position: 'absolute', top: 8, right: 8, width: 30, height: 30, borderRadius: '50%', border: 'none', background: 'rgba(34,28,25,.6)', color: '#fff', cursor: 'pointer', fontSize: 17, lineHeight: 1 }}>×</button>
+                  </div>
+                ) : (
+                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, height: 84, border: `1.5px dashed ${R.line}`, borderRadius: 12, background: R.surface, cursor: 'pointer', color: R.inkSoft, fontFamily: R.ui, fontWeight: 600, fontSize: 13.5 }}>
+                    <Icon n="plus" size={16} color={R.inkSoft} /> {t('Subir imagen', 'Upload image')}
+                    <input type="file" accept="image/*" onChange={onPickPromoImage} style={{ display: 'none' }} />
+                  </label>
+                )}
+              </div>
+
+              {/* Vigencia: fechas de inicio y fin (vacío = permanente) */}
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 8 }}>{t('Vigencia', 'Validity')}</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  <label><span style={{ fontSize: 12, fontWeight: 600, color: R.inkSoft, display: 'block', marginBottom: 6 }}>{t('Inicia', 'Starts')}</span><input type="date" value={form.startDate ?? ''} onChange={e => setForm({ ...form, startDate: e.target.value || null })} style={fieldStyle} /></label>
+                  <label><span style={{ fontSize: 12, fontWeight: 600, color: R.inkSoft, display: 'block', marginBottom: 6 }}>{t('Termina', 'Ends')}</span><input type="date" value={form.endDate ?? ''} min={form.startDate ?? undefined} onChange={e => setForm({ ...form, endDate: e.target.value || null })} style={fieldStyle} /></label>
+                </div>
+                <div style={{ fontSize: 12, color: R.inkFaint, marginTop: 6 }}>{t('Deja las fechas vacías para que sea permanente.', 'Leave the dates empty to make it permanent.')}</div>
+              </div>
+
+              {/* Días en que aplica (vacío = todos) */}
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 8 }}>{t('Días (vacío = todos)', 'Days (empty = all)')}</div>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  {(en ? ['S', 'M', 'T', 'W', 'T', 'F', 'S'] : ['D', 'L', 'M', 'M', 'J', 'V', 'S']).map((d, i) => {
+                    const on = form.days.includes(i)
+                    return <button key={i} onClick={() => togglePromoDay(i)} style={{ width: 34, height: 34, borderRadius: 10, border: `1px solid ${on ? R.coral : R.line}`, background: on ? R.coral : R.surface, color: on ? '#fff' : R.inkSoft, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13 }}>{d}</button>
+                  })}
+                </div>
+              </div>
+
+              {/* Horario (vacío = todo el día) */}
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 8 }}>{t('Horario (vacío = todo el día)', 'Hours (empty = all day)')}</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  <label><span style={{ fontSize: 12, fontWeight: 600, color: R.inkSoft, display: 'block', marginBottom: 6 }}>{t('Desde', 'From')}</span><input type="time" value={form.startTime ?? ''} onChange={e => setForm({ ...form, startTime: e.target.value || null })} style={fieldStyle} /></label>
+                  <label><span style={{ fontSize: 12, fontWeight: 600, color: R.inkSoft, display: 'block', marginBottom: 6 }}>{t('Hasta', 'To')}</span><input type="time" value={form.endTime ?? ''} onChange={e => setForm({ ...form, endTime: e.target.value || null })} style={fieldStyle} /></label>
+                </div>
+              </div>
+
               <button onClick={() => setForm({ ...form, active: !form.active })} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', border: `1px solid ${R.line}`, borderRadius: 10, background: R.surface, cursor: 'pointer', fontFamily: R.ui }}>
                 <span style={{ fontSize: 14, fontWeight: 600, color: R.ink }}>{t('Activa', 'Active')}</span>
                 <span style={{ width: 34, height: 20, borderRadius: 999, background: form.active ? R.jade : R.inkFaint, position: 'relative', flexShrink: 0 }}>

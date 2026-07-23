@@ -2,11 +2,17 @@
 // Persiste en la tabla `promotions` (kind='oferta'). RLS deja al dueño gestionar
 // las de su negocio, así que se usa el cliente con la sesión del usuario.
 //
-// Mapeo sobre columnas existentes (sin migración nueva):
-//   title    ← título
-//   body     ← detalle
-//   discount ← tipo de promo (Descuento | 2x1 | Regalo | Precio especial)
-//   cta      ← vigencia (texto libre)
+// Mapeo sobre columnas de la tabla `promotions`:
+//   title      ← título
+//   body       ← descripción
+//   discount   ← tipo de promo (Descuento | 2x1 | Regalo | Precio especial)
+//   image_url  ← foto de la promoción (bucket `service-images`)
+//   start_date ← inicio de vigencia (NULL = sin fecha de inicio)
+//   end_date   ← fin de vigencia (NULL = sin fecha de fin)
+//   days       ← días en que aplica (0=Dom..6=Sáb ; vacío = todos)
+//   start_time ← horario desde ('HH:MM' ; NULL = todo el día)
+//   end_time   ← horario hasta
+// start_date, end_date, days, start_time y end_time vacíos = promoción permanente.
 import { createClient } from './supabase/client'
 
 export type PromoType = 'Descuento' | '2x1' | 'Regalo' | 'Precio especial'
@@ -18,7 +24,12 @@ export interface Promo {
   title: string
   type: PromoType
   detail: string
-  vig: string
+  imageUrl: string | null
+  startDate: string | null   // 'YYYY-MM-DD'
+  endDate: string | null
+  days: number[]             // 0=Dom..6=Sáb ; vacío = todos
+  startTime: string | null   // 'HH:MM' ; null = todo el día
+  endTime: string | null
   active: boolean
   canjes: number
 }
@@ -27,15 +38,67 @@ export interface PromoInput {
   title: string
   type: PromoType
   detail: string
-  vig: string
+  imageUrl: string | null
+  startDate: string | null
+  endDate: string | null
+  days: number[]
+  startTime: string | null
+  endTime: string | null
   active: boolean
 }
 
 const enabled = !!process.env.NEXT_PUBLIC_SUPABASE_URL
 
-interface Row { id: string; title: string; body: string | null; discount: string | null; cta: string | null; active: boolean | null }
+// Texto legible de la ventana de vigencia de una oferta (fechas + días + horario).
+// Vacío en todo = "Permanente". Se usa en el panel y en la ficha del cliente.
+export function promoWindowLabel(p: { startDate: string | null; endDate: string | null; days: number[]; startTime: string | null; endTime: string | null }, en = false): string {
+  const parts: string[] = []
+  const fmt = (d: string) => { const [y, m, day] = d.split('-'); const mo = (en ? ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] : ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'])[Number(m) - 1]; return `${Number(day)} ${mo}${y ? '' : ''}` }
+  if (p.startDate && p.endDate) parts.push(`${fmt(p.startDate)} – ${fmt(p.endDate)}`)
+  else if (p.startDate) parts.push((en ? 'From ' : 'Desde ') + fmt(p.startDate))
+  else if (p.endDate) parts.push((en ? 'Until ' : 'Hasta ') + fmt(p.endDate))
+  if (p.days.length > 0 && p.days.length < 7) {
+    const names = en ? ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] : ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb']
+    parts.push([...p.days].sort((a, b) => a - b).map(d => names[d]).join(', '))
+  }
+  if (p.startTime && p.endTime) parts.push(`${p.startTime}–${p.endTime}`)
+  return parts.length ? parts.join(' · ') : (en ? 'Permanent' : 'Permanente')
+}
+
+interface Row { id: string; title: string; body: string | null; discount: string | null; image_url: string | null; start_date: string | null; end_date: string | null; days: number[] | null; start_time: string | null; end_time: string | null; active: boolean | null }
 function mapRow(r: Row): Promo {
-  return { id: r.id, title: r.title, type: asType(r.discount), detail: r.body || '', vig: r.cta || 'Permanente', active: !!r.active, canjes: 0 }
+  return {
+    id: r.id,
+    title: r.title,
+    type: asType(r.discount),
+    detail: r.body || '',
+    imageUrl: r.image_url || null,
+    startDate: r.start_date || null,
+    endDate: r.end_date || null,
+    days: r.days ?? [],
+    startTime: r.start_time || null,
+    endTime: r.end_time || null,
+    active: !!r.active,
+    canjes: 0,
+  }
+}
+
+const OFFER_COLS = 'id,title,body,discount,image_url,start_date,end_date,days,start_time,end_time,active'
+
+// Columnas a persistir para una oferta (kind='oferta').
+function offerPayload(p: PromoInput) {
+  return {
+    title: p.title,
+    body: p.detail,
+    discount: p.type,
+    image_url: p.imageUrl,
+    start_date: p.startDate,
+    end_date: p.endDate,
+    days: p.days.length ? p.days : null,
+    start_time: p.startTime,
+    end_time: p.endTime,
+    active: p.active,
+  }
 }
 
 // null = Supabase no configurado (modo demo): el panel usa su seed local.
@@ -44,12 +107,12 @@ export async function fetchPromotions(bizId: string): Promise<Promo[] | null> {
   const supabase = createClient()
   const { data, error } = await supabase
     .from('promotions')
-    .select('id,title,body,discount,cta,active')
+    .select(OFFER_COLS)
     .eq('biz_id', bizId)
     .eq('kind', 'oferta')
     .order('created_at', { ascending: true })
   if (error) return null
-  return (data ?? []).map(r => mapRow(r as Row))
+  return (data ?? []).map(r => mapRow(r as unknown as Row))
 }
 
 export async function createPromotion(bizId: string, p: PromoInput): Promise<Promo | null> {
@@ -57,8 +120,8 @@ export async function createPromotion(bizId: string, p: PromoInput): Promise<Pro
   const supabase = createClient()
   const { data, error } = await supabase
     .from('promotions')
-    .insert({ biz_id: bizId, kind: 'oferta', title: p.title, body: p.detail, discount: p.type, cta: p.vig, active: p.active })
-    .select('id,title,body,discount,cta,active')
+    .insert({ biz_id: bizId, kind: 'oferta', ...offerPayload(p) })
+    .select(OFFER_COLS)
     .single()
   if (error || !data) return null
 
@@ -77,7 +140,7 @@ export async function createPromotion(bizId: string, p: PromoInput): Promise<Pro
     })
   })
 
-  return mapRow(data as Row)
+  return mapRow(data as unknown as Row)
 }
 
 export async function updatePromotion(id: string, p: PromoInput): Promise<boolean> {
@@ -85,7 +148,7 @@ export async function updatePromotion(id: string, p: PromoInput): Promise<boolea
   const supabase = createClient()
   const { error } = await supabase
     .from('promotions')
-    .update({ title: p.title, body: p.detail, discount: p.type, cta: p.vig, active: p.active })
+    .update(offerPayload(p))
     .eq('id', id)
   return !error
 }
