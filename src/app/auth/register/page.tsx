@@ -9,6 +9,7 @@ export default function RegisterPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [name, setName] = useState('')
+  const [phone, setPhone] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [done, setDone] = useState(false)
@@ -21,7 +22,7 @@ export default function RegisterPage() {
     const { error } = await supabase.auth.signUp({
       email, password,
       options: {
-        data: { full_name: name },
+        data: { full_name: name, phone: phone.trim() },
         // El correo de confirmación vuelve a ESTE host (prod en prod, local en
         // local) y canjea el code por sesión en /auth/callback.
         emailRedirectTo: `${window.location.origin}/auth/callback`,
@@ -54,6 +55,12 @@ export default function RegisterPage() {
               <input value={name} onChange={e => setName(e.target.value)} required
                 className="w-full border border-line rounded-[12px] px-4 py-3 text-[14.5px] text-ink outline-none focus:border-coral bg-bg transition-colors"
                 placeholder="Tu nombre" />
+            </div>
+            <div className="mb-4">
+              <label className="text-[12px] font-bold text-ink-faint uppercase tracking-wide block mb-2">Teléfono</label>
+              <input type="tel" inputMode="tel" value={phone} onChange={e => setPhone(e.target.value)} required
+                className="w-full border border-line rounded-[12px] px-4 py-3 text-[14.5px] text-ink outline-none focus:border-coral bg-bg transition-colors"
+                placeholder="Tu teléfono" />
             </div>
             <div className="mb-4">
               <label className="text-[12px] font-bold text-ink-faint uppercase tracking-wide block mb-2">Correo</label>

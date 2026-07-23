@@ -79,6 +79,7 @@ const I = {
   cal: <><rect x="4" y="5.5" width="16" height="15" rx="3" /><path d="M4 10h16M8 3.5v4M16 3.5v4" /></>,
   ticket: <><path d="M4 8a2 2 0 012-2h12a2 2 0 012 2 2 2 0 000 4 2 2 0 00-2 2H6a2 2 0 01-2-2 2 2 0 000-4z" /><path d="M14 6v12" strokeDasharray="2 2.5" /></>,
   user: <><circle cx="12" cy="8" r="3.6" /><path d="M5.5 20a6.5 6.5 0 0113 0" /></>,
+  phone: <path d="M6.5 3.5h3l1.5 4-2 1.5a11 11 0 005 5l1.5-2 4 1.5v3a2 2 0 01-2 2A15.5 15.5 0 014.5 5.5a2 2 0 012-2z" />,
   chat: <path d="M5 18l-1.5 3.5L7 20.5A8.5 8 0 1020 13c0 4.4-3.6 7-8 7a9 9 0 01-7-2z" />,
   chevR: <path d="M9 5l7 7-7 7" />,
   chevL: <path d="M15 5l-7 7 7 7" />,
@@ -1508,15 +1509,16 @@ function CartBar({ onOpen }: { onOpen: () => void }) {
   )
 }
 
-function CartSheet({ onClose, onCheckout }: { onClose: () => void; onCheckout: (d: { fulfillment: 'pickup' | 'delivery'; name: string; phone: string; address: string; notes: string }) => Promise<string | null> }) {
+function CartSheet({ onClose, onCheckout, defaultName, defaultPhone }: { onClose: () => void; onCheckout: (d: { fulfillment: 'pickup' | 'delivery'; name: string; phone: string; address: string; notes: string }) => Promise<string | null>; defaultName?: string | null; defaultPhone?: string | null }) {
   const en = useContext(LangContext) === 'en'
   const cart = useContext(CartContext)
   const biz = cart.biz
   const canPickup = biz?.pickupEnabled !== false
   const canDelivery = !!biz?.deliveryEnabled
   const [fulfillment, setFulfillment] = useState<'pickup' | 'delivery'>(canPickup ? 'pickup' : 'delivery')
-  const [name, setName] = useState('')
-  const [phone, setPhone] = useState('')
+  // Precargados desde el registro; siguen siendo editables.
+  const [name, setName] = useState(defaultName ?? '')
+  const [phone, setPhone] = useState(defaultPhone ?? '')
   const [address, setAddress] = useState('')
   const [notes, setNotes] = useState('')
   const [busy, setBusy] = useState(false)
@@ -2644,13 +2646,37 @@ function HelpPage({ en, onChatSupport }: { en: boolean; onChatSupport?: () => vo
 }
 
 // ── Profile ────────────────────────────────────────────────
-function Profile({ mode, userName, homeState, homeCity, currentCity, onCityChange, onModeSwitch, onLangChange, onChatSupport, onBell, onMsg, isRegistered, onRegister, onLogin }: { mode: Mode; userName: string | null; homeState: string | null; homeCity: string | null; currentCity: string; onCityChange: (c: string) => void; onModeSwitch: () => void; onLangChange: (l: 'es'|'en') => void; onChatSupport: () => void; onBell: () => void; onMsg: () => void; isRegistered: boolean; onRegister: () => void; onLogin: () => void }) {
+function Profile({ mode, userName, userPhone, homeState, homeCity, currentCity, onCityChange, onModeSwitch, onLangChange, onChatSupport, onBell, onMsg, isRegistered, onRegister, onLogin, onContactSaved }: { mode: Mode; userName: string | null; userPhone: string | null; homeState: string | null; homeCity: string | null; currentCity: string; onCityChange: (c: string) => void; onModeSwitch: () => void; onLangChange: (l: 'es'|'en') => void; onChatSupport: () => void; onBell: () => void; onMsg: () => void; isRegistered: boolean; onRegister: () => void; onLogin: () => void; onContactSaved: (name: string, phone: string) => void }) {
   const en = useContext(LangContext) === 'en'
   const name = userName || (en ? 'Your profile' : 'Tu perfil')
   const sub = mode === 'vecino'
     ? `Vecina · ${homeCity}${homeState ? `, ${homeState}` : ''}`
     : `Explorer · ${en ? 'visiting' : 'visitando'} ${currentCity}`
   const [page, setPage] = useState<ProfilePageId | null>(null)
+
+  // Editar datos de contacto (nombre/teléfono) guardados en user_metadata.
+  const [editContact, setEditContact] = useState(false)
+  const [draftName, setDraftName] = useState('')
+  const [draftPhone, setDraftPhone] = useState('')
+  const [savingContact, setSavingContact] = useState(false)
+  const openEditContact = () => {
+    setDraftName(userName ?? '')
+    setDraftPhone(userPhone ?? '')
+    setEditContact(true)
+  }
+  const saveContact = async () => {
+    if (savingContact) return
+    setSavingContact(true)
+    const supabase = createClient()
+    const { error } = await supabase.auth.updateUser({
+      data: { full_name: draftName.trim(), phone: draftPhone.trim() },
+    })
+    setSavingContact(false)
+    if (!error) {
+      onContactSaved(draftName.trim(), draftPhone.trim())
+      setEditContact(false)
+    }
+  }
 
   if (!isRegistered) {
     return (
@@ -2740,6 +2766,47 @@ function Profile({ mode, userName, homeState, homeCity, currentCity, onCityChang
             <p style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 20, color: '#221C19' }}>{name}</p>
             <p style={{ fontSize: 13.5, color: '#6B615A', marginTop: 2 }}>{sub}</p>
           </div>
+        </div>
+
+        {/* contact card — nombre y teléfono para tus pedidos */}
+        <div style={{ background: '#fff', border: '1px solid #E9E0D5', borderRadius: 18, padding: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: editContact ? 14 : 10 }}>
+            <p style={{ flex: 1, fontSize: 11, fontWeight: 700, color: '#A89E94', letterSpacing: '.07em', textTransform: 'uppercase' }}>
+              {en ? 'Contact details' : 'Datos de contacto'}
+            </p>
+            {!editContact && (
+              <button onClick={openEditContact} style={{ background: 'none', border: 'none', color: '#E8505B', fontFamily: 'var(--font-ui)', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
+                {en ? 'Edit' : 'Editar'}
+              </button>
+            )}
+          </div>
+          {editContact ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <input value={draftName} onChange={e => setDraftName(e.target.value)} placeholder={en ? 'Your name' : 'Tu nombre'}
+                style={{ width: '100%', padding: '11px 13px', borderRadius: 11, border: '1px solid #E9E0D5', background: '#FAF5EE', fontFamily: 'var(--font-ui)', fontSize: 14.5, color: '#221C19', outline: 'none' }} />
+              <input value={draftPhone} onChange={e => setDraftPhone(e.target.value)} placeholder={en ? 'Phone' : 'Teléfono'} inputMode="tel"
+                style={{ width: '100%', padding: '11px 13px', borderRadius: 11, border: '1px solid #E9E0D5', background: '#FAF5EE', fontFamily: 'var(--font-ui)', fontSize: 14.5, color: '#221C19', outline: 'none' }} />
+              <div style={{ display: 'flex', gap: 8, marginTop: 2 }}>
+                <button onClick={() => setEditContact(false)} style={{ flex: 1, padding: '11px 0', borderRadius: 11, border: '1px solid #E9E0D5', background: '#fff', color: '#6B615A', fontFamily: 'var(--font-ui)', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>
+                  {en ? 'Cancel' : 'Cancelar'}
+                </button>
+                <button onClick={saveContact} disabled={savingContact} style={{ flex: 1, padding: '11px 0', borderRadius: 11, border: 'none', background: '#E8505B', color: '#fff', fontFamily: 'var(--font-ui)', fontWeight: 700, fontSize: 14, cursor: savingContact ? 'default' : 'pointer', opacity: savingContact ? .6 : 1 }}>
+                  {savingContact ? (en ? 'Saving…' : 'Guardando…') : (en ? 'Save' : 'Guardar')}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <Icon n="user" size={16} color="#A89E94" />
+                <span style={{ fontSize: 14.5, color: userName ? '#221C19' : '#A89E94' }}>{userName || (en ? 'Add your name' : 'Agrega tu nombre')}</span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <Icon n="phone" size={16} color="#A89E94" />
+                <span style={{ fontSize: 14.5, color: userPhone ? '#221C19' : '#A89E94' }}>{userPhone || (en ? 'Add your phone' : 'Agrega tu teléfono')}</span>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* city + mode card */}
@@ -3189,21 +3256,25 @@ export default function AppPage() {
   // isRegistered ahora refleja la sesión real de Supabase.
   const [isRegistered, setIsRegistered] = useState(false)
   const [userName, setUserName] = useState<string | null>(null)
+  const [userPhone, setUserPhone] = useState<string | null>(null)
   const [pendingBook, setPendingBook] = useState<{ biz: Business; service: Service | null } | null>(null)
   const [showAuthModal, setShowAuthModal] = useState(false)
 
   useEffect(() => {
     const supabase = createClient()
-    // El nombre viene de los metadatos del usuario (full_name), guardado en el registro.
-    const nameOf = (u: { user_metadata?: { full_name?: string } } | null | undefined) =>
-      (u?.user_metadata?.full_name ?? '').trim() || null
+    // Nombre y teléfono vienen de los metadatos del usuario, guardados en el registro.
+    type Meta = { user_metadata?: { full_name?: string; phone?: string } } | null | undefined
+    const nameOf = (u: Meta) => (u?.user_metadata?.full_name ?? '').trim() || null
+    const phoneOf = (u: Meta) => (u?.user_metadata?.phone ?? '').trim() || null
     supabase.auth.getUser().then(({ data }) => {
       setIsRegistered(!!data.user)
       setUserName(nameOf(data.user))
+      setUserPhone(phoneOf(data.user))
     })
     const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
       setIsRegistered(!!session?.user)
       setUserName(nameOf(session?.user))
+      setUserPhone(phoneOf(session?.user))
     })
     return () => sub.subscription.unsubscribe()
   }, [])
@@ -3325,7 +3396,7 @@ export default function AppPage() {
         {tab === 'discover' && <Discovery mode={mode} onOpen={setOpenBiz} onBook={(b) => tryBook(b, null)} onModeToggle={() => setTab('profile')} onBell={() => setShowNotifs(true)} onMsg={() => setShowMessages(true)} />}
         {tab === 'bookings' && <Trips mode={mode} onModeToggle={() => setTab('profile')} onBell={() => setShowNotifs(true)} onMsg={() => setShowMessages(true)} />}
         {tab === 'rove' && <Rove mode={mode} onModeToggle={() => setTab('profile')} onBell={() => setShowNotifs(true)} onMsg={() => setShowMessages(true)} isRegistered={isRegistered} onRegister={() => { window.location.href = '/auth/register' }} onLogin={() => { window.location.href = '/auth/login' }} />}
-        {tab === 'profile' && <Profile mode={mode} userName={userName} homeState={homeState} homeCity={homeCity} currentCity={currentCity} onCityChange={handleCityChange} onModeSwitch={() => {}} onLangChange={setLang} onChatSupport={() => setShowSupport(true)} onBell={() => setShowNotifs(true)} onMsg={() => setShowMessages(true)} isRegistered={isRegistered} onRegister={() => { window.location.href = '/auth/register' }} onLogin={() => { window.location.href = '/auth/login' }} />}
+        {tab === 'profile' && <Profile mode={mode} userName={userName} userPhone={userPhone} homeState={homeState} homeCity={homeCity} currentCity={currentCity} onCityChange={handleCityChange} onModeSwitch={() => {}} onLangChange={setLang} onChatSupport={() => setShowSupport(true)} onBell={() => setShowNotifs(true)} onMsg={() => setShowMessages(true)} isRegistered={isRegistered} onRegister={() => { window.location.href = '/auth/register' }} onLogin={() => { window.location.href = '/auth/login' }} onContactSaved={(n, p) => { setUserName(n || null); setUserPhone(p || null) }} />}
       </div>
 
       {/* Bottom nav */}
@@ -3347,7 +3418,7 @@ export default function AppPage() {
       )}
 
       {/* Overlays */}
-      {showCart && <CartSheet onClose={() => setShowCart(false)} onCheckout={checkoutCart} />}
+      {showCart && <CartSheet onClose={() => setShowCart(false)} onCheckout={checkoutCart} defaultName={userName} defaultPhone={userPhone} />}
       {openBiz && (
         <BizDetail biz={openBiz} mode={mode} onClose={() => setOpenBiz(null)}
           onBook={(svc) => { if (svc && isOrderable(openBiz, svc)) { addToCart(openBiz, svc); return } setOpenBiz(null); tryBook(openBiz, svc ?? null) }}
