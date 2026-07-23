@@ -96,6 +96,12 @@ export async function POST(req: NextRequest) {
     if (kind) bizPatch.kind = kind
     if (municipio) bizPatch.municipio = municipio
     if (hours) bizPatch.hours = hours
+    // Modo de negocio (reservas / pedidos) y formas de entrega, del asistente.
+    if (typeof body.does_reservations === 'boolean') bizPatch.does_reservations = body.does_reservations
+    if (typeof body.does_orders === 'boolean') bizPatch.does_orders = body.does_orders
+    if (typeof body.pickup_enabled === 'boolean') bizPatch.pickup_enabled = body.pickup_enabled
+    if (typeof body.delivery_enabled === 'boolean') bizPatch.delivery_enabled = body.delivery_enabled
+    if (body.delivery_fee !== undefined) { const n = Number(body.delivery_fee); if (Number.isFinite(n) && n >= 0) bizPatch.delivery_fee = n }
 
     const { error: updErr } = await admin.from('businesses').update(bizPatch).eq('id', targetBizId)
     if (updErr) {

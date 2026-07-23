@@ -36,6 +36,11 @@ export interface OwnerBusiness {
   onboarded: boolean | null
   agent_config: Record<string, unknown> | null
   tax_mode: string | null
+  does_reservations: boolean | null
+  does_orders: boolean | null
+  pickup_enabled: boolean | null
+  delivery_enabled: boolean | null
+  delivery_fee: number | null
   services: OwnerService[]
 }
 
@@ -67,7 +72,7 @@ export async function loadOwnerSession(): Promise<OwnerSession> {
 
   const { data: bizRows } = await supabase
     .from('businesses')
-    .select('id,name,full_name,type,kind,hood,municipio,hours,capacity,rfc,address,phone,grad_from,grad_to,mono,agent_active,onboarded,agent_config,tax_mode')
+    .select('id,name,full_name,type,kind,hood,municipio,hours,capacity,rfc,address,phone,grad_from,grad_to,mono,agent_active,onboarded,agent_config,tax_mode,does_reservations,does_orders,pickup_enabled,delivery_enabled,delivery_fee')
     .in('id', bizIds)
 
   const { data: svcRows } = await supabase

@@ -24,6 +24,11 @@ interface DbBusiness {
   grad_from: string | null
   grad_to: string | null
   mono: string | null
+  does_orders: boolean | null
+  does_reservations: boolean | null
+  pickup_enabled: boolean | null
+  delivery_enabled: boolean | null
+  delivery_fee: number | null
 }
 
 interface DbService {
@@ -164,6 +169,11 @@ function mapBusiness(
     slots: slots.length > 0 ? slots : ['12:00', '14:00', '19:00'],
     alerts: alerts.length > 0 ? alerts : undefined,
     offers: offers.length > 0 ? offers : undefined,
+    doesOrders: !!b.does_orders,
+    doesReservations: b.does_reservations !== false,
+    pickupEnabled: b.pickup_enabled !== false,
+    deliveryEnabled: !!b.delivery_enabled,
+    deliveryFee: Number(b.delivery_fee) || 0,
   }
 }
 
@@ -182,7 +192,7 @@ export async function fetchCityData(municipio: string): Promise<CityData> {
   const supabase = createClient()
   const { data: bizRows, error } = await supabase
     .from('businesses')
-    .select('id,name,type,kind,hood,municipio,hours,rating,local_fav,featured,tier,featured_until,featured_service_id,grad_from,grad_to,mono')
+    .select('id,name,type,kind,hood,municipio,hours,rating,local_fav,featured,tier,featured_until,featured_service_id,grad_from,grad_to,mono,does_orders,does_reservations,pickup_enabled,delivery_enabled,delivery_fee')
     .eq('municipio', municipio)
 
   if (error || !bizRows || bizRows.length === 0) {

@@ -11,17 +11,19 @@ import { clearFeatured } from '@/lib/featured'
 import { fetchPromotions, createPromotion, updatePromotion, setPromotionActive, deletePromotion, promoWindowLabel, type Promo, type PromoInput, fetchAlerts, createAlert, updateAlert, setAlertActive, deleteAlert, type BizAlert, type AlertInput } from '@/lib/promotions'
 import { loadAgentConfig, saveAgentConfig, parseAgentConfig, DEFAULT_AGENT_CONFIG, type BizAgentConfig } from '@/lib/biz-agent-config'
 import { loadOwnerSession, type OwnerBusiness } from '@/lib/biz-session'
+import { createClient } from '@/lib/supabase/client'
 import type { Service as CatalogService } from '@/lib/data'
 import { LangContext, useT, useEn, type Lang } from '@/lib/i18n'
 
 // Etiquetas de navegación e inglés (el español vive en NAV/VIEW_TITLES)
 const NAV_EN: Record<string, string> = {
-  requests: 'Requests', agenda: 'Agenda', messages: 'Messages', metrics: 'Metrics',
+  requests: 'Requests', orders: 'Orders', agenda: 'Agenda', messages: 'Messages', metrics: 'Metrics',
   reports: 'Reports', destacado: 'Featured', catalog: 'Catalog', inventory: 'Inventory',
   pos: 'Point of sale', sales: 'Sales', promos: 'Promotions', scanner: 'Scanner', settings: 'Settings',
 }
 const VIEW_TITLES_EN: Record<string, [string, string]> = {
   requests: ['Live requests', 'What Reva is bringing to your door'],
+  orders: ['Orders', 'Paid orders ready to prepare and deliver'],
   agenda: ['Agenda', 'Your day, table by table'],
   messages: ['Messages', 'Conversations with your customers, via Reva'],
   metrics: ['Metrics', 'How Reva moves your business'],
@@ -106,6 +108,7 @@ const VERTICALS = [
   {
     id: 'resto', name: 'La Lupita', full: 'La Lupita Taco & Mezcal', mono: 'L',
     grad: ['#E27A52', '#B5472F'] as [string, string],
+    caps: { reservations: true, orders: false, pickup: true, delivery: false, fee: 0 },
     hood: 'San José del Cabo', municipio: 'Los Cabos', kind: 'Restaurante', unit: 'personas', hours: '13:00 – 23:00',
     rfc: 'LUP190423K10', address: 'Blvd. Mijares 12, Centro, San José del Cabo, BCS', phone: '+52 624 142 0011',
     capacity: { used: 32, total: 60, label: 'lugares' },
@@ -130,6 +133,7 @@ const VERTICALS = [
   {
     id: 'spa', name: 'Sereno', full: 'Sereno Spa & Temazcal', mono: 'S',
     grad: ['#C9A2B4', '#6E4A63'] as [string, string],
+    caps: { reservations: true, orders: false, pickup: true, delivery: false, fee: 0 },
     hood: 'Corredor Turístico', municipio: 'Los Cabos', kind: 'Spa & Bienestar', unit: 'servicio', hours: '09:00 – 20:00',
     rfc: 'SER210308M45', address: 'Carr. Transpeninsular Km 7.5, Corredor Turístico, Los Cabos, BCS', phone: '+52 624 145 0088',
     capacity: { used: 9, total: 14, label: 'citas' },
@@ -179,6 +183,13 @@ function vertFromBusiness(b: OwnerBusiness): Vert {
     full: b.full_name || b.name,
     mono: (b.mono || b.name.charAt(0) || 'R').toUpperCase(),
     grad,
+    caps: {
+      reservations: b.does_reservations !== false,
+      orders: !!b.does_orders,
+      pickup: b.pickup_enabled !== false,
+      delivery: !!b.delivery_enabled,
+      fee: Number(b.delivery_fee) || 0,
+    },
     hood: b.hood || 'Los Cabos',
     municipio: b.municipio || 'Los Cabos',
     kind: b.kind || b.type || 'Negocio',
@@ -213,6 +224,26 @@ interface PanelReservation {
 
 // Solicitud entrante (reserva pendiente) que pinta RequestsView.
 type PanelRequest = { id: string; who: string; via: string; party: number; time: string; when: string; note: string; state: 'action' }
+
+// Pedido ecommerce que pinta OrdersView (de GET /api/biz/orders).
+interface PanelOrderItem { id: string; name: string; qty: number; unit_price: number; line_total: number }
+interface PanelOrder {
+  id: string
+  status: string
+  fulfillment: 'pickup' | 'delivery'
+  customer_name: string | null
+  customer_phone: string | null
+  address: string | null
+  notes: string | null
+  subtotal: number
+  delivery_fee: number
+  total: number
+  courier_id: string | null
+  created_at: string
+  order_items: PanelOrderItem[]
+  couriers?: { name: string | null } | null
+}
+interface PanelCourier { user_id: string; name: string | null; phone: string | null; active: boolean }
 
 // Métricas reales del negocio (Fase 5), de /api/biz/metrics.
 // KPIs reales por módulo para un periodo dado (los consume Informes).
@@ -289,6 +320,7 @@ function reservationsToAgenda(rsvs: PanelReservation[]): AgItem[] {
 
 const NAV = [
   { id: 'requests', icon: 'inbox', label: 'Solicitudes' },
+  { id: 'orders', icon: 'box', label: 'Pedidos' },
   { id: 'agenda', icon: 'cal', label: 'Agenda' },
   { id: 'messages', icon: 'chat', label: 'Mensajes' },
   { id: 'metrics', icon: 'chart', label: 'Métricas' },
@@ -305,6 +337,7 @@ const NAV = [
 
 const VIEW_TITLES: Record<string, [string, string]> = {
   requests: ['Solicitudes en vivo', 'Lo que Reva está trayendo a tu puerta'],
+  orders: ['Pedidos', 'Pedidos pagados listos para preparar y entregar'],
   agenda: ['Agenda', 'Tu día, mesa por mesa'],
   messages: ['Mensajes', 'Conversaciones con tus clientes, vía Reva'],
   metrics: ['Métricas', 'Cómo Reva mueve tu negocio'],
@@ -407,6 +440,12 @@ function BizOnboarding({ biz, onDone }: { biz: OwnerBusiness | null; onDone: () 
   const [agentMsg, setAgentMsg] = useState(() => initialBt.agent.replace('{negocio}', biz?.name || initialBt.name))
   const [agentEdited, setAgentEdited] = useState(false)
   const [payMode, setPayMode] = useState<'none' | 'deposit'>('none')
+  // Modo de negocio: reservas y/o pedidos (ecommerce), + formas de entrega.
+  const [doesReservations, setDoesReservations] = useState(biz?.does_reservations !== false)
+  const [doesOrders, setDoesOrders] = useState(!!biz?.does_orders)
+  const [pickup, setPickup] = useState(biz?.pickup_enabled !== false)
+  const [delivery, setDelivery] = useState(!!biz?.delivery_enabled)
+  const [deliveryFee, setDeliveryFee] = useState(biz?.delivery_fee ? String(biz.delivery_fee) : '')
   const [activating, setActivating] = useState(false)
 
   const bt = BIZ_TYPES.find(x => x.id === bizType) ?? BIZ_TYPES[0]
@@ -472,6 +511,11 @@ function BizOnboarding({ biz, onDone }: { biz: OwnerBusiness | null; onDone: () 
           municipio: municipio.trim(),
           hours: `${hoursOpen} – ${hoursClose}`,
           agentActive: true,
+          does_reservations: doesReservations,
+          does_orders: doesOrders,
+          pickup_enabled: pickup,
+          delivery_enabled: delivery,
+          delivery_fee: Number(deliveryFee) || 0,
           services: services.map(s => ({ name: s.name, desc: s.desc, price: s.price, on: s.on })),
         }),
       })
@@ -523,6 +567,34 @@ function BizOnboarding({ biz, onDone }: { biz: OwnerBusiness | null; onDone: () 
                     </button>
                   ))}
                 </div>
+              </div>
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', display: 'block', marginBottom: 8 }}>{t('¿Qué gestionas?', 'What do you manage?')}</label>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                  {([
+                    ['reservations', doesReservations, setDoesReservations, `📅 ${t('Reservas', 'Reservations')}`, t('Citas con fecha y hora', 'Date & time bookings')],
+                    ['orders', doesOrders, setDoesOrders, `🛍️ ${t('Pedidos', 'Orders')}`, t('Productos con pago en línea', 'Products with online payment')],
+                  ] as const).map(([id, on, set, label, sub]) => (
+                    <button key={id} onClick={() => set(!on)} style={{ display: 'flex', flexDirection: 'column', gap: 3, padding: 12, borderRadius: 12, border: `1px solid ${on ? R.coral : R.line}`, background: on ? R.coralTint : R.surface, cursor: 'pointer', fontFamily: R.ui, textAlign: 'left' }}>
+                      <span style={{ fontSize: 13.5, fontWeight: 700, color: on ? R.coralPress : R.ink }}>{label}</span>
+                      <span style={{ fontSize: 11.5, color: R.inkSoft }}>{sub}</span>
+                    </button>
+                  ))}
+                </div>
+                {doesOrders && (
+                  <div style={{ marginTop: 10, padding: 12, borderRadius: 12, background: R.bgAlt, border: `1px solid ${R.line}` }}>
+                    <p style={{ fontSize: 11.5, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 8 }}>{t('Entrega de pedidos', 'Order fulfillment')}</p>
+                    <div style={{ display: 'flex', gap: 8, marginBottom: delivery ? 10 : 0 }}>
+                      <button onClick={() => setPickup(!pickup)} style={{ flex: 1, padding: '9px 10px', borderRadius: 10, border: `1px solid ${pickup ? R.coral : R.line}`, background: pickup ? R.coralTint : R.surface, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 12.5, color: pickup ? R.coralPress : R.ink }}>🏪 {t('Recoger', 'Pickup')}</button>
+                      <button onClick={() => setDelivery(!delivery)} style={{ flex: 1, padding: '9px 10px', borderRadius: 10, border: `1px solid ${delivery ? R.coral : R.line}`, background: delivery ? R.coralTint : R.surface, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 12.5, color: delivery ? R.coralPress : R.ink }}>🛵 {t('Entrega', 'Delivery')}</button>
+                    </div>
+                    {delivery && (
+                      <input value={deliveryFee} onChange={e => setDeliveryFee(e.target.value.replace(/[^0-9.]/g, ''))} inputMode="decimal" placeholder={t('Costo de envío ($)', 'Delivery fee ($)')}
+                        style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 10, padding: '10px 12px', fontSize: 13.5, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.surface }} />
+                    )}
+                    <p style={{ fontSize: 11.5, color: R.inkFaint, marginTop: 8 }}>{t('Los pedidos se cobran con Stripe (conéctalo luego en Ajustes). Agrega repartidores en Ajustes.', 'Orders are charged with Stripe (connect it later in Settings). Add couriers in Settings.')}</p>
+                  </div>
+                )}
               </div>
               <div style={{ marginBottom: 16 }}>
                 <label style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', display: 'block', marginBottom: 8 }}>{t('Municipio de operación', 'Operating municipality')}</label>
@@ -852,6 +924,116 @@ function startOfWeekMon(d: Date): Date {
   const x = new Date(d.getFullYear(), d.getMonth(), d.getDate())
   x.setDate(x.getDate() - ((x.getDay() + 6) % 7))
   return x
+}
+
+// ── Pedidos (ecommerce) ────────────────────────────────────
+// Etiqueta + color de cada estado del ciclo de vida del pedido.
+const ORDER_STATUS: Record<string, { es: string; en: string; bg: string; color: string }> = {
+  paid:             { es: 'Pagado',       en: 'Paid',            bg: R.jadeTint,  color: '#16614c' },
+  preparing:        { es: 'Preparando',   en: 'Preparing',       bg: R.amberTint, color: R.amberDeep },
+  ready:            { es: 'Listo',        en: 'Ready',           bg: R.coralTint, color: R.coralPress },
+  out_for_delivery: { es: 'En camino',    en: 'Out for delivery',bg: '#E7EDFB',   color: '#3A5BC7' },
+  delivered:        { es: 'Entregado',    en: 'Delivered',       bg: R.bgAlt,     color: R.inkSoft },
+  cancelled:        { es: 'Cancelado',    en: 'Cancelled',       bg: R.bgAlt,     color: R.inkSoft },
+  refunded:         { es: 'Reembolsado',  en: 'Refunded',        bg: R.bgAlt,     color: R.inkSoft },
+}
+
+function OrdersView({ vert, orders, couriers, onUpdate }: { vert: Vert; orders: PanelOrder[]; couriers: PanelCourier[]; onUpdate: (id: string, patch: { status?: string; courier_id?: string | null }) => void }) {
+  const t = useT()
+  const en = useEn()
+  const active = orders.filter(o => !['delivered', 'cancelled', 'refunded'].includes(o.status))
+  const done = orders.filter(o => ['delivered', 'cancelled', 'refunded'].includes(o.status))
+
+  // Botón de avance principal según estado + tipo de entrega.
+  function nextAction(o: PanelOrder): { label: string; status: string } | null {
+    if (o.status === 'paid') return { label: t('Empezar a preparar', 'Start preparing'), status: 'preparing' }
+    if (o.status === 'preparing') return { label: t('Marcar listo', 'Mark ready'), status: 'ready' }
+    if (o.status === 'ready') {
+      return o.fulfillment === 'delivery'
+        ? { label: t('Marcar en camino', 'Mark out for delivery'), status: 'out_for_delivery' }
+        : { label: t('Marcar entregado', 'Mark delivered'), status: 'delivered' }
+    }
+    if (o.status === 'out_for_delivery') return { label: t('Marcar entregado', 'Mark delivered'), status: 'delivered' }
+    return null
+  }
+
+  const card = (o: PanelOrder) => {
+    const st = ORDER_STATUS[o.status] ?? { es: o.status, en: o.status, bg: R.bgAlt, color: R.inkSoft }
+    const action = nextAction(o)
+    const terminal = ['delivered', 'cancelled', 'refunded'].includes(o.status)
+    return (
+      <BCard key={o.id} style={{ padding: '16px 18px' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span style={{ fontFamily: R.display, fontWeight: 700, fontSize: 15.5, color: R.ink }}>{o.customer_name || t('Cliente', 'Customer')}</span>
+              <span style={{ fontSize: 11.5, fontWeight: 700, color: R.inkSoft, background: R.bgAlt, padding: '3px 9px', borderRadius: 999 }}>
+                {o.fulfillment === 'delivery' ? `🛵 ${t('Entrega', 'Delivery')}` : `🏪 ${t('Recoger', 'Pickup')}`}
+              </span>
+            </div>
+            <div style={{ fontSize: 13, color: R.inkSoft, marginTop: 4 }}>
+              {o.order_items.map(i => `${i.qty}× ${i.name}`).join(' · ')}
+            </div>
+            {o.fulfillment === 'delivery' && o.address && (
+              <div style={{ fontSize: 12.5, color: R.inkSoft, marginTop: 4 }}>📍 {o.address}</div>
+            )}
+            {o.customer_phone && <div style={{ fontSize: 12.5, color: R.inkSoft, marginTop: 2 }}>📞 {o.customer_phone}</div>}
+            {o.notes && <div style={{ fontSize: 12.5, color: R.ink, marginTop: 4, fontStyle: 'italic' }}>“{o.notes}”</div>}
+          </div>
+          <div style={{ textAlign: 'right', flexShrink: 0 }}>
+            <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 17, color: R.ink }}>${o.total}</div>
+            <span style={{ display: 'inline-block', marginTop: 6, fontSize: 11.5, fontWeight: 700, color: st.color, background: st.bg, padding: '3px 9px', borderRadius: 999 }}>{en ? st.en : st.es}</span>
+          </div>
+        </div>
+
+        {/* Asignar repartidor (sólo entregas activas) */}
+        {o.fulfillment === 'delivery' && !terminal && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12 }}>
+            <span style={{ fontSize: 12.5, color: R.inkSoft }}>{t('Repartidor', 'Courier')}:</span>
+            <select value={o.courier_id ?? ''} onChange={e => onUpdate(o.id, { courier_id: e.target.value || null })}
+              style={{ flex: 1, padding: '8px 10px', borderRadius: 10, border: `1px solid ${R.line}`, background: R.surface, fontFamily: R.ui, fontSize: 13, color: R.ink }}>
+              <option value="">{t('Sin asignar', 'Unassigned')}</option>
+              {couriers.map(c => <option key={c.user_id} value={c.user_id}>{c.name || c.phone || c.user_id.slice(0, 6)}</option>)}
+            </select>
+          </div>
+        )}
+
+        {!terminal && (
+          <div style={{ display: 'flex', gap: 9, marginTop: 14, alignItems: 'center' }}>
+            {action && (
+              <button onClick={() => onUpdate(o.id, { status: action.status })}
+                style={{ padding: '9px 18px', background: R.coral, color: '#fff', border: 'none', borderRadius: 999, fontFamily: R.ui, fontWeight: 700, fontSize: 13.5, cursor: 'pointer' }}>{action.label}</button>
+            )}
+            <button onClick={() => onUpdate(o.id, { status: 'cancelled' })}
+              style={{ padding: '9px 18px', background: R.bgAlt, color: R.ink, border: 'none', borderRadius: 999, fontFamily: R.ui, fontWeight: 700, fontSize: 13.5, cursor: 'pointer' }}>{t('Cancelar', 'Cancel')}</button>
+          </div>
+        )}
+      </BCard>
+    )
+  }
+
+  return (
+    <div style={{ flex: 1, minHeight: 0, padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: 16, boxSizing: 'border-box', overflow: 'hidden' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+        <span style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink }}>{t('En curso', 'In progress')}</span>
+        <span style={{ fontSize: 12.5, fontWeight: 700, color: R.coralPress, background: R.coralTint, padding: '3px 9px', borderRadius: 999 }}>{active.length}</span>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12, flex: 1, minHeight: 0, overflowY: 'auto', paddingRight: 4 }}>
+        {active.map(card)}
+        {active.length === 0 && (
+          <BCard style={{ textAlign: 'center', padding: '44px 0', color: R.inkSoft }}>
+            <Icon n="check" size={28} color={R.jade} stroke={2.4} /> {t('Sin pedidos por preparar. Reva te avisa cuando entre uno.', 'No orders to prepare. Reva notifies you when one arrives.')}
+          </BCard>
+        )}
+        {done.length > 0 && (
+          <>
+            <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 15, color: R.inkSoft, marginTop: 8 }}>{t('Completados', 'Completed')}</div>
+            {done.map(card)}
+          </>
+        )}
+      </div>
+    </div>
+  )
 }
 
 function AgendaView({ vert, dayAgenda }: { vert: Vert; dayAgenda: AgItem[] }) {
@@ -3362,7 +3544,176 @@ function ReportsView({ vert, items, onGo, bizInfo, metrics, agenda, requests }: 
 type EmpRole = 'Dueño' | 'Admin' | 'Caja'
 type Employee = { id: number; name: string; email: string; role: EmpRole; status: 'activo' | 'invitado' }
 
-function SettingsView({ agentCfg, setAgentCfg, taxMode, setTaxMode, bizInfo, setBizInfo, vert, onGo, lang, setLang }: { agentCfg: BizAgentConfig; setAgentCfg: (u: BizAgentConfig | ((c: BizAgentConfig) => BizAgentConfig)) => void; taxMode: TaxMode; setTaxMode: (v: TaxMode) => void; bizInfo: BizInfo; setBizInfo: (v: BizInfo) => void; vert: Vert; onGo: (v: string) => void; lang: Lang; setLang: (l: Lang) => void }) {
+// Interruptor reutilizable para Ajustes.
+function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <button onClick={() => onChange(!on)} style={{ width: 46, height: 27, borderRadius: 999, border: 'none', cursor: 'pointer', background: on ? R.jade : R.line, position: 'relative', flexShrink: 0 }}>
+      <span style={{ position: 'absolute', top: 3, left: on ? 22 : 3, width: 21, height: 21, borderRadius: '50%', background: '#fff', transition: 'left .18s', boxShadow: '0 1px 3px rgba(0,0,0,.2)' }} />
+    </button>
+  )
+}
+
+// ── Ajustes: modo de negocio (reservas/pedidos), entregas y repartidores ──
+function OrdersSettingsCard({ vert, stripeReady, onSaved }: { vert: Vert; stripeReady: boolean; onSaved: () => void }) {
+  const t = useT()
+  const [reservations, setReservations] = useState(vert.caps.reservations)
+  const [orders, setOrders] = useState(vert.caps.orders)
+  const [pickup, setPickup] = useState(vert.caps.pickup)
+  const [delivery, setDelivery] = useState(vert.caps.delivery)
+  const [fee, setFee] = useState(String(vert.caps.fee || ''))
+  const [saving, setSaving] = useState(false)
+  const [savedMsg, setSavedMsg] = useState(false)
+
+  const [couriers, setCouriers] = useState<PanelCourier[]>([])
+  const [form, setForm] = useState({ name: '', email: '', phone: '' })
+  const [courierBusy, setCourierBusy] = useState(false)
+  const [courierMsg, setCourierMsg] = useState<string | null>(null)
+
+  const loadCouriers = useCallback(async () => {
+    try {
+      const r = await fetch(`/api/biz/couriers?biz_id=${encodeURIComponent(vert.id)}`)
+      if (r.ok) { const d = await r.json(); setCouriers((d.couriers ?? []).filter((c: PanelCourier) => c.active)) }
+    } catch { /* ignora */ }
+  }, [vert.id])
+  useEffect(() => { loadCouriers() }, [loadCouriers])
+
+  async function saveCaps() {
+    setSaving(true); setSavedMsg(false)
+    try {
+      await fetch('/api/biz/settings', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ biz_id: vert.id, does_reservations: reservations, does_orders: orders, pickup_enabled: pickup, delivery_enabled: delivery, delivery_fee: Number(fee) || 0 }),
+      })
+      setSavedMsg(true); onSaved()
+    } catch { /* ignora */ } finally { setSaving(false) }
+  }
+
+  async function addCourier() {
+    if (!form.email.trim() || courierBusy) return
+    setCourierBusy(true); setCourierMsg(null)
+    try {
+      const r = await fetch('/api/biz/couriers', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ biz_id: vert.id, name: form.name, email: form.email, phone: form.phone }),
+      })
+      const d = await r.json().catch(() => ({}))
+      if (r.ok) {
+        setForm({ name: '', email: '', phone: '' })
+        setCourierMsg(d.temp_password
+          ? t(`Repartidor creado. Clave temporal: ${d.temp_password} — compártela y que entre en /courier.`, `Courier created. Temp password: ${d.temp_password} — share it; they log in at /courier.`)
+          : t('Repartidor agregado.', 'Courier added.'))
+        loadCouriers()
+      } else {
+        setCourierMsg(d.error || t('No se pudo agregar', 'Could not add'))
+      }
+    } catch { setCourierMsg(t('Error de red', 'Network error')) } finally { setCourierBusy(false) }
+  }
+
+  async function removeCourier(userId: string) {
+    setCouriers(prev => prev.filter(c => c.user_id !== userId))
+    try { await fetch(`/api/biz/couriers?biz_id=${encodeURIComponent(vert.id)}&user_id=${encodeURIComponent(userId)}`, { method: 'DELETE' }) } catch { /* ignora */ }
+  }
+
+  const inputStyle: CSSProperties = { width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 10, padding: '10px 12px', fontSize: 14, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.bg }
+  const rowStyle: CSSProperties = { display: 'flex', alignItems: 'center', gap: 14, padding: '12px 0' }
+
+  return (
+    <div style={{ background: R.surface, border: `1px solid ${R.line}`, borderRadius: 16, padding: '16px 18px', marginBottom: 20 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+        <Icon n="box" size={17} color={R.coral} />
+        <span style={{ fontFamily: R.display, fontWeight: 700, fontSize: 15, color: R.ink }}>{t('Modo de negocio y entregas', 'Business mode and delivery')}</span>
+      </div>
+      <div style={{ fontSize: 13, color: R.inkSoft, marginBottom: 8 }}>{t('Elige si tomas reservas, pedidos, o ambos. Los pedidos se cobran con Stripe.', 'Choose whether you take reservations, orders, or both. Orders are charged with Stripe.')}</div>
+
+      <div style={{ borderTop: `1px solid ${R.lineSoft}` }}>
+        <div style={rowStyle}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 700, fontSize: 14, color: R.ink }}>{t('Reservas', 'Reservations')}</div>
+            <div style={{ fontSize: 12.5, color: R.inkSoft }}>{t('Citas con fecha y hora (Agenda).', 'Date & time bookings (Agenda).')}</div>
+          </div>
+          <Toggle on={reservations} onChange={setReservations} />
+        </div>
+        <div style={rowStyle}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 700, fontSize: 14, color: R.ink }}>{t('Pedidos (productos)', 'Orders (products)')}</div>
+            <div style={{ fontSize: 12.5, color: R.inkSoft }}>{t('Carrito y pago en línea de tus productos.', 'Cart and online payment for your products.')}</div>
+          </div>
+          <Toggle on={orders} onChange={setOrders} />
+        </div>
+
+        {orders && (
+          <div style={{ paddingLeft: 6, borderLeft: `2px solid ${R.coralTint}`, marginLeft: 4 }}>
+            {!stripeReady && (
+              <div style={{ fontSize: 12.5, color: R.amberDeep, background: R.amberTint, borderRadius: 10, padding: '9px 12px', margin: '8px 0' }}>
+                {t('Conecta Stripe (abajo) para poder cobrar los pedidos.', 'Connect Stripe (below) to be able to charge for orders.')}
+              </div>
+            )}
+            <div style={rowStyle}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 700, fontSize: 14, color: R.ink }}>🏪 {t('Recoger en el negocio', 'Pickup at the business')}</div>
+              </div>
+              <Toggle on={pickup} onChange={setPickup} />
+            </div>
+            <div style={rowStyle}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 700, fontSize: 14, color: R.ink }}>🛵 {t('Entrega a domicilio', 'Home delivery')}</div>
+                <div style={{ fontSize: 12.5, color: R.inkSoft }}>{t('Requiere repartidores (abajo).', 'Requires couriers (below).')}</div>
+              </div>
+              <Toggle on={delivery} onChange={setDelivery} />
+            </div>
+            {delivery && (
+              <label style={{ display: 'block', padding: '4px 0 12px' }}>
+                <span style={{ display: 'block', fontSize: 11.5, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase', color: R.inkSoft, marginBottom: 5 }}>{t('Costo de envío ($)', 'Delivery fee ($)')}</span>
+                <input value={fee} onChange={e => setFee(e.target.value.replace(/[^0-9.]/g, ''))} inputMode="decimal" placeholder="0" style={{ ...inputStyle, maxWidth: 160 }} />
+              </label>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 8 }}>
+        <button onClick={saveCaps} disabled={saving} style={{ padding: '10px 18px', borderRadius: 999, border: 'none', background: R.coral, color: '#fff', cursor: saving ? 'wait' : 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5, opacity: saving ? .7 : 1 }}>
+          {saving ? t('Guardando…', 'Saving…') : t('Guardar', 'Save')}
+        </button>
+        {savedMsg && <span style={{ fontSize: 13, color: R.jade, fontWeight: 600 }}>{t('Guardado', 'Saved')} ✓</span>}
+      </div>
+
+      {/* Repartidores */}
+      {orders && delivery && (
+        <div style={{ marginTop: 18, paddingTop: 16, borderTop: `1px solid ${R.lineSoft}` }}>
+          <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 14.5, color: R.ink, marginBottom: 4 }}>{t('Repartidores', 'Couriers')}</div>
+          <div style={{ fontSize: 12.5, color: R.inkSoft, marginBottom: 12 }}>{t('Cada repartidor entra en /courier y ve solo sus entregas asignadas.', 'Each courier logs in at /courier and only sees their assigned deliveries.')}</div>
+
+          {couriers.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14 }}>
+              {couriers.map(c => (
+                <div key={c.user_id} style={{ display: 'flex', alignItems: 'center', gap: 10, background: R.bg, border: `1px solid ${R.line}`, borderRadius: 10, padding: '9px 12px' }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, fontSize: 13.5, color: R.ink }}>{c.name || '—'}</div>
+                    {c.phone && <div style={{ fontSize: 12, color: R.inkSoft }}>{c.phone}</div>}
+                  </div>
+                  <button onClick={() => removeCourier(c.user_id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: R.inkFaint, fontSize: 13, fontWeight: 700 }}>{t('Quitar', 'Remove')}</button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+            <input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder={t('Nombre', 'Name')} style={inputStyle} />
+            <input value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} placeholder={t('Teléfono', 'Phone')} style={inputStyle} />
+          </div>
+          <input value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} placeholder={t('Correo (para iniciar sesión)', 'Email (to sign in)')} inputMode="email" style={{ ...inputStyle, marginBottom: 8 }} />
+          <button onClick={addCourier} disabled={courierBusy || !form.email.trim()} style={{ padding: '10px 18px', borderRadius: 999, border: `1px solid ${R.coral}`, background: R.coralTint, color: R.coralPress, cursor: courierBusy ? 'wait' : 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5 }}>
+            {courierBusy ? t('Agregando…', 'Adding…') : t('Agregar repartidor', 'Add courier')}
+          </button>
+          {courierMsg && <div style={{ fontSize: 12.5, color: R.ink, background: R.bgAlt, borderRadius: 10, padding: '9px 12px', marginTop: 10 }}>{courierMsg}</div>}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function SettingsView({ agentCfg, setAgentCfg, taxMode, setTaxMode, bizInfo, setBizInfo, vert, onGo, lang, setLang, onReload }: { agentCfg: BizAgentConfig; setAgentCfg: (u: BizAgentConfig | ((c: BizAgentConfig) => BizAgentConfig)) => void; taxMode: TaxMode; setTaxMode: (v: TaxMode) => void; bizInfo: BizInfo; setBizInfo: (v: BizInfo) => void; vert: Vert; onGo: (v: string) => void; lang: Lang; setLang: (l: Lang) => void; onReload: () => void }) {
   const t = useT()
   const en = useEn()
   const agentOn = agentCfg.on
@@ -3532,6 +3883,9 @@ function SettingsView({ agentCfg, setAgentCfg, taxMode, setTaxMode, bizInfo, set
         </label>
         <div style={{ fontSize: 12, color: R.inkFaint, marginTop: 8 }}>{t('Escribe el municipio tal cual (respeta acentos y mayúsculas) para que los clientes de esa zona te encuentren.', 'Type the municipality exactly (mind accents and capitals) so customers in that area find you.')}</div>
       </div>
+
+      {/* Modo de negocio, entregas y repartidores */}
+      <OrdersSettingsCard vert={vert} stripeReady={stripeReady} onSaved={onReload} />
 
       {/* Datos del negocio para el ticket */}
       <div style={{ background: R.surface, border: `1px solid ${R.line}`, borderRadius: 16, padding: '16px 18px', marginBottom: 20 }}>
@@ -5472,6 +5826,52 @@ export default function BizPage() {
     if (v) reloadReservations(v.id)
   }
 
+  // Pedidos reales (ecommerce) del negocio activo + repartidores para asignar.
+  const [orders, setOrders] = useState<PanelOrder[]>([])
+  const [couriers, setCouriers] = useState<PanelCourier[]>([])
+  const reloadOrders = useCallback(async (bizId: string) => {
+    try {
+      const r = await fetch(`/api/biz/orders?biz_id=${encodeURIComponent(bizId)}`)
+      if (r.ok) { const d = await r.json(); setOrders(d.orders ?? []) }
+    } catch { /* deja la lista como está */ }
+  }, [])
+  const reloadCouriers = useCallback(async (bizId: string) => {
+    try {
+      const r = await fetch(`/api/biz/couriers?biz_id=${encodeURIComponent(bizId)}`)
+      if (r.ok) { const d = await r.json(); setCouriers((d.couriers ?? []).filter((c: PanelCourier) => c.active)) }
+    } catch { /* deja la lista como está */ }
+  }, [])
+  useEffect(() => {
+    if (!verts || verts.length === 0) return
+    const v = verts[vertIdx] ?? verts[0]
+    reloadOrders(v.id); reloadCouriers(v.id)
+  }, [vertIdx, verts, reloadOrders, reloadCouriers])
+  async function updateOrder(id: string, patch: { status?: string; courier_id?: string | null }) {
+    const v = verts?.[vertIdx]; if (!v) return
+    // Optimista: refleja el cambio de estado/repartidor de inmediato.
+    setOrders(prev => prev.map(o => o.id === id ? { ...o, ...('status' in patch ? { status: patch.status! } : {}), ...('courier_id' in patch ? { courier_id: patch.courier_id ?? null } : {}) } : o))
+    try {
+      await fetch('/api/biz/orders', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, biz_id: v.id, ...patch }),
+      })
+    } catch { /* ignora */ }
+    reloadOrders(v.id)
+  }
+
+  // Realtime: refresca solicitudes/pedidos cuando cambian en la BD, sin recargar.
+  useEffect(() => {
+    if (!verts || verts.length === 0) return
+    const v = verts[vertIdx] ?? verts[0]
+    const supabase = createClient()
+    const channel = supabase
+      .channel(`biz-live-${v.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'reservations', filter: `biz_id=eq.${v.id}` }, () => { reloadReservations(v.id) })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders', filter: `biz_id=eq.${v.id}` }, () => { reloadOrders(v.id) })
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [vertIdx, verts, reloadReservations, reloadOrders])
+
   // Métricas reales del negocio activo (Fase 5).
   const [bizMetrics, setBizMetrics] = useState<BizMetrics | null>(null)
   const reloadMetrics = useCallback(async () => {
@@ -5540,6 +5940,7 @@ export default function BizPage() {
 
   function renderView() {
     if (view === 'requests') return <RequestsView vert={vertM} onGo={setView} requests={panelRequests} agenda={panelAgenda} onResolve={resolveReservation} />
+    if (view === 'orders') return <OrdersView vert={vert} orders={orders} couriers={couriers} onUpdate={updateOrder} />
     if (view === 'agenda') return <AgendaView vert={vert} dayAgenda={panelAgenda} />
     if (view === 'messages') return <MessagesView key={vert.id} vert={vert} agentCfg={agentCfg} />
     if (view === 'metrics') return <MetricsView vert={vertM} metrics={bizMetrics} />
@@ -5551,7 +5952,7 @@ export default function BizPage() {
     if (view === 'destacado') return <DestacadoView vert={vert} />
     if (view === 'promos') return <PromosView vert={vert} metrics={bizMetrics} />
     if (view === 'scanner') return <ScannerView key={vert.id} vert={vert} />
-    if (view === 'settings') return <SettingsView agentCfg={agentCfg} setAgentCfg={setAgentCfg} taxMode={taxMode} setTaxMode={persistTaxMode} bizInfo={bizInfo} setBizInfo={persistBizInfo} vert={vert} onGo={setView} lang={lang} setLang={setLangPersist} />
+    if (view === 'settings') return <SettingsView agentCfg={agentCfg} setAgentCfg={setAgentCfg} taxMode={taxMode} setTaxMode={persistTaxMode} bizInfo={bizInfo} setBizInfo={persistBizInfo} vert={vert} onGo={setView} lang={lang} setLang={setLangPersist} onReload={reloadOwner} />
     return <PlaceholderView title={VIEW_TITLES[view]?.[0] ?? view} />
   }
 
@@ -5573,9 +5974,10 @@ export default function BizPage() {
 
         {/* Nav */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-          {NAV.map(it => {
+          {NAV.filter(it => it.id !== 'orders' || vert.caps.orders).map(it => {
             const on = view === it.id
-            const badge = it.id === 'requests' ? panelRequests.length : it.id === 'messages' ? unreadMsgs : 0
+            const ordersActive = orders.filter(o => !['delivered', 'cancelled', 'refunded'].includes(o.status)).length
+            const badge = it.id === 'requests' ? panelRequests.length : it.id === 'orders' ? ordersActive : it.id === 'messages' ? unreadMsgs : 0
             return (
               <button key={it.id} onClick={() => setView(it.id)} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 14px', borderRadius: 12, cursor: 'pointer', border: 'none', width: '100%', textAlign: 'left', background: on ? R.coralTint : 'transparent', color: on ? R.coralPress : R.inkSoft, fontWeight: on ? 700 : 500, fontSize: 14.5, fontFamily: R.ui }}>
                 <Icon n={it.icon} size={20} color={on ? R.coral : R.inkFaint} stroke={on ? 2.3 : 2} />
@@ -5686,7 +6088,7 @@ export default function BizPage() {
         </div>
 
         {/* Content */}
-        <div style={{ flex: 1, minHeight: 0, display: view === 'messages' || view === 'requests' || view === 'agenda' || view === 'pos' ? 'flex' : 'block', overflow: view === 'messages' || view === 'requests' || view === 'agenda' || view === 'pos' ? 'hidden' : 'auto' }}>
+        <div style={{ flex: 1, minHeight: 0, display: view === 'messages' || view === 'requests' || view === 'orders' || view === 'agenda' || view === 'pos' ? 'flex' : 'block', overflow: view === 'messages' || view === 'requests' || view === 'orders' || view === 'agenda' || view === 'pos' ? 'hidden' : 'auto' }}>
           {renderView()}
         </div>
       </div>

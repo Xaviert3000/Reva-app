@@ -22,6 +22,34 @@ import { clsx } from 'clsx'
 // any municipio besides Los Cabos, which keeps the curated demo set).
 const BizDataContext = createContext<CityData & { city: string }>({ businesses: BIZ, catalog: CATALOG, city: 'Los Cabos' })
 
+// ── Carrito de pedidos (ecommerce) ─────────────────────────
+// Sólo aplica a negocios con doesOrders. Un carrito pertenece a UN negocio a la
+// vez; agregar de otro negocio lo reemplaza. Los productos son services con
+// scheduled=false y un precio numérico.
+export type CartItem = { service: Service; qty: number }
+interface CartState {
+  biz: Business | null
+  items: CartItem[]
+  count: number
+  subtotal: number
+  add: (biz: Business, s: Service) => void
+  setQty: (serviceId: string, qty: number) => void
+  clear: () => void
+}
+const CartContext = createContext<CartState>({ biz: null, items: [], count: 0, subtotal: 0, add: () => {}, setQty: () => {}, clear: () => {} })
+
+// Precio numérico de un producto a partir del string mostrado ("$45", "56").
+// null = sin precio numérico (p. ej. "Cotización") → no se puede agregar al carrito.
+function priceNumber(s: Service): number | null {
+  const n = Number(String(s.price).replace(/[^0-9.]/g, ''))
+  return Number.isFinite(n) && n > 0 ? n : null
+}
+
+// ¿Este servicio se compra como pedido (carrito + pago) en este negocio?
+function isOrderable(biz: Business | undefined, s: Service | undefined): boolean {
+  return !!biz?.doesOrders && !!s && !isScheduled(s) && priceNumber(s) !== null
+}
+
 // ── Tracking del espacio "Destacado" (alimenta Informes → Destacado) ──
 // impression: el negocio destacado se mostró; click: se abrió su ficha.
 // Las impresiones se cuentan una vez por sesión (dedupe) para no inflar; los
@@ -510,11 +538,20 @@ function OptionCard({ biz, mode, onOpen, onBook }: { biz: Business; mode: Mode; 
           ))}
           <span style={{ fontSize: 12, fontWeight: 600, color: '#6B615A', background: '#F3EADD', padding: '5px 10px', borderRadius: 999 }}>📍 {biz.dist} km</span>
         </div>
-        <button onClick={e => { e.stopPropagation(); onBook() }}
-          style={{ width: '100%', background: '#E8505B', color: '#fff', border: 'none', borderRadius: 14, padding: '12px 0', fontFamily: 'var(--font-ui)', fontWeight: 700, fontSize: 14.5, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7 }}>
-          <Icon n="spark" size={16} color="#fff" fill="none" />
-          {en ? 'Reserve with Reva' : 'Reservar con Reva'}
-        </button>
+        {/* Negocio solo de pedidos: la tarjeta abre el menú (carrito), no reserva. */}
+        {biz.doesOrders && biz.doesReservations === false ? (
+          <button onClick={e => { e.stopPropagation(); onOpen() }}
+            style={{ width: '100%', background: '#E8505B', color: '#fff', border: 'none', borderRadius: 14, padding: '12px 0', fontFamily: 'var(--font-ui)', fontWeight: 700, fontSize: 14.5, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7 }}>
+            <Icon n="spark" size={16} color="#fff" fill="none" />
+            {en ? 'View products' : 'Ver productos'}
+          </button>
+        ) : (
+          <button onClick={e => { e.stopPropagation(); onBook() }}
+            style={{ width: '100%', background: '#E8505B', color: '#fff', border: 'none', borderRadius: 14, padding: '12px 0', fontFamily: 'var(--font-ui)', fontWeight: 700, fontSize: 14.5, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7 }}>
+            <Icon n="spark" size={16} color="#fff" fill="none" />
+            {en ? 'Reserve with Reva' : 'Reservar con Reva'}
+          </button>
+        )}
       </div>
     </div>
   )
@@ -533,7 +570,7 @@ function ServiceChatCard({ biz, service, mode, onDetail, onBook }: { biz: Busine
         <div style={{ fontSize: 11.5, color: available ? '#A89E94' : '#B5472F', marginTop: 2, fontWeight: available ? 400 : 700 }}>{available ? (en ? 'Tap for details' : 'Toca para ver detalles') : (en ? 'Sold out' : 'Agotado')}</div>
       </div>
       <button disabled={!available} onClick={e => { e.stopPropagation(); onBook() }} style={{ flexShrink: 0, background: available ? '#E8505B' : '#F0D9D5', color: available ? '#fff' : '#B5472F', border: 'none', borderRadius: 12, padding: '9px 14px', fontFamily: 'var(--font-ui)', fontWeight: 700, fontSize: 13.5, cursor: available ? 'pointer' : 'not-allowed', whiteSpace: 'nowrap' }}>
-        {!available ? (en ? 'Sold out' : 'Agotado') : isScheduled(service) ? (en ? 'Reserve' : 'Reservar') : (en ? 'Request' : 'Solicitar')}
+        {!available ? (en ? 'Sold out' : 'Agotado') : isOrderable(biz, service) ? (en ? 'Add' : 'Agregar') : isScheduled(service) ? (en ? 'Reserve' : 'Reservar') : (en ? 'Request' : 'Solicitar')}
       </button>
     </div>
   )
@@ -592,7 +629,9 @@ function ServiceDetail({ biz, service, mode, onClose, onBook }: { biz: Business;
           <div style={{ display: 'flex', gap: 12, marginTop: 22, padding: '13px 15px', background: '#DDF0E8', borderRadius: 16 }}>
             <Icon n="shield" size={18} color="#1F8A6D" />
             <div style={{ fontSize: 12.5, color: '#16614c', lineHeight: 1.4 }}>
-              {scheduled
+              {isOrderable(biz, service)
+                ? (en ? 'Secure payment with Stripe · Reva confirms with the business.' : 'Pago seguro con Stripe · Reva confirma con el negocio.')
+                : scheduled
                 ? (en ? 'Free cancellation up to 2h before · No charge now.' : 'Cancelación gratis hasta 2h antes · Sin cargo ahora.')
                 : (en ? 'Reva coordinates the details with you — no charge now.' : 'Reva coordina los detalles contigo — sin cargo ahora.')}
             </div>
@@ -601,7 +640,7 @@ function ServiceDetail({ biz, service, mode, onClose, onBook }: { biz: Business;
           {/* CTA */}
           <button onClick={onBook} disabled={!available} style={{ width: '100%', marginTop: 18, background: available ? '#E8505B' : '#F0D9D5', color: available ? '#fff' : '#B5472F', border: 'none', borderRadius: 999, padding: '15px 0', fontFamily: 'var(--font-ui)', fontWeight: 700, fontSize: 16, cursor: available ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
             <Icon n="spark" size={18} color={available ? '#fff' : '#B5472F'} />
-            {!available ? (en ? 'Sold out' : 'Agotado') : scheduled ? (en ? 'Reserve with Reva' : 'Reservar con Reva') : (en ? 'Request with Reva' : 'Solicitar con Reva')}
+            {!available ? (en ? 'Sold out' : 'Agotado') : isOrderable(biz, service) ? (en ? 'Add to order' : 'Agregar al pedido') : scheduled ? (en ? 'Reserve with Reva' : 'Reservar con Reva') : (en ? 'Request with Reva' : 'Solicitar con Reva')}
           </button>
         </div>
       </div>
@@ -1036,10 +1075,13 @@ function OFFER_TYPE_LABEL(type: string, en: boolean): string {
   return en ? (map[type] ?? type) : type
 }
 
-function BizDetail({ biz, mode, onClose, onBook, onMessage }: { biz: Business; mode: Mode; onClose: () => void; onBook: (service?: Service) => void; onMessage: () => void }) {
+function BizDetail({ biz, mode, onClose, onBook, onOpenCart, onMessage }: { biz: Business; mode: Mode; onClose: () => void; onBook: (service?: Service) => void; onOpenCart: () => void; onMessage: () => void }) {
   const en = useContext(LangContext) === 'en'
   const { catalog } = useContext(BizDataContext)
+  const cart = useContext(CartContext)
   const services = catalog[biz.id] ?? []
+  const hasReservables = services.some(s => isScheduled(s))
+  const cartForThis = cart.biz?.id === biz.id && cart.count > 0
   const [selected, setSelected] = useState<Service | null>(null)
   const [cat, setCat] = useState<string>('all')
   const [showAll, setShowAll] = useState(false)
@@ -1123,7 +1165,9 @@ function BizDetail({ biz, mode, onClose, onBook, onMessage }: { biz: Business; m
                 {services.length > LIMIT && <span style={{ fontSize: 13, fontWeight: 600, color: '#A89E94' }}>{services.length}</span>}
               </div>
               <div style={{ fontSize: 13.5, color: '#6B615A', marginTop: 2, marginBottom: 12 }}>
-                {en ? 'Pick one — Reva books it for you.' : 'Elige uno — Reva te lo reserva.'}
+                {biz.doesOrders
+                  ? (en ? 'Add what you want — pay in one order.' : 'Agrega lo que quieras — paga en un solo pedido.')
+                  : (en ? 'Pick one — Reva books it for you.' : 'Elige uno — Reva te lo reserva.')}
               </div>
 
               {/* category filter chips */}
@@ -1145,9 +1189,10 @@ function BizDetail({ biz, mode, onClose, onBook, onMessage }: { biz: Business; m
                 {visible.map(s => {
                   const on = selected?.id === s.id
                   const available = inStock(s)
-                  return (
-                    <button key={s.id} disabled={!available} onClick={() => setSelected(on ? null : s)}
-                      style={{ display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left', width: '100%', cursor: available ? 'pointer' : 'not-allowed', opacity: available ? 1 : .6, background: on ? '#FCE9E7' : '#fff', border: on ? '1.5px solid #E8505B' : '1px solid #E9E0D5', borderRadius: 16, padding: '11px 12px', fontFamily: 'var(--font-ui)', transition: 'background .15s, border-color .15s' }}>
+                  const orderable = isOrderable(biz, s)
+                  const inCart = cart.items.find(i => i.service.id === s.id)
+                  const meta = (
+                    <>
                       <div style={{ width: 46, height: 46, borderRadius: 11, flexShrink: 0, background: `linear-gradient(140deg,${s.grad[0]},${s.grad[1]})`, display: 'grid', placeItems: 'center', color: 'rgba(255,255,255,.85)', fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 19 }}>{biz.mono}</div>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 15, fontWeight: 700, color: '#221C19' }}>{s.name}</div>
@@ -1157,6 +1202,36 @@ function BizDetail({ biz, mode, onClose, onBook, onMessage }: { biz: Business; m
                           {available && tracksStock(s) && (s.stock as number) <= 3 && <span style={{ flexShrink: 0, whiteSpace: 'nowrap', fontSize: 10, fontWeight: 800, letterSpacing: '.03em', textTransform: 'uppercase', color: '#9A6410', background: '#F7ECD5', padding: '2px 7px', borderRadius: 999 }}>{en ? `${s.stock} left` : `Quedan ${s.stock}`}</span>}
                         </div>
                       </div>
+                    </>
+                  )
+                  // Producto de pedido: fila con control de cantidad / botón Agregar.
+                  if (orderable) {
+                    return (
+                      <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', opacity: available ? 1 : .6, background: inCart ? '#FCE9E7' : '#fff', border: inCart ? '1.5px solid #E8505B' : '1px solid #E9E0D5', borderRadius: 16, padding: '11px 12px' }}>
+                        {meta}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                          <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 15, color: '#221C19' }}>{s.price}</span>
+                          {inCart ? (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <button onClick={() => cart.setQty(s.id, inCart.qty - 1)} style={qtyBtn}>−</button>
+                              <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 15, minWidth: 16, textAlign: 'center', color: '#221C19' }}>{inCart.qty}</span>
+                              <button disabled={!available} onClick={() => cart.setQty(s.id, inCart.qty + 1)} style={qtyBtn}>+</button>
+                            </div>
+                          ) : (
+                            <button disabled={!available} onClick={() => cart.add(biz, s)}
+                              style={{ background: available ? '#E8505B' : '#F0D9D5', color: available ? '#fff' : '#B5472F', border: 'none', borderRadius: 999, padding: '8px 16px', fontFamily: 'var(--font-ui)', fontWeight: 700, fontSize: 13.5, cursor: available ? 'pointer' : 'not-allowed' }}>
+                              {en ? 'Add' : 'Agregar'}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  }
+                  // Servicio de reserva: selección (radio) como antes.
+                  return (
+                    <button key={s.id} disabled={!available} onClick={() => setSelected(on ? null : s)}
+                      style={{ display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left', width: '100%', cursor: available ? 'pointer' : 'not-allowed', opacity: available ? 1 : .6, background: on ? '#FCE9E7' : '#fff', border: on ? '1.5px solid #E8505B' : '1px solid #E9E0D5', borderRadius: 16, padding: '11px 12px', fontFamily: 'var(--font-ui)', transition: 'background .15s, border-color .15s' }}>
+                      {meta}
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
                         <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 15, color: '#221C19' }}>{s.price}</span>
                         <span style={{ width: 22, height: 22, borderRadius: '50%', border: on ? 'none' : '1.5px solid #E9E0D5', background: on ? '#E8505B' : 'transparent', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
@@ -1217,18 +1292,28 @@ function BizDetail({ biz, mode, onClose, onBook, onMessage }: { biz: Business; m
       {/* sticky CTA */}
       <div style={{ padding: '12px 18px 28px', background: 'rgba(250,245,238,.95)', backdropFilter: 'blur(10px)', borderTop: '1px solid #F1EADF', display: 'flex', alignItems: 'center', gap: 14 }}>
         <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 12, color: '#A89E94', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{selected ? selected.name : (en ? 'from' : 'desde')}</div>
-          <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 18, color: '#221C19', whiteSpace: 'nowrap' }}>{selected ? selected.price : `${'$'.repeat(biz.price)} · ${biz.cat}`}</div>
+          <div style={{ fontSize: 12, color: '#A89E94', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{cartForThis ? (en ? `${cart.count} in order` : `${cart.count} en tu pedido`) : selected ? selected.name : (en ? 'from' : 'desde')}</div>
+          <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 18, color: '#221C19', whiteSpace: 'nowrap' }}>{cartForThis ? `$${cart.subtotal}` : selected ? selected.price : `${'$'.repeat(biz.price)} · ${biz.cat}`}</div>
         </div>
         <button onClick={onMessage} aria-label={en ? 'Message' : 'Mensaje'}
           style={{ flexShrink: 0, width: 50, height: 50, background: '#fff', color: '#221C19', border: '1px solid #E9E0D5', borderRadius: 16, cursor: 'pointer', display: 'grid', placeItems: 'center' }}>
           <Icon n="chat" size={20} color="#221C19" />
         </button>
-        <button onClick={() => onBook(selected ?? undefined)}
-          style={{ flex: 1, background: '#E8505B', color: '#fff', border: 'none', borderRadius: 16, padding: '14px 0', fontFamily: 'var(--font-ui)', fontWeight: 700, fontSize: 15, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-          <Icon n="spark" size={17} color="#fff" />
-          {selected ? (en ? 'Reserve' : 'Reservar') : (en ? 'Reserve with Reva' : 'Reservar con Reva')}
-        </button>
+        {cartForThis ? (
+          <button onClick={onOpenCart}
+            style={{ flex: 1, background: '#E8505B', color: '#fff', border: 'none', borderRadius: 16, padding: '14px 0', fontFamily: 'var(--font-ui)', fontWeight: 700, fontSize: 15, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+            <Icon n="spark" size={17} color="#fff" />
+            {en ? 'View order' : 'Ver pedido'}
+          </button>
+        ) : (hasReservables || !biz.doesOrders) ? (
+          <button onClick={() => onBook(selected ?? undefined)}
+            style={{ flex: 1, background: '#E8505B', color: '#fff', border: 'none', borderRadius: 16, padding: '14px 0', fontFamily: 'var(--font-ui)', fontWeight: 700, fontSize: 15, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+            <Icon n="spark" size={17} color="#fff" />
+            {selected ? (en ? 'Reserve' : 'Reservar') : (en ? 'Reserve with Reva' : 'Reservar con Reva')}
+          </button>
+        ) : (
+          <div style={{ flex: 1, textAlign: 'center', fontSize: 13.5, fontWeight: 600, color: '#A89E94' }}>{en ? 'Add products to start' : 'Agrega productos para empezar'}</div>
+        )}
       </div>
     </div>
   )
@@ -1239,7 +1324,7 @@ function Booking({ biz, mode, service, onClose, onConfirm }: { biz: Business; mo
   const en = useContext(LangContext) === 'en'
   const [step, setStep] = useState<'select' | 'confirm' | 'success'>('select')
   const [slot, setSlot] = useState('')
-  const [party, setParty] = useState(2)
+  const [party, setParty] = useState(1)
   const days = upcomingDays(4, en)
   // Start on the first day this service is actually offered.
   const [dayIdx, setDayIdx] = useState(() => Math.max(0, days.findIndex(d => dayOffered(service, d.dow))))
@@ -1404,6 +1489,138 @@ function Booking({ biz, mode, service, onClose, onConfirm }: { biz: Business; mo
       </div>
     </div>
   )
+}
+
+// ── Carrito: barra flotante + hoja de pedido ───────────────
+function CartBar({ onOpen }: { onOpen: () => void }) {
+  const en = useContext(LangContext) === 'en'
+  const cart = useContext(CartContext)
+  if (cart.count === 0 || !cart.biz) return null
+  return (
+    <div style={{ position: 'absolute', left: 12, right: 12, bottom: 'calc(72px + env(safe-area-inset-bottom, 0px))', zIndex: 45 }}>
+      <button onClick={onOpen}
+        style={{ width: '100%', background: '#E8505B', color: '#fff', border: 'none', borderRadius: 16, padding: '13px 16px', display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer', boxShadow: '0 8px 24px rgba(34,28,25,.22)', fontFamily: 'var(--font-ui)' }}>
+        <span style={{ minWidth: 26, height: 26, borderRadius: 999, background: 'rgba(255,255,255,.24)', display: 'grid', placeItems: 'center', fontWeight: 800, fontSize: 13.5, padding: '0 7px' }}>{cart.count}</span>
+        <span style={{ flex: 1, textAlign: 'left', fontWeight: 700, fontSize: 14.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{en ? 'View order' : 'Ver pedido'} · {cart.biz.name}</span>
+        <span style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 16 }}>${cart.subtotal}</span>
+      </button>
+    </div>
+  )
+}
+
+function CartSheet({ onClose, onCheckout }: { onClose: () => void; onCheckout: (d: { fulfillment: 'pickup' | 'delivery'; name: string; phone: string; address: string; notes: string }) => Promise<string | null> }) {
+  const en = useContext(LangContext) === 'en'
+  const cart = useContext(CartContext)
+  const biz = cart.biz
+  const canPickup = biz?.pickupEnabled !== false
+  const canDelivery = !!biz?.deliveryEnabled
+  const [fulfillment, setFulfillment] = useState<'pickup' | 'delivery'>(canPickup ? 'pickup' : 'delivery')
+  const [name, setName] = useState('')
+  const [phone, setPhone] = useState('')
+  const [address, setAddress] = useState('')
+  const [notes, setNotes] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  const deliveryFee = fulfillment === 'delivery' ? (biz?.deliveryFee ?? 0) : 0
+  const total = cart.subtotal + deliveryFee
+  const needsAddress = fulfillment === 'delivery'
+  const canPay = cart.items.length > 0 && (!needsAddress || address.trim().length > 3)
+
+  async function pay() {
+    if (!canPay || busy) return
+    setBusy(true); setErr(null)
+    const error = await onCheckout({ fulfillment, name: name.trim(), phone: phone.trim(), address: address.trim(), notes: notes.trim() })
+    if (error) { setErr(error); setBusy(false) }
+    // en éxito hay redirección a Stripe: no reseteamos busy.
+  }
+
+  const inputStyle: React.CSSProperties = { width: '100%', padding: '12px 14px', borderRadius: 12, border: '1px solid #E9E0D5', background: '#fff', fontFamily: 'var(--font-ui)', fontSize: 14.5, color: '#221C19', outline: 'none' }
+
+  return (
+    <div style={{ position: 'absolute', inset: 0, zIndex: 60, background: 'rgba(0,0,0,.5)', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }} onClick={onClose}>
+      <div style={{ background: '#FAF5EE', borderRadius: '30px 30px 0 0', padding: '20px 20px calc(28px + env(safe-area-inset-bottom, 0px))', maxHeight: '88%', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+          <div>
+            <div style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 20, color: '#221C19' }}>{en ? 'Your order' : 'Tu pedido'}</div>
+            {biz && <div style={{ fontSize: 13, color: '#6B615A' }}>{biz.name}</div>}
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', width: 32, height: 32, borderRadius: '50%', display: 'grid', placeItems: 'center', cursor: 'pointer', color: '#A89E94', fontSize: 22 }}>×</button>
+        </div>
+
+        {/* items */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
+          {cart.items.map(({ service, qty }) => (
+            <div key={service.id} style={{ display: 'flex', alignItems: 'center', gap: 12, background: '#fff', border: '1px solid #E9E0D5', borderRadius: 14, padding: '11px 12px' }}>
+              <div style={{ width: 42, height: 42, borderRadius: 10, flexShrink: 0, background: `linear-gradient(140deg,${service.grad[0]},${service.grad[1]})` }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 14.5, fontWeight: 700, color: '#221C19', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{service.name}</div>
+                <div style={{ fontSize: 12.5, color: '#6B615A' }}>${priceNumber(service)} c/u</div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+                <button onClick={() => cart.setQty(service.id, qty - 1)} style={qtyBtn}>−</button>
+                <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 16, minWidth: 18, textAlign: 'center', color: '#221C19' }}>{qty}</span>
+                <button onClick={() => cart.setQty(service.id, qty + 1)} style={qtyBtn}>+</button>
+              </div>
+            </div>
+          ))}
+        </div>
+        <button onClick={onClose} style={{ ...seeMoreBtn, marginBottom: 18 }}>
+          <span style={{ fontSize: 17, lineHeight: 1, fontWeight: 700 }}>+</span> {en ? 'Add more products' : 'Agregar más productos'}
+        </button>
+
+        {/* fulfillment */}
+        {(canPickup || canDelivery) && (
+          <>
+            <p style={{ fontSize: 12, fontWeight: 700, color: '#A89E94', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 10 }}>{en ? 'How to receive it' : 'Cómo recibirlo'}</p>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+              {canPickup && (
+                <button onClick={() => setFulfillment('pickup')} style={fulBtn(fulfillment === 'pickup')}>
+                  🏪 {en ? 'Pickup' : 'Recoger'}
+                </button>
+              )}
+              {canDelivery && (
+                <button onClick={() => setFulfillment('delivery')} style={fulBtn(fulfillment === 'delivery')}>
+                  🛵 {en ? 'Delivery' : 'Entrega'}{(biz?.deliveryFee ?? 0) > 0 ? ` · $${biz?.deliveryFee}` : ''}
+                </button>
+              )}
+            </div>
+          </>
+        )}
+
+        {/* contact / address */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
+          <input value={name} onChange={e => setName(e.target.value)} placeholder={en ? 'Your name' : 'Tu nombre'} style={inputStyle} />
+          <input value={phone} onChange={e => setPhone(e.target.value)} placeholder={en ? 'Phone' : 'Teléfono'} inputMode="tel" style={inputStyle} />
+          {needsAddress && <input value={address} onChange={e => setAddress(e.target.value)} placeholder={en ? 'Delivery address' : 'Dirección de entrega'} style={inputStyle} />}
+          <input value={notes} onChange={e => setNotes(e.target.value)} placeholder={en ? 'Notes (optional)' : 'Notas (opcional)'} style={inputStyle} />
+        </div>
+
+        {/* totals */}
+        <div style={{ background: '#fff', border: '1px solid #E9E0D5', borderRadius: 14, padding: '12px 14px', marginBottom: 14, fontSize: 14 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', color: '#6B615A', marginBottom: 6 }}><span>{en ? 'Subtotal' : 'Subtotal'}</span><span>${cart.subtotal}</span></div>
+          {deliveryFee > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', color: '#6B615A', marginBottom: 6 }}><span>{en ? 'Delivery' : 'Entrega'}</span><span>${deliveryFee}</span></div>}
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800, color: '#221C19', fontSize: 16, fontFamily: 'var(--font-display)' }}><span>{en ? 'Total' : 'Total'}</span><span>${total}</span></div>
+        </div>
+
+        {err && <div style={{ marginBottom: 12, padding: '11px 14px', background: '#FCE9E7', borderRadius: 12, fontSize: 13, color: '#B5472F' }}>{err}</div>}
+
+        <button onClick={pay} disabled={!canPay || busy}
+          style={{ width: '100%', background: canPay && !busy ? '#E8505B' : '#E9E0D5', color: '#fff', border: 'none', borderRadius: 999, padding: '15px 0', fontFamily: 'var(--font-ui)', fontWeight: 700, fontSize: 16, cursor: canPay && !busy ? 'pointer' : 'default', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+          <Icon n="spark" size={18} color="#fff" />
+          {busy ? (en ? 'Opening payment…' : 'Abriendo pago…') : (en ? `Pay $${total}` : `Pagar $${total}`)}
+        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginTop: 12, fontSize: 12.5, color: '#1F8A6D', background: '#DDF0E8', padding: '11px 14px', borderRadius: 13 }}>
+          <Icon n="shield" size={15} color="#1F8A6D" /> {en ? 'Secure payment with Stripe. Reva confirms with the business.' : 'Pago seguro con Stripe. Reva confirma con el negocio.'}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+const qtyBtn: React.CSSProperties = { width: 32, height: 32, borderRadius: '50%', border: '1px solid #E9E0D5', background: '#fff', fontSize: 19, cursor: 'pointer', display: 'grid', placeItems: 'center', color: '#221C19' }
+function fulBtn(on: boolean): React.CSSProperties {
+  return { flex: 1, padding: '13px 10px', borderRadius: 13, cursor: 'pointer', fontFamily: 'var(--font-ui)', fontWeight: 700, fontSize: 14, border: on ? '1.5px solid #E8505B' : '1px solid #E9E0D5', background: on ? '#FCE9E7' : '#fff', color: on ? '#D23B47' : '#221C19' }
 }
 
 // ── Rove ───────────────────────────────────────────────────
@@ -1936,6 +2153,17 @@ type DbReservation = {
   businesses?: { name: string; hood: string; type: string } | null
 }
 
+// Pedido real del usuario tal como lo devuelve GET /api/orders.
+type TripOrder = {
+  id: string
+  status: string
+  fulfillment: 'pickup' | 'delivery'
+  total: number
+  address: string | null
+  businesses?: { name: string; hood: string } | null
+  order_items: { name: string; qty: number }[]
+}
+
 function Trips({ mode, onModeToggle, onBell, onMsg }: { mode: Mode; onModeToggle: () => void; onBell: () => void; onMsg: () => void }) {
   const en = useContext(LangContext) === 'en'
   const { businesses } = useContext(BizDataContext)
@@ -1951,6 +2179,26 @@ function Trips({ mode, onModeToggle, onBell, onMsg }: { mode: Mode; onModeToggle
       .catch(() => {})
     return () => { cancelled = true }
   }, [])
+
+  // Carga los pedidos (ecommerce) del usuario con sesión.
+  const [dbOrders, setDbOrders] = useState<TripOrder[]>([])
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/orders')
+      .then(r => r.ok ? r.json() : { orders: [] })
+      .then(d => { if (!cancelled) setDbOrders(d.orders ?? []) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [])
+  const orderStatus = (o: TripOrder): { label: string; tone: 'pending' | 'ok' | 'past' } => {
+    if (o.status === 'cancelled') return { label: en ? 'Cancelled' : 'Cancelado', tone: 'past' }
+    if (o.status === 'refunded') return { label: en ? 'Refunded' : 'Reembolsado', tone: 'past' }
+    if (o.status === 'delivered') return { label: en ? 'Delivered' : 'Entregado', tone: 'past' }
+    if (o.status === 'out_for_delivery') return { label: en ? 'On the way' : 'En camino', tone: 'ok' }
+    if (o.status === 'ready') return { label: o.fulfillment === 'delivery' ? (en ? 'Ready' : 'Listo') : (en ? 'Ready for pickup' : 'Listo para recoger'), tone: 'ok' }
+    if (o.status === 'preparing') return { label: en ? 'Preparing' : 'Preparando', tone: 'pending' }
+    return { label: en ? 'Paid' : 'Pagado', tone: 'pending' }
+  }
 
   // Convierte una reserva de BD a la forma Booking que pinta PassCard.
   const toBooking = (r: DbReservation): Booking => {
@@ -2015,16 +2263,42 @@ function Trips({ mode, onModeToggle, onBell, onMsg }: { mode: Mode; onModeToggle
     <div style={{ overflowY: 'auto', height: '100%', background: '#FAF5EE' }}>
       <AppHeader mode={mode} title={en ? 'Trips' : 'Reservas'} hasNotif showModeBadge={false} onModeToggle={onModeToggle} onBell={onBell} onMsg={onMsg} />
       <div style={{ padding: '0 16px 32px' }}>
-        {rsvs.length === 0 ? (
+        {rsvs.length === 0 && dbOrders.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '40px 24px' }}>
             <div style={{ width: 64, height: 64, borderRadius: '50%', background: '#F3EADD', display: 'grid', placeItems: 'center', margin: '0 auto 16px' }}>
               <Icon n="cal" size={28} color="#A89E94" />
             </div>
-            <p style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 18, color: '#221C19' }}>{en ? 'No reservations yet' : 'Aún sin reservas'}</p>
-            <p style={{ fontSize: 14, color: '#6B615A', marginTop: 6, lineHeight: 1.5 }}>{en ? 'Ask Reva and your bookings show up here.' : 'Pídele a Reva y tus reservas aparecen aquí.'}</p>
+            <p style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 18, color: '#221C19' }}>{en ? 'Nothing here yet' : 'Aún sin nada'}</p>
+            <p style={{ fontSize: 14, color: '#6B615A', marginTop: 6, lineHeight: 1.5 }}>{en ? 'Ask Reva and your bookings and orders show up here.' : 'Pídele a Reva y tus reservas y pedidos aparecen aquí.'}</p>
           </div>
         ) : (
           <>
+            {dbOrders.length > 0 && (
+              <>
+                <p style={{ fontSize: 11, fontWeight: 700, color: '#A89E94', textTransform: 'uppercase', letterSpacing: '.07em', marginBottom: 12 }}>{en ? 'Orders' : 'Pedidos'}</p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 24 }}>
+                  {dbOrders.map(o => {
+                    const st = orderStatus(o)
+                    return (
+                      <div key={o.id} style={{ background: '#fff', border: '1px solid #E9E0D5', borderRadius: 18, padding: 15, boxShadow: '0 2px 10px rgba(34,28,25,.06)' }}>
+                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 16, color: '#221C19' }}>{o.businesses?.name ?? (en ? 'Business' : 'Negocio')}</div>
+                            <div style={{ fontSize: 13, color: '#6B615A', marginTop: 3 }}>{o.order_items.map(i => `${i.qty}× ${i.name}`).join(' · ')}</div>
+                            <div style={{ fontSize: 12.5, color: '#6B615A', marginTop: 3 }}>{o.fulfillment === 'delivery' ? `🛵 ${en ? 'Delivery' : 'Entrega'}` : `🏪 ${en ? 'Pickup' : 'Recoger'}`}</div>
+                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, marginTop: 8, fontSize: 12, fontWeight: 700, padding: '3px 9px', borderRadius: 999, background: toneBg[st.tone], color: toneFg[st.tone] }}>
+                              {st.tone !== 'pending' && <Icon n="check" size={12} color={toneFg[st.tone]} stroke={3} />}
+                              {st.label}
+                            </div>
+                          </div>
+                          <div style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 17, color: '#221C19', flexShrink: 0 }}>${o.total}</div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </>
+            )}
             {upcoming.length > 0 && (
               <>
                 <p style={{ fontSize: 11, fontWeight: 700, color: '#A89E94', textTransform: 'uppercase', letterSpacing: '.07em', marginBottom: 12 }}>{en ? 'Upcoming' : 'Próximas'}</p>
@@ -2879,6 +3153,32 @@ export default function AppPage() {
   const [openBiz, setOpenBiz] = useState<Business | null>(null)
   const [bookingBiz, setBookingBiz] = useState<Business | null>(null)
   const [bookingService, setBookingService] = useState<Service | null>(null)
+
+  // Carrito de pedidos: pertenece a un solo negocio a la vez.
+  const [cartBiz, setCartBiz] = useState<Business | null>(null)
+  const [cartItems, setCartItems] = useState<CartItem[]>([])
+  const [showCart, setShowCart] = useState(false)
+  const addToCart = (biz: Business, s: Service) => {
+    setCartItems(prev => {
+      // Agregar de otro negocio reinicia el carrito.
+      if (cartBiz && cartBiz.id !== biz.id) { setCartBiz(biz); return [{ service: s, qty: 1 }] }
+      setCartBiz(biz)
+      const found = prev.find(i => i.service.id === s.id)
+      if (found) return prev.map(i => i.service.id === s.id ? { ...i, qty: Math.min(99, i.qty + 1) } : i)
+      return [...prev, { service: s, qty: 1 }]
+    })
+  }
+  const setCartQty = (serviceId: string, qty: number) => {
+    setCartItems(prev => {
+      const next = qty <= 0 ? prev.filter(i => i.service.id !== serviceId) : prev.map(i => i.service.id === serviceId ? { ...i, qty: Math.min(99, qty) } : i)
+      if (next.length === 0) setCartBiz(null)
+      return next
+    })
+  }
+  const clearCart = () => { setCartItems([]); setCartBiz(null); setShowCart(false) }
+  const cartSubtotal = cartItems.reduce((s, i) => s + (priceNumber(i.service) ?? 0) * i.qty, 0)
+  const cartCount = cartItems.reduce((s, i) => s + i.qty, 0)
+  const cartState: CartState = { biz: cartBiz, items: cartItems, count: cartCount, subtotal: cartSubtotal, add: addToCart, setQty: setCartQty, clear: clearCart }
   const [detailService, setDetailService] = useState<{ biz: Business; service: Service } | null>(null)
   const [showMessages, setShowMessages] = useState(false)
   const [messagesBizId, setMessagesBizId] = useState<string | null>(null)
@@ -2920,6 +3220,47 @@ export default function AppPage() {
     setBookingService(service)
     setBookingBiz(biz)
   }
+
+  // Elegir un producto: si el negocio hace pedidos y el producto tiene precio,
+  // va al carrito (agregar y seguir comprando). Si no, es el flujo de reserva.
+  const chooseService = (biz: Business, service: Service | null) => {
+    if (service && isOrderable(biz, service)) { addToCart(biz, service); return }
+    tryBook(biz, service)
+  }
+
+  // Checkout del carrito → Stripe. Devuelve un mensaje de error o null (éxito
+  // = redirección). Requiere sesión: sin ella, dispara el gate de registro.
+  const checkoutCart = async (d: { fulfillment: 'pickup' | 'delivery'; name: string; phone: string; address: string; notes: string }): Promise<string | null> => {
+    if (!isRegistered) { setShowCart(false); setShowAuthModal(true); return null }
+    if (!cartBiz || cartItems.length === 0) return en ? 'Empty cart' : 'Carrito vacío'
+    try {
+      const r = await fetch('/api/orders/checkout', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          biz_id: cartBiz.id,
+          items: cartItems.map(i => ({ service_id: i.service.id, qty: i.qty })),
+          fulfillment: d.fulfillment, address: d.address,
+          customer_name: d.name, customer_phone: d.phone, notes: d.notes,
+        }),
+      })
+      const data = await r.json().catch(() => ({}))
+      if (r.ok && data.url) { window.location.href = data.url; return null }
+      return data.error || (en ? 'Could not start payment' : 'No se pudo iniciar el pago')
+    } catch {
+      return en ? 'Could not start payment' : 'No se pudo iniciar el pago'
+    }
+  }
+
+  // Al volver de un pago exitoso, vacía el carrito y lleva a Reservas.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const p = new URLSearchParams(window.location.search)
+    if (p.get('order') === 'success') {
+      setCartItems([]); setCartBiz(null); setShowCart(false)
+      setTab('bookings')
+      window.history.replaceState({}, '', window.location.pathname)
+    }
+  }, [])
 
   // Abrir chat con un negocio (requiere sesión: los mensajes se persisten).
   const tryMessage = (biz: Business) => {
@@ -2976,10 +3317,11 @@ export default function AppPage() {
   return (
     <LangContext.Provider value={lang}>
     <BizDataContext.Provider value={{ ...bizData, city: currentCity }}>
+    <CartContext.Provider value={cartState}>
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#FAF5EE', position: 'relative' }}>
       {/* Screen */}
       <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
-        {tab === 'concierge' && <Concierge mode={mode} onOpen={setOpenBiz} onBook={(b) => tryBook(b, null)} onBookService={(b, s) => tryBook(b, s)} onServiceDetail={(b, s) => setDetailService({ biz: b, service: s })} onModeToggle={() => setTab('profile')} onBell={() => setShowNotifs(true)} onMsg={() => setShowMessages(true)} />}
+        {tab === 'concierge' && <Concierge mode={mode} onOpen={setOpenBiz} onBook={(b) => tryBook(b, null)} onBookService={(b, s) => chooseService(b, s)} onServiceDetail={(b, s) => setDetailService({ biz: b, service: s })} onModeToggle={() => setTab('profile')} onBell={() => setShowNotifs(true)} onMsg={() => setShowMessages(true)} />}
         {tab === 'discover' && <Discovery mode={mode} onOpen={setOpenBiz} onBook={(b) => tryBook(b, null)} onModeToggle={() => setTab('profile')} onBell={() => setShowNotifs(true)} onMsg={() => setShowMessages(true)} />}
         {tab === 'bookings' && <Trips mode={mode} onModeToggle={() => setTab('profile')} onBell={() => setShowNotifs(true)} onMsg={() => setShowMessages(true)} />}
         {tab === 'rove' && <Rove mode={mode} onModeToggle={() => setTab('profile')} onBell={() => setShowNotifs(true)} onMsg={() => setShowMessages(true)} isRegistered={isRegistered} onRegister={() => { window.location.href = '/auth/register' }} onLogin={() => { window.location.href = '/auth/login' }} />}
@@ -2999,9 +3341,18 @@ export default function AppPage() {
         ))}
       </nav>
 
+      {/* Barra flotante del carrito (sólo en las pestañas, no sobre overlays) */}
+      {!openBiz && !bookingBiz && !detailService && !showCart && !showMessages && !showNotifs && !showSupport && !showAuthModal && (
+        <CartBar onOpen={() => setShowCart(true)} />
+      )}
+
       {/* Overlays */}
+      {showCart && <CartSheet onClose={() => setShowCart(false)} onCheckout={checkoutCart} />}
       {openBiz && (
-        <BizDetail biz={openBiz} mode={mode} onClose={() => setOpenBiz(null)} onBook={(svc) => { setOpenBiz(null); tryBook(openBiz, svc ?? null) }} onMessage={() => tryMessage(openBiz)} />
+        <BizDetail biz={openBiz} mode={mode} onClose={() => setOpenBiz(null)}
+          onBook={(svc) => { if (svc && isOrderable(openBiz, svc)) { addToCart(openBiz, svc); return } setOpenBiz(null); tryBook(openBiz, svc ?? null) }}
+          onOpenCart={() => setShowCart(true)}
+          onMessage={() => tryMessage(openBiz)} />
       )}
       {bookingBiz && (
         <Booking biz={bookingBiz} mode={mode} service={bookingService ?? undefined} onClose={() => { setBookingBiz(null); setBookingService(null) }} onConfirm={() => { setBookingBiz(null); setBookingService(null) }} />
@@ -3009,7 +3360,7 @@ export default function AppPage() {
       {detailService && (
         <ServiceDetail biz={detailService.biz} service={detailService.service} mode={mode}
           onClose={() => setDetailService(null)}
-          onBook={() => { setDetailService(null); tryBook(detailService.biz, detailService.service) }} />
+          onBook={() => { const { biz, service } = detailService; if (isOrderable(biz, service)) { addToCart(biz, service); setDetailService(null); return } setDetailService(null); tryBook(biz, service) }} />
       )}
       {showMessages && (
         <MessagesScreen mode={mode} startBizId={messagesBizId} onClose={() => { setShowMessages(false); setMessagesBizId(null) }} />
@@ -3029,6 +3380,7 @@ export default function AppPage() {
         />
       )}
     </div>
+    </CartContext.Provider>
     </BizDataContext.Provider>
     </LangContext.Provider>
   )

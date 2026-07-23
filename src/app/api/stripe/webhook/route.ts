@@ -20,6 +20,21 @@ export async function POST(req: NextRequest) {
     const session = event.data.object
     const { user_id, biz_id, reservation_id, type, tier, days, service_id } = session.metadata!
 
+    if (type === 'order') {
+      // Pedido ecommerce pagado: pasa a 'paid' para que el negocio lo prepare.
+      const order_id = session.metadata!.order_id
+      await supabase.from('orders').update({ status: 'paid', paid_at: new Date().toISOString() }).eq('id', order_id)
+      await supabase.from('payments').insert({
+        user_id, biz_id,
+        reservation_id: null,
+        stripe_session_id: session.id,
+        amount: session.amount_total! / 100,
+        type: 'order',
+        status: 'paid',
+      })
+      return NextResponse.json({ received: true })
+    }
+
     if (type === 'deposit') {
       await supabase.from('reservations').update({ deposit_paid: true, status: 'confirmed' }).eq('id', reservation_id)
     } else if (type === 'featured') {

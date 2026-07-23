@@ -31,6 +31,12 @@ export async function POST(req: NextRequest) {
   // negocio en Discover (business-data.ts filtra por .eq('municipio', ...)).
   // Se limpia (trim) para que coincida exacto con el catálogo del cliente.
   if (typeof body.municipio === 'string') patch.municipio = body.municipio.trim() || null
+  // Capacidades de reservas / pedidos (ecommerce) y sus formas de entrega.
+  if (typeof body.does_reservations === 'boolean') patch.does_reservations = body.does_reservations
+  if (typeof body.does_orders === 'boolean') patch.does_orders = body.does_orders
+  if (typeof body.pickup_enabled === 'boolean') patch.pickup_enabled = body.pickup_enabled
+  if (typeof body.delivery_enabled === 'boolean') patch.delivery_enabled = body.delivery_enabled
+  if (body.delivery_fee !== undefined) { const n = Number(body.delivery_fee); if (Number.isFinite(n) && n >= 0) patch.delivery_fee = n }
   if (Object.keys(patch).length === 0) return NextResponse.json({ ok: true })
 
   const { error } = await admin.from('businesses').update(patch).eq('id', bizId)

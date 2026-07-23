@@ -131,6 +131,15 @@ export interface Business {
   slots: string[]
   alerts?: ProactiveAlert[]
   offers?: BizOffer[]
+  // Capacidades de pedidos (ecommerce). Cuando doesOrders es true, los productos
+  // (services con scheduled=false) se agregan a un carrito y se pagan con Stripe,
+  // en vez del flujo de "Solicitar" sin pago. pickup/delivery definen las formas
+  // de entrega; deliveryFee es el costo del envío a domicilio.
+  doesOrders?: boolean
+  doesReservations?: boolean
+  pickupEnabled?: boolean
+  deliveryEnabled?: boolean
+  deliveryFee?: number
 }
 
 // Niveles de visibilidad pagada, alineados con DEST_TIERS del panel de negocios.
