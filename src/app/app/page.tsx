@@ -1493,16 +1493,9 @@ function Booking({ biz, mode, service, onClose, onConfirm }: { biz: Business; mo
 }
 
 // ── Carrito: barra flotante + hoja de pedido ───────────────
-function CartBar({ onOpen }: { onOpen: () => void }) {
+function CartBar({ onOpen, hidden, onHide }: { onOpen: () => void; hidden: boolean; onHide: () => void }) {
   const en = useContext(LangContext) === 'en'
   const cart = useContext(CartContext)
-  const [hidden, setHidden] = useState(false)
-  const prevCount = useRef(cart.count)
-  // Reaparece si el pedido crece (agregó algo nuevo); se mantiene oculto si solo se reduce.
-  useEffect(() => {
-    if (cart.count > prevCount.current) setHidden(false)
-    prevCount.current = cart.count
-  }, [cart.count])
 
   if (cart.count === 0 || !cart.biz || hidden) return null
   return (
@@ -1513,7 +1506,7 @@ function CartBar({ onOpen }: { onOpen: () => void }) {
         <span style={{ flex: 1, textAlign: 'left', fontWeight: 700, fontSize: 14.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{en ? 'View order' : 'Ver pedido'} · {cart.biz.name}</span>
         <span style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 16 }}>${cart.subtotal}</span>
       </button>
-      <button onClick={() => setHidden(true)} aria-label={en ? 'Hide order' : 'Ocultar pedido'}
+      <button onClick={onHide} aria-label={en ? 'Hide order' : 'Ocultar pedido'}
         style={{ flexShrink: 0, width: 46, height: 46, background: '#fff', color: '#8A7F76', border: '1px solid #E9E0D5', borderRadius: 16, display: 'grid', placeItems: 'center', cursor: 'pointer', boxShadow: '0 8px 24px rgba(34,28,25,.18)', fontSize: 24, lineHeight: 1, fontFamily: 'var(--font-ui)' }}>×</button>
     </div>
   )
@@ -3235,6 +3228,9 @@ export default function AppPage() {
   const [cartBiz, setCartBiz] = useState<Business | null>(null)
   const [cartItems, setCartItems] = useState<CartItem[]>([])
   const [showCart, setShowCart] = useState(false)
+  // La barra flotante del carrito puede ocultarse con la ✕; el estado vive aquí
+  // para que tocar una pestaña (o crecer el pedido) la vuelva a mostrar.
+  const [cartBarHidden, setCartBarHidden] = useState(false)
   const addToCart = (biz: Business, s: Service) => {
     setCartItems(prev => {
       // Agregar de otro negocio reinicia el carrito.
@@ -3256,6 +3252,13 @@ export default function AppPage() {
   const cartSubtotal = cartItems.reduce((s, i) => s + (priceNumber(i.service) ?? 0) * i.qty, 0)
   const cartCount = cartItems.reduce((s, i) => s + i.qty, 0)
   const cartState: CartState = { biz: cartBiz, items: cartItems, count: cartCount, subtotal: cartSubtotal, add: addToCart, setQty: setCartQty, clear: clearCart }
+  // Si el pedido crece (se agregó algo nuevo), la barra vuelve a aparecer aunque
+  // el usuario la hubiera ocultado antes.
+  const prevCartCount = useRef(cartCount)
+  useEffect(() => {
+    if (cartCount > prevCartCount.current) setCartBarHidden(false)
+    prevCartCount.current = cartCount
+  }, [cartCount])
   const [detailService, setDetailService] = useState<{ biz: Business; service: Service } | null>(null)
   const [showMessages, setShowMessages] = useState(false)
   const [messagesBizId, setMessagesBizId] = useState<string | null>(null)
@@ -3411,20 +3414,32 @@ export default function AppPage() {
 
       {/* Bottom nav */}
       <nav style={{ display: 'flex', borderTop: '1px solid #E9E0D5', background: '#fff', paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
-        {tabs.map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)}
+        {tabs.map(t => {
+          // Badge del carrito sobre Discover: acceso siempre visible al pedido activo.
+          const showCartBadge = t.id === 'discover' && cartCount > 0
+          return (
+          <button key={t.id} onClick={() => { setCartBarHidden(false); setTab(t.id) }}
             style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, padding: '10px 0 14px', background: 'none', border: 'none', cursor: 'pointer', color: tab === t.id ? '#E8505B' : '#A89E94' }}>
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              {t.icon}
-            </svg>
+            <span style={{ position: 'relative', display: 'grid', placeItems: 'center' }}>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                {t.icon}
+              </svg>
+              {showCartBadge && (
+                <span aria-label={en ? `${cartCount} in order` : `${cartCount} en tu pedido`}
+                  style={{ position: 'absolute', top: -6, right: -10, minWidth: 16, height: 16, padding: '0 4px', borderRadius: 999, background: '#E8505B', color: '#fff', fontSize: 10, fontWeight: 800, lineHeight: '16px', textAlign: 'center', border: '1.5px solid #fff', fontFamily: 'var(--font-ui)' }}>
+                  {cartCount}
+                </span>
+              )}
+            </span>
             <span style={{ fontSize: 10.5, fontWeight: 600 }}>{t.label}</span>
           </button>
-        ))}
+          )
+        })}
       </nav>
 
       {/* Barra flotante del carrito (sólo en las pestañas, no sobre overlays) */}
       {!openBiz && !bookingBiz && !detailService && !showCart && !showMessages && !showNotifs && !showSupport && !showAuthModal && (
-        <CartBar onOpen={() => setShowCart(true)} />
+        <CartBar onOpen={() => setShowCart(true)} hidden={cartBarHidden} onHide={() => setCartBarHidden(true)} />
       )}
 
       {/* Overlays */}
