@@ -564,7 +564,7 @@ function ServiceChatCard({ biz, service, mode, onDetail, onBook }: { biz: Busine
   const available = inStock(service)
   return (
     <div onClick={onDetail} style={{ display: 'flex', alignItems: 'center', gap: 12, background: '#fff', border: '1px solid #E9E0D5', borderRadius: 18, padding: 12, boxShadow: '0 2px 10px rgba(34,28,25,.06)', cursor: 'pointer' }}>
-      <div style={{ width: 48, height: 48, borderRadius: 12, flexShrink: 0, background: `linear-gradient(140deg,${service.grad[0]},${service.grad[1]})`, display: 'grid', placeItems: 'center', color: 'rgba(255,255,255,.85)', fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 19 }}>{biz.mono}</div>
+      <div style={{ width: 48, height: 48, borderRadius: 12, flexShrink: 0, background: service.img ? `center/cover no-repeat url(${service.img})` : `linear-gradient(140deg,${service.grad[0]},${service.grad[1]})`, display: 'grid', placeItems: 'center', color: 'rgba(255,255,255,.85)', fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 19 }}>{!service.img && biz.mono}</div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 14.5, fontWeight: 700, color: '#221C19', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{service.name}</div>
         <div style={{ fontSize: 12.5, color: '#6B615A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{biz.name} · {service.price}</div>
@@ -586,8 +586,8 @@ function ServiceDetail({ biz, service, mode, onClose, onBook }: { biz: Business;
     <div onClick={onClose} style={{ position: 'absolute', inset: 0, zIndex: 60, background: 'rgba(0,0,0,.5)', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', animation: 'fadeIn .18s ease' }}>
       <div onClick={e => e.stopPropagation()} style={{ background: '#FAF5EE', borderRadius: '30px 30px 0 0', maxHeight: '90%', overflowY: 'auto' }}>
         {/* hero */}
-        <div style={{ height: 132, background: `linear-gradient(135deg,${service.grad[0]},${service.grad[1]})`, position: 'relative', borderRadius: '30px 30px 0 0' }}>
-          <span style={{ position: 'absolute', right: 6, bottom: -12, fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 120, opacity: .16, color: '#fff', lineHeight: 1 }}>{biz.mono}</span>
+        <div style={{ height: 132, background: service.img ? `center/cover no-repeat url(${service.img})` : `linear-gradient(135deg,${service.grad[0]},${service.grad[1]})`, position: 'relative', borderRadius: '30px 30px 0 0' }}>
+          {!service.img && <span style={{ position: 'absolute', right: 6, bottom: -12, fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 120, opacity: .16, color: '#fff', lineHeight: 1 }}>{biz.mono}</span>}
           <button onClick={onClose} style={{ position: 'absolute', top: 14, right: 16, width: 34, height: 34, borderRadius: '50%', background: 'rgba(255,255,255,.92)', border: 'none', cursor: 'pointer', color: '#221C19', fontSize: 20, display: 'grid', placeItems: 'center' }}>×</button>
         </div>
         <div style={{ padding: '18px 20px calc(30px + env(safe-area-inset-bottom, 0px))' }}>
@@ -1194,7 +1194,7 @@ function BizDetail({ biz, mode, onClose, onBook, onOpenCart, onMessage }: { biz:
                   const inCart = cart.items.find(i => i.service.id === s.id)
                   const meta = (
                     <>
-                      <div style={{ width: 46, height: 46, borderRadius: 11, flexShrink: 0, background: `linear-gradient(140deg,${s.grad[0]},${s.grad[1]})`, display: 'grid', placeItems: 'center', color: 'rgba(255,255,255,.85)', fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 19 }}>{biz.mono}</div>
+                      <div style={{ width: 46, height: 46, borderRadius: 11, flexShrink: 0, background: s.img ? `center/cover no-repeat url(${s.img})` : `linear-gradient(140deg,${s.grad[0]},${s.grad[1]})`, display: 'grid', placeItems: 'center', color: 'rgba(255,255,255,.85)', fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 19 }}>{!s.img && biz.mono}</div>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 15, fontWeight: 700, color: '#221C19' }}>{s.name}</div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 3, minWidth: 0 }}>
@@ -1412,7 +1412,7 @@ function Booking({ biz, mode, service, onClose, onConfirm }: { biz: Business; mo
 
             {service && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18, padding: '12px 14px', background: '#fff', border: '1px solid #E9E0D5', borderRadius: 14 }}>
-                <div style={{ width: 40, height: 40, borderRadius: 10, flexShrink: 0, background: `linear-gradient(140deg,${service.grad[0]},${service.grad[1]})` }} />
+                <div style={{ width: 40, height: 40, borderRadius: 10, flexShrink: 0, background: service.img ? `center/cover no-repeat url(${service.img})` : `linear-gradient(140deg,${service.grad[0]},${service.grad[1]})` }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 14.5, fontWeight: 700, color: '#221C19' }}>{service.name}</div>
                   <div style={{ fontSize: 12.5, color: '#6B615A' }}>{service.sub}</div>
@@ -1496,15 +1496,25 @@ function Booking({ biz, mode, service, onClose, onConfirm }: { biz: Business; mo
 function CartBar({ onOpen }: { onOpen: () => void }) {
   const en = useContext(LangContext) === 'en'
   const cart = useContext(CartContext)
-  if (cart.count === 0 || !cart.biz) return null
+  const [hidden, setHidden] = useState(false)
+  const prevCount = useRef(cart.count)
+  // Reaparece si el pedido crece (agregó algo nuevo); se mantiene oculto si solo se reduce.
+  useEffect(() => {
+    if (cart.count > prevCount.current) setHidden(false)
+    prevCount.current = cart.count
+  }, [cart.count])
+
+  if (cart.count === 0 || !cart.biz || hidden) return null
   return (
-    <div style={{ position: 'absolute', left: 12, right: 12, bottom: 'calc(72px + env(safe-area-inset-bottom, 0px))', zIndex: 45 }}>
+    <div style={{ position: 'absolute', left: 12, right: 12, bottom: 'calc(72px + env(safe-area-inset-bottom, 0px))', zIndex: 45, display: 'flex', alignItems: 'center', gap: 8 }}>
       <button onClick={onOpen}
-        style={{ width: '100%', background: '#E8505B', color: '#fff', border: 'none', borderRadius: 16, padding: '13px 16px', display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer', boxShadow: '0 8px 24px rgba(34,28,25,.22)', fontFamily: 'var(--font-ui)' }}>
+        style={{ flex: 1, minWidth: 0, background: '#E8505B', color: '#fff', border: 'none', borderRadius: 16, padding: '13px 16px', display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer', boxShadow: '0 8px 24px rgba(34,28,25,.22)', fontFamily: 'var(--font-ui)' }}>
         <span style={{ minWidth: 26, height: 26, borderRadius: 999, background: 'rgba(255,255,255,.24)', display: 'grid', placeItems: 'center', fontWeight: 800, fontSize: 13.5, padding: '0 7px' }}>{cart.count}</span>
         <span style={{ flex: 1, textAlign: 'left', fontWeight: 700, fontSize: 14.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{en ? 'View order' : 'Ver pedido'} · {cart.biz.name}</span>
         <span style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 16 }}>${cart.subtotal}</span>
       </button>
+      <button onClick={() => setHidden(true)} aria-label={en ? 'Hide order' : 'Ocultar pedido'}
+        style={{ flexShrink: 0, width: 46, height: 46, background: '#fff', color: '#8A7F76', border: '1px solid #E9E0D5', borderRadius: 16, display: 'grid', placeItems: 'center', cursor: 'pointer', boxShadow: '0 8px 24px rgba(34,28,25,.18)', fontSize: 24, lineHeight: 1, fontFamily: 'var(--font-ui)' }}>×</button>
     </div>
   )
 }
@@ -1554,7 +1564,7 @@ function CartSheet({ onClose, onCheckout, defaultName, defaultPhone }: { onClose
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
           {cart.items.map(({ service, qty }) => (
             <div key={service.id} style={{ display: 'flex', alignItems: 'center', gap: 12, background: '#fff', border: '1px solid #E9E0D5', borderRadius: 14, padding: '11px 12px' }}>
-              <div style={{ width: 42, height: 42, borderRadius: 10, flexShrink: 0, background: `linear-gradient(140deg,${service.grad[0]},${service.grad[1]})` }} />
+              <div style={{ width: 42, height: 42, borderRadius: 10, flexShrink: 0, background: service.img ? `center/cover no-repeat url(${service.img})` : `linear-gradient(140deg,${service.grad[0]},${service.grad[1]})` }} />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 14.5, fontWeight: 700, color: '#221C19', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{service.name}</div>
                 <div style={{ fontSize: 12.5, color: '#6B615A' }}>${priceNumber(service)} c/u</div>
