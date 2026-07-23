@@ -44,6 +44,15 @@ export async function GET(req: NextRequest) {
   const { data: folRows } = await admin.from('pos_sales').select('id,folio').eq('biz_id', bizId).limit(400)
   for (const f of (folRows ?? []) as { id: string; folio: string | null }[]) if (f.folio) folioById.set(f.id, f.folio)
 
+  // Efectivo recibido / cambio (best-effort e independiente): si las columnas aún
+  // no existen (migración 027 sin aplicar) esta consulta devuelve error y el
+  // historial sigue funcionando sin esos datos, sin afectar al folio de arriba.
+  const cashById = new Map<string, { received: number | null; change: number | null }>()
+  const { data: cashRows } = await admin.from('pos_sales').select('id,cash_received,change_due').eq('biz_id', bizId).limit(400)
+  for (const c of (cashRows ?? []) as { id: string; cash_received: number | null; change_due: number | null }[]) {
+    cashById.set(c.id, { received: c.cash_received, change: c.change_due })
+  }
+
   type Item = { name: string; qty: number; unit_price: number; service_id: string | null; service: { stock: number | null } | null }
   type Row = {
     id: string; total: number | null; subtotal: number | null
@@ -67,6 +76,8 @@ export async function GET(req: NextRequest) {
     auth_code: s.auth_code,
     card_last4: s.card_last4,
     reference: s.reference,
+    cash_received: cashById.get(s.id)?.received ?? null,
+    change_due: cashById.get(s.id)?.change ?? null,
     status: s.status,
     note: s.note,
     created_at: s.created_at,

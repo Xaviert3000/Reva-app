@@ -2083,7 +2083,7 @@ const priceToNumber = (price: string) => {
   return m ? Number(m[0]) : 0
 }
 type PosLine = { key: string; id?: string; name: string; sub: string; unit: number; variable: boolean; qty: number }
-type Sale = { method: string; items: { name: string; qty: number; unit: number }[]; base: number; iva: number; total: number; added: boolean; at: number; folio: string; authCode?: string; cardLast4?: string; reference?: string }
+type Sale = { method: string; items: { name: string; qty: number; unit: number }[]; base: number; iva: number; total: number; added: boolean; at: number; folio: string; authCode?: string; cardLast4?: string; reference?: string; cashReceived?: number; change?: number }
 
 // Genera el HTML del ticket e imprime vía un iframe oculto. Compartido por el
 // Punto de venta (al cobrar) y el módulo Ventas (reimpresión), para que el
@@ -2095,6 +2095,7 @@ function printTicketHTML(o: {
   rows: { name: string; qty: number; lineTotal: number }[]
   added: boolean; base: number; iva: number; total: number
   method: string; cardLast4?: string; authCode?: string; reference?: string
+  cashReceived?: number; change?: number
   voidLabel?: string; en?: boolean
 }) {
   const en = !!o.en
@@ -2139,6 +2140,7 @@ function printTicketHTML(o: {
     <div class="pay">${en ? 'Payment' : 'Pago'}: ${esc(o.method)}${o.cardLast4 ? ` ····${esc(o.cardLast4)}` : ''}</div>
     ${o.authCode ? `<div class="pay">${en ? 'Authorization' : 'Autorización'}: ${esc(o.authCode)}</div>` : ''}
     ${o.reference ? `<div class="pay">${en ? 'Reference' : 'Referencia'}: ${esc(o.reference)}</div>` : ''}
+    ${typeof o.change === 'number' ? `<div class="pay">${en ? 'Cash received' : 'Efectivo recibido'}: ${money(o.cashReceived ?? 0)}</div><div class="pay">${en ? 'Change' : 'Cambio'}: ${money(o.change)}</div>` : ''}
     <div class="thanks">${en ? 'Thank you for your purchase! 🌮' : '¡Gracias por tu compra! 🌮'}<br>${en ? 'Via Reva' : 'Vía Reva'}</div>
     </body></html>`
   const frame = document.createElement('iframe')
@@ -2164,10 +2166,10 @@ function PosView({ vert, items, setItems, onGo, taxMode, bizInfo }: { vert: Vert
   const [cat, setCat] = useState('Todos')
   const [pay, setPay] = useState<null | 'choose' | Sale>(null)
   const [pending, setPending] = useState<null | { id: string; label: string }>(null)
-  const [payFields, setPayFields] = useState({ authCode: '', cardLast4: '', reference: '' })
+  const [payFields, setPayFields] = useState({ authCode: '', cardLast4: '', reference: '', cashReceived: '' })
   const [receipt, setReceipt] = useState<Sale | null>(null)
 
-  useEffect(() => { setLines([]); setQuery(''); setCat('Todos'); setPay(null); setPending(null); setPayFields({ authCode: '', cardLast4: '', reference: '' }); setReceipt(null) }, [vert.id])
+  useEffect(() => { setLines([]); setQuery(''); setCat('Todos'); setPay(null); setPending(null); setPayFields({ authCode: '', cardLast4: '', reference: '', cashReceived: '' }); setReceipt(null) }, [vert.id])
 
   const active = items.filter(c => c.active)
   const cats = ['Todos', ...new Set(active.map(c => c.category?.trim()).filter(Boolean) as string[])]
@@ -2213,7 +2215,7 @@ function PosView({ vert, items, setItems, onGo, taxMode, bizInfo }: { vert: Vert
 
   // Cierra el modal de cobro y limpia el paso intermedio de datos de la transacción.
   function closePay() {
-    setPay(null); setPending(null); setPayFields({ authCode: '', cardLast4: '', reference: '' })
+    setPay(null); setPending(null); setPayFields({ authCode: '', cardLast4: '', reference: '', cashReceived: '' })
   }
   // Registra la venta: descuenta inventario, la persiste en Supabase (no-op en
   // demo) y muestra la confirmación, incluyendo los datos capturados de la
@@ -2235,12 +2237,14 @@ function PosView({ vert, items, setItems, onGo, taxMode, bizInfo }: { vert: Vert
       auth_code: extra.authCode,
       card_last4: extra.cardLast4,
       reference: extra.reference,
+      cash_received: extra.cashReceived,
+      change_due: extra.change,
       folio,
       items: lines.map(l => ({ service_id: l.id, name: l.name, unit_price: l.unit, qty: l.qty })),
     })
     setPay({ method: methodLabel, items: lines.map(l => ({ name: l.name, qty: l.qty, unit: l.unit })), base, iva, total, added, at, folio, ...extra })
     setPending(null)
-    setPayFields({ authCode: '', cardLast4: '', reference: '' })
+    setPayFields({ authCode: '', cardLast4: '', reference: '', cashReceived: '' })
   }
 
   function printTicket(sale: Sale) {
@@ -2251,7 +2255,8 @@ function PosView({ vert, items, setItems, onGo, taxMode, bizInfo }: { vert: Vert
       when: new Date(sale.at).toLocaleString(en ? 'en-US' : 'es-MX', { dateStyle: 'short', timeStyle: 'short' }),
       rows: sale.items.map(it => ({ name: it.name, qty: it.qty, lineTotal: it.unit * it.qty })),
       added: sale.added, base: sale.base, iva: sale.iva, total: sale.total,
-      method: sale.method, cardLast4: sale.cardLast4, authCode: sale.authCode, reference: sale.reference, en,
+      method: sale.method, cardLast4: sale.cardLast4, authCode: sale.authCode, reference: sale.reference,
+      cashReceived: sale.cashReceived, change: sale.change, en,
     })
   }
 
@@ -2260,6 +2265,15 @@ function PosView({ vert, items, setItems, onGo, taxMode, bizInfo }: { vert: Vert
   const iva = added ? base * TAX_RATE : base - base / (1 + TAX_RATE)
   const total = added ? base + iva : base
   const count = lines.reduce((s, l) => s + l.qty, 0)
+
+  // Efectivo: monto recibido y cambio a devolver, calculados en vivo mientras el
+  // dueño teclea. Si no captura el recibido, la venta se registra sin cambio.
+  const cashRecv = priceToNumber(payFields.cashReceived)
+  const cashEntered = payFields.cashReceived.trim() !== '' && cashRecv > 0
+  const cashChange = cashRecv - total
+  const cashShort = cashEntered && cashChange < 0
+  // Sugerencias de billetes MXN: pago exacto + denominaciones mayores al total.
+  const cashSuggestions = [total, ...[50, 100, 200, 500, 1000].filter(b => b > total)].slice(0, 4)
 
   return (
     <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', gap: 20, padding: '24px 28px', boxSizing: 'border-box' }}>
@@ -2413,7 +2427,30 @@ function PosView({ vert, items, setItems, onGo, taxMode, bizInfo }: { vert: Vert
                   <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 32, color: R.ink, letterSpacing: '-.02em' }}>{money(total)}</div>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  {pending.id === 'tarjeta' ? (
+                  {pending.id === 'efectivo' ? (
+                    <>
+                      <label style={{ display: 'block' }}>
+                        <span style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: R.inkSoft, marginBottom: 6 }}>{t('Efectivo recibido', 'Cash received')}</span>
+                        <div style={{ position: 'relative' }}>
+                          <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 15, fontWeight: 700, color: R.inkFaint }}>$</span>
+                          <input value={payFields.cashReceived} onChange={e => setPayFields(f => ({ ...f, cashReceived: e.target.value.replace(/[^\d.]/g, '') }))} inputMode="decimal" placeholder="0.00" autoFocus
+                            style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${cashShort ? R.coral : R.line}`, borderRadius: 10, padding: '11px 12px 11px 26px', fontSize: 16, fontWeight: 700, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.surface }} />
+                        </div>
+                      </label>
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        {cashSuggestions.map((amt, i) => (
+                          <button key={i} type="button" onClick={() => setPayFields(f => ({ ...f, cashReceived: String(amt) }))}
+                            style={{ flex: 1, minWidth: 70, padding: '9px 6px', borderRadius: 999, border: `1px solid ${R.line}`, background: R.surface, color: R.inkSoft, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 12.5, whiteSpace: 'nowrap' }}>
+                            {i === 0 ? t('Exacto', 'Exact') : money(amt)}
+                          </button>
+                        ))}
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 14px', borderRadius: 12, background: cashShort ? R.coralTint : (cashEntered ? R.jadeTint : R.surface), border: `1px solid ${cashShort ? R.coral : (cashEntered ? R.jade : R.line)}` }}>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: cashShort ? R.coralPress : R.inkSoft }}>{cashShort ? t('Falta', 'Missing') : t('Cambio a devolver', 'Change to return')}</span>
+                        <span style={{ fontFamily: R.display, fontWeight: 800, fontSize: 22, color: cashShort ? R.coralPress : (cashEntered ? R.jade : R.inkFaint), letterSpacing: '-.02em' }}>{cashEntered ? money(Math.abs(cashChange)) : money(0)}</span>
+                      </div>
+                    </>
+                  ) : pending.id === 'tarjeta' ? (
                     <>
                       <label style={{ display: 'block' }}>
                         <span style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: R.inkSoft, marginBottom: 6 }}>{t('Código de autorización', 'Authorization code')}</span>
@@ -2435,13 +2472,16 @@ function PosView({ vert, items, setItems, onGo, taxMode, bizInfo }: { vert: Vert
                   )}
                 </div>
                 <button
+                  disabled={cashShort}
                   onClick={() => registerSale(pending.id, pending.label, pending.id === 'tarjeta'
                     ? { authCode: payFields.authCode.trim() || undefined, cardLast4: payFields.cardLast4.trim() || undefined }
-                    : { reference: payFields.reference.trim() || undefined })}
-                  style={{ width: '100%', marginTop: 18, padding: '14px', border: 'none', borderRadius: 14, background: R.coral, color: '#fff', cursor: 'pointer', fontFamily: R.ui, fontWeight: 800, fontSize: 15 }}>
+                    : pending.id === 'efectivo'
+                      ? (cashEntered ? { cashReceived: cashRecv, change: Math.max(0, cashChange) } : {})
+                      : { reference: payFields.reference.trim() || undefined })}
+                  style={{ width: '100%', marginTop: 18, padding: '14px', border: 'none', borderRadius: 14, background: cashShort ? R.coralTint : R.coral, color: cashShort ? R.coralPress : '#fff', cursor: cashShort ? 'not-allowed' : 'pointer', fontFamily: R.ui, fontWeight: 800, fontSize: 15 }}>
                   {t('Confirmar cobro', 'Confirm charge')} {money(total)}
                 </button>
-                <button onClick={() => { setPending(null); setPayFields({ authCode: '', cardLast4: '', reference: '' }) }} style={{ width: '100%', marginTop: 10, padding: '12px', background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: R.ui, fontWeight: 600, fontSize: 14, color: R.inkSoft }}>{t('Volver', 'Back')}</button>
+                <button onClick={() => { setPending(null); setPayFields({ authCode: '', cardLast4: '', reference: '', cashReceived: '' }) }} style={{ width: '100%', marginTop: 10, padding: '12px', background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: R.ui, fontWeight: 600, fontSize: 14, color: R.inkSoft }}>{t('Volver', 'Back')}</button>
               </>
             ) : pay === 'choose' ? (
               <>
@@ -2451,7 +2491,7 @@ function PosView({ vert, items, setItems, onGo, taxMode, bizInfo }: { vert: Vert
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                   {PAY_METHODS.map(m => { const ml = en ? m.labelEn : m.label; return (
-                    <button key={m.id} onClick={() => { if (m.id === 'efectivo') registerSale(m.id, ml, {}); else setPending({ id: m.id, label: ml }) }} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', background: R.surface, border: `1px solid ${R.line}`, borderRadius: 14, cursor: 'pointer', fontFamily: R.ui, textAlign: 'left' }}>
+                    <button key={m.id} onClick={() => setPending({ id: m.id, label: ml })} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', background: R.surface, border: `1px solid ${R.line}`, borderRadius: 14, cursor: 'pointer', fontFamily: R.ui, textAlign: 'left' }}>
                       <span style={{ width: 38, height: 38, borderRadius: 10, background: R.coralTint, display: 'grid', placeItems: 'center', flexShrink: 0 }}><Icon n={m.icon} size={18} color={R.coralPress} /></span>
                       <span style={{ flex: 1, fontWeight: 700, fontSize: 15, color: R.ink }}>{ml}</span>
                       <Icon n="chevR" size={16} color={R.inkFaint} />
@@ -2469,6 +2509,18 @@ function PosView({ vert, items, setItems, onGo, taxMode, bizInfo }: { vert: Vert
                 <div style={{ fontSize: 14, color: R.inkSoft, marginTop: 4 }}>{money(pay.total)} · {pay.method}{pay.cardLast4 ? ` ····${pay.cardLast4}` : ''}</div>
                 {(pay.authCode || pay.reference) && (
                   <div style={{ fontSize: 12.5, color: R.inkFaint, marginTop: 3 }}>{pay.authCode ? `${t('Autorización', 'Authorization')} ${pay.authCode}` : `${t('Referencia', 'Reference')} ${pay.reference}`}</div>
+                )}
+                {typeof pay.change === 'number' && (
+                  <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 12 }}>
+                    <div style={{ padding: '8px 14px', borderRadius: 10, background: R.surface, border: `1px solid ${R.line}` }}>
+                      <div style={{ fontSize: 11, color: R.inkFaint, fontWeight: 700 }}>{t('Recibido', 'Received')}</div>
+                      <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 15, color: R.ink }}>{money(pay.cashReceived ?? 0)}</div>
+                    </div>
+                    <div style={{ padding: '8px 14px', borderRadius: 10, background: R.jadeTint, border: `1px solid ${R.jade}` }}>
+                      <div style={{ fontSize: 11, color: R.jade, fontWeight: 700 }}>{t('Cambio', 'Change')}</div>
+                      <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 15, color: R.jade }}>{money(pay.change)}</div>
+                    </div>
+                  </div>
                 )}
                 <div style={{ fontSize: 12.5, color: R.inkFaint, marginTop: 10 }}>{t('¿Quieres imprimir el ticket de la venta?', 'Do you want to print the sale ticket?')}</div>
                 <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
@@ -2541,6 +2593,7 @@ type SaleRow = {
   id: string; folio: string; total: number; subtotal: number; tax_amount: number
   item_count: number; method: string | null; auth_code: string | null
   card_last4: string | null; reference: string | null; status: string
+  cash_received: number | null; change_due: number | null
   note: string | null; created_at: string
   items: { name: string; qty: number; unit_price: number; service_id?: string | null; tracked?: boolean }[]
 }
@@ -2562,6 +2615,7 @@ const saleRefText = (s: SaleRow) => {
   if (s.card_last4) parts.push(`····${s.card_last4}`)
   if (s.auth_code) parts.push(`Aut ${s.auth_code}`)
   if (s.reference) parts.push(`Ref ${s.reference}`)
+  if (s.change_due != null) parts.push(`Cambio ${money(s.change_due)}`)
   return parts.join(' · ')
 }
 const saleWhen = (iso: string, en = false) => new Date(iso).toLocaleString(en ? 'en-US' : 'es-MX', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
@@ -2667,7 +2721,8 @@ function SalesHistoryView({ vert, bizInfo, onGo }: { vert: Vert; bizInfo: BizInf
       rows: s.items.map(it => ({ name: it.name, qty: it.qty, lineTotal: it.unit_price * it.qty })),
       added: true, base: s.subtotal, iva: s.tax_amount, total: s.total,
       method: saleMethodLabel(s.method, en), cardLast4: s.card_last4 ?? undefined,
-      authCode: s.auth_code ?? undefined, reference: s.reference ?? undefined, en,
+      authCode: s.auth_code ?? undefined, reference: s.reference ?? undefined,
+      cashReceived: s.cash_received ?? undefined, change: s.change_due ?? undefined, en,
       voidLabel: s.status === 'void' ? (en ? 'VOIDED' : 'ANULADA') : s.status === 'refunded' ? (en ? 'REFUNDED' : 'REEMBOLSADA') : undefined,
     })
   }

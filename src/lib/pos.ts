@@ -27,6 +27,8 @@ export interface SaleInput {
   auth_code?: string      // Tarjeta: código de autorización
   card_last4?: string     // Tarjeta: últimos 4 dígitos
   reference?: string      // Transferencia: folio / comprobante
+  cash_received?: number  // Efectivo: monto recibido del cliente
+  change_due?: number     // Efectivo: cambio devuelto
   folio?: string          // Folio imprimible del ticket (el que ve el cliente)
   items: SaleItemInput[]
 }
@@ -79,6 +81,15 @@ export async function recordSale(bizId: string, sale: SaleInput): Promise<string
     if (sale.folio) {
       const { error: folioErr } = await supabase.from('pos_sales').update({ folio: sale.folio }).eq('id', saleId)
       if (folioErr) console.warn('[pos] no se pudo guardar el folio (¿migración 020?):', folioErr.message)
+    }
+
+    // Efectivo recibido / cambio, también aditivo y best-effort: si las columnas
+    // aún no existen (migración 027 sin aplicar) esto falla en silencio pero la
+    // venta YA quedó registrada. Sólo se guarda cuando el dueño capturó el monto.
+    if (sale.cash_received != null) {
+      const { error: cashErr } = await supabase.from('pos_sales')
+        .update({ cash_received: sale.cash_received, change_due: sale.change_due ?? 0 }).eq('id', saleId)
+      if (cashErr) console.warn('[pos] no se pudo guardar el efectivo recibido (¿migración 027?):', cashErr.message)
     }
     return saleId
   } catch (e) {
