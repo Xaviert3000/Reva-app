@@ -319,21 +319,38 @@ function reservationsToAgenda(rsvs: PanelReservation[]): AgItem[] {
     }))
 }
 
-const NAV = [
-  { id: 'requests', icon: 'inbox', label: 'Solicitudes' },
-  { id: 'orders', icon: 'box', label: 'Pedidos' },
-  { id: 'agenda', icon: 'cal', label: 'Agenda' },
-  { id: 'messages', icon: 'chat', label: 'Mensajes' },
-  { id: 'metrics', icon: 'chart', label: 'Métricas' },
-  { id: 'reports', icon: 'report', label: 'Informes' },
-  { id: 'destacado', icon: 'spark', label: 'Destacado' },
-  { id: 'catalog', icon: 'grid', label: 'Catálogo' },
-  { id: 'inventory', icon: 'box', label: 'Inventario' },
-  { id: 'pos', icon: 'card', label: 'Punto de venta' },
-  { id: 'sales', icon: 'ticket', label: 'Ventas' },
-  { id: 'promos', icon: 'gift', label: 'Promociones' },
-  { id: 'scanner', icon: 'scan', label: 'Escáner' },
-  { id: 'settings', icon: 'settings', label: 'Ajustes' },
+// Navegación agrupada del panel. Cada grupo es una categoría principal con su
+// encabezado (ES/EN) y sus módulos. Ajustes vive en la cabecera, no aquí.
+const NAV_GROUPS: { id: string; label: string; en: string; items: { id: string; icon: string; label: string }[] }[] = [
+  {
+    id: 'ops', label: 'Operación', en: 'Operations', items: [
+      { id: 'requests', icon: 'inbox', label: 'Solicitudes' },
+      { id: 'orders', icon: 'box', label: 'Pedidos' },
+      { id: 'agenda', icon: 'cal', label: 'Agenda' },
+      { id: 'messages', icon: 'chat', label: 'Mensajes' },
+    ],
+  },
+  {
+    id: 'sales', label: 'Ventas', en: 'Sales', items: [
+      { id: 'pos', icon: 'card', label: 'Punto de venta' },
+      { id: 'scanner', icon: 'scan', label: 'Escáner' },
+      { id: 'sales', icon: 'ticket', label: 'Ventas' },
+      { id: 'promos', icon: 'gift', label: 'Promociones' },
+    ],
+  },
+  {
+    id: 'catalog', label: 'Catálogo', en: 'Catalog', items: [
+      { id: 'catalog', icon: 'grid', label: 'Catálogo' },
+      { id: 'inventory', icon: 'box', label: 'Inventario' },
+      { id: 'destacado', icon: 'spark', label: 'Destacado' },
+    ],
+  },
+  {
+    id: 'analysis', label: 'Análisis', en: 'Analytics', items: [
+      { id: 'metrics', icon: 'chart', label: 'Métricas' },
+      { id: 'reports', icon: 'report', label: 'Informes' },
+    ],
+  },
 ]
 
 const VIEW_TITLES: Record<string, [string, string]> = {
@@ -5920,6 +5937,8 @@ export default function BizPage() {
   const [agentCfg, setAgentCfgState] = useState<BizAgentConfig>(DEFAULT_AGENT_CONFIG)
   const [switcher, setSwitcher] = useState(false)
   const [notifOpen, setNotifOpen] = useState(false)
+  // Grupos de navegación desplegables — todos abiertos por defecto.
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => Object.fromEntries(NAV_GROUPS.map(g => [g.id, true])))
   // Catálogo compartido: lo edita CatalogView y lo consume el Punto de venta
   const [catalog, setCatalog] = useState<CatItem[]>([])
   // Datos fiscales/de contacto del negocio para el ticket
@@ -6181,17 +6200,32 @@ export default function BizPage() {
         </div>
 
         {/* Nav */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-          {NAV.filter(it => it.id !== 'orders' || vert.caps.orders).map(it => {
-            const on = view === it.id
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16, overflowY: 'auto' }}>
+          {NAV_GROUPS.map(group => {
+            const items = group.items.filter(it => it.id !== 'orders' || vert.caps.orders)
+            if (!items.length) return null
             const ordersActive = orders.filter(o => !['delivered', 'cancelled', 'refunded'].includes(o.status)).length
-            const badge = it.id === 'requests' ? panelRequests.length : it.id === 'orders' ? ordersActive : it.id === 'messages' ? unreadMsgs : 0
+            const groupBadge = items.reduce((n, it) => n + (it.id === 'requests' ? panelRequests.length : it.id === 'orders' ? ordersActive : it.id === 'messages' ? unreadMsgs : 0), 0)
+            const open = openGroups[group.id]
             return (
-              <button key={it.id} onClick={() => setView(it.id)} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 14px', borderRadius: 12, cursor: 'pointer', border: 'none', width: '100%', textAlign: 'left', background: on ? R.coralTint : 'transparent', color: on ? R.coralPress : R.inkSoft, fontWeight: on ? 700 : 500, fontSize: 14.5, fontFamily: R.ui }}>
-                <Icon n={it.icon} size={20} color={on ? R.coral : R.inkFaint} stroke={on ? 2.3 : 2} />
-                <span style={{ flex: 1 }}>{t(it.label, NAV_EN[it.id] ?? it.label)}</span>
-                {badge > 0 && <span style={{ fontSize: 11.5, fontWeight: 700, color: '#fff', background: R.coral, borderRadius: 999, padding: '1px 7px', minWidth: 20, textAlign: 'center' }}>{badge}</span>}
-              </button>
+              <div key={group.id} style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                <button onClick={() => setOpenGroups(g => ({ ...g, [group.id]: !g[group.id] }))} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '2px 14px 5px', background: 'transparent', border: 'none', cursor: 'pointer', width: '100%', textAlign: 'left', fontFamily: R.ui }}>
+                  <Icon n={open ? 'chevD' : 'chevR'} size={13} color={R.inkFaint} stroke={2.4} />
+                  <span style={{ flex: 1, fontSize: 10.5, fontWeight: 700, letterSpacing: '.07em', textTransform: 'uppercase', color: R.inkFaint }}>{t(group.label, group.en)}</span>
+                  {!open && groupBadge > 0 && <span style={{ fontSize: 11, fontWeight: 700, color: '#fff', background: R.coral, borderRadius: 999, padding: '1px 6px', minWidth: 18, textAlign: 'center' }}>{groupBadge}</span>}
+                </button>
+                {open && items.map(it => {
+                  const on = view === it.id
+                  const badge = it.id === 'requests' ? panelRequests.length : it.id === 'orders' ? ordersActive : it.id === 'messages' ? unreadMsgs : 0
+                  return (
+                    <button key={it.id} onClick={() => setView(it.id)} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 14px', borderRadius: 12, cursor: 'pointer', border: 'none', width: '100%', textAlign: 'left', background: on ? R.coralTint : 'transparent', color: on ? R.coralPress : R.inkSoft, fontWeight: on ? 700 : 500, fontSize: 14.5, fontFamily: R.ui }}>
+                      <Icon n={it.icon} size={20} color={on ? R.coral : R.inkFaint} stroke={on ? 2.3 : 2} />
+                      <span style={{ flex: 1 }}>{t(it.label, NAV_EN[it.id] ?? it.label)}</span>
+                      {badge > 0 && <span style={{ fontSize: 11.5, fontWeight: 700, color: '#fff', background: R.coral, borderRadius: 999, padding: '1px 7px', minWidth: 20, textAlign: 'center' }}>{badge}</span>}
+                    </button>
+                  )
+                })}
+              </div>
             )
           })}
         </div>
