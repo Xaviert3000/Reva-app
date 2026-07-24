@@ -956,11 +956,47 @@ const ORDER_STATUS: Record<string, { es: string; en: string; bg: string; color: 
   refunded:         { es: 'Reembolsado',  en: 'Refunded',        bg: R.bgAlt,     color: R.inkSoft },
 }
 
+// Columnas del tablero. 'completed' agrupa entregado/cancelado/reembolsado.
+const ORDER_TERMINAL = ['delivered', 'cancelled', 'refunded']
+const ORDER_COLUMNS: { key: string; es: string; en: string; accent: string; tint: string }[] = [
+  { key: 'paid',             es: 'Nuevos',      en: 'New',          accent: R.jade,     tint: R.jadeTint },
+  { key: 'preparing',        es: 'Preparando',  en: 'Preparing',    accent: R.amberDeep,tint: R.amberTint },
+  { key: 'ready',            es: 'Listos',      en: 'Ready',        accent: R.coralPress,tint: R.coralTint },
+  { key: 'out_for_delivery', es: 'En camino',   en: 'Out for delivery', accent: '#3A5BC7', tint: '#E7EDFB' },
+  { key: 'completed',        es: 'Completados', en: 'Completed',    accent: R.inkSoft,  tint: R.bgAlt },
+]
+
+// Detecta pantallas angostas para pasar de tablero a pestañas.
+function useIsNarrow(maxWidth = 720): boolean {
+  const [narrow, setNarrow] = useState(false)
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width: ${maxWidth}px)`)
+    const update = () => setNarrow(mq.matches)
+    update()
+    mq.addEventListener('change', update)
+    return () => mq.removeEventListener('change', update)
+  }, [maxWidth])
+  return narrow
+}
+
 function OrdersView({ vert, orders, couriers, onUpdate }: { vert: Vert; orders: PanelOrder[]; couriers: PanelCourier[]; onUpdate: (id: string, patch: { status?: string; courier_id?: string | null }) => void }) {
   const t = useT()
   const en = useEn()
-  const active = orders.filter(o => !['delivered', 'cancelled', 'refunded'].includes(o.status))
-  const done = orders.filter(o => ['delivered', 'cancelled', 'refunded'].includes(o.status))
+  const narrow = useIsNarrow()
+  const [dragId, setDragId] = useState<string | null>(null)
+  const [overCol, setOverCol] = useState<string | null>(null)
+  const [activeTab, setActiveTab] = useState<string>('paid')
+
+  // Pedidos que corresponden a cada columna del tablero.
+  const ordersFor = (colKey: string) =>
+    colKey === 'completed'
+      ? orders.filter(o => ORDER_TERMINAL.includes(o.status))
+      : orders.filter(o => o.status === colKey)
+
+  // Estado destino al soltar una tarjeta en una columna.
+  function statusForColumn(colKey: string): string {
+    return colKey === 'completed' ? 'delivered' : colKey
+  }
 
   // Botón de avance principal según estado + tipo de entrega.
   function nextAction(o: PanelOrder): { label: string; status: string } | null {
@@ -978,38 +1014,46 @@ function OrdersView({ vert, orders, couriers, onUpdate }: { vert: Vert; orders: 
   const card = (o: PanelOrder) => {
     const st = ORDER_STATUS[o.status] ?? { es: o.status, en: o.status, bg: R.bgAlt, color: R.inkSoft }
     const action = nextAction(o)
-    const terminal = ['delivered', 'cancelled', 'refunded'].includes(o.status)
+    const terminal = ORDER_TERMINAL.includes(o.status)
     return (
-      <BCard key={o.id} style={{ padding: '16px 18px' }}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+      <BCard key={o.id} style={{ padding: '13px 15px', cursor: 'grab', opacity: dragId === o.id ? 0.5 : 1 }}>
+        <div
+          draggable
+          onDragStart={e => { setDragId(o.id); e.dataTransfer.effectAllowed = 'move' }}
+          onDragEnd={() => { setDragId(null); setOverCol(null) }}
+        >
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <span style={{ fontFamily: R.display, fontWeight: 700, fontSize: 15.5, color: R.ink }}>{o.customer_name || t('Cliente', 'Customer')}</span>
-              <span style={{ fontSize: 11.5, fontWeight: 700, color: R.inkSoft, background: R.bgAlt, padding: '3px 9px', borderRadius: 999 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
+              <span style={{ fontFamily: R.display, fontWeight: 700, fontSize: 14.5, color: R.ink }}>{o.customer_name || t('Cliente', 'Customer')}</span>
+              <span style={{ fontSize: 11, fontWeight: 700, color: R.inkSoft, background: R.bgAlt, padding: '2px 8px', borderRadius: 999 }}>
                 {o.fulfillment === 'delivery' ? `🛵 ${t('Entrega', 'Delivery')}` : `🏪 ${t('Recoger', 'Pickup')}`}
               </span>
             </div>
-            <div style={{ fontSize: 13, color: R.inkSoft, marginTop: 4 }}>
+            <div style={{ fontSize: 12.5, color: R.inkSoft, marginTop: 4 }}>
               {o.order_items.map(i => `${i.qty}× ${i.name}`).join(' · ')}
             </div>
             {o.fulfillment === 'delivery' && o.address && (
-              <div style={{ fontSize: 12.5, color: R.inkSoft, marginTop: 4 }}>📍 {o.address}</div>
+              <div style={{ fontSize: 12, color: R.inkSoft, marginTop: 4 }}>📍 {o.address}</div>
             )}
-            {o.customer_phone && <div style={{ fontSize: 12.5, color: R.inkSoft, marginTop: 2 }}>📞 {o.customer_phone}</div>}
-            {o.notes && <div style={{ fontSize: 12.5, color: R.ink, marginTop: 4, fontStyle: 'italic' }}>“{o.notes}”</div>}
+            {o.customer_phone && <div style={{ fontSize: 12, color: R.inkSoft, marginTop: 2 }}>📞 {o.customer_phone}</div>}
+            {o.notes && <div style={{ fontSize: 12, color: R.ink, marginTop: 4, fontStyle: 'italic' }}>“{o.notes}”</div>}
           </div>
-          <div style={{ textAlign: 'right', flexShrink: 0 }}>
-            <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 17, color: R.ink }}>${o.total}</div>
-            <span style={{ display: 'inline-block', marginTop: 6, fontSize: 11.5, fontWeight: 700, color: st.color, background: st.bg, padding: '3px 9px', borderRadius: 999 }}>{en ? st.en : st.es}</span>
-          </div>
+          <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 16, color: R.ink, flexShrink: 0 }}>${o.total}</div>
         </div>
+
+        {/* En la columna de completados, mostrar el estado final concreto. */}
+        {terminal && (
+          <span style={{ display: 'inline-block', marginTop: 8, fontSize: 11, fontWeight: 700, color: st.color, background: st.bg, padding: '2px 8px', borderRadius: 999 }}>{en ? st.en : st.es}</span>
+        )}
 
         {/* Asignar repartidor (sólo entregas activas) */}
         {o.fulfillment === 'delivery' && !terminal && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12 }}>
-            <span style={{ fontSize: 12.5, color: R.inkSoft }}>{t('Repartidor', 'Courier')}:</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 10 }}>
+            <span style={{ fontSize: 12, color: R.inkSoft }}>{t('Repartidor', 'Courier')}:</span>
             <select value={o.courier_id ?? ''} onChange={e => onUpdate(o.id, { courier_id: e.target.value || null })}
-              style={{ flex: 1, padding: '8px 10px', borderRadius: 10, border: `1px solid ${R.line}`, background: R.surface, fontFamily: R.ui, fontSize: 13, color: R.ink }}>
+              onClick={e => e.stopPropagation()}
+              style={{ flex: 1, minWidth: 0, padding: '7px 9px', borderRadius: 10, border: `1px solid ${R.line}`, background: R.surface, fontFamily: R.ui, fontSize: 12.5, color: R.ink }}>
               <option value="">{t('Sin asignar', 'Unassigned')}</option>
               {couriers.map(c => <option key={c.user_id} value={c.user_id}>{c.name || c.phone || c.user_id.slice(0, 6)}</option>)}
             </select>
@@ -1017,38 +1061,102 @@ function OrdersView({ vert, orders, couriers, onUpdate }: { vert: Vert; orders: 
         )}
 
         {!terminal && (
-          <div style={{ display: 'flex', gap: 9, marginTop: 14, alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: 7, marginTop: 12, alignItems: 'center', flexWrap: 'wrap' }}>
             {action && (
               <button onClick={() => onUpdate(o.id, { status: action.status })}
-                style={{ padding: '9px 18px', background: R.coral, color: '#fff', border: 'none', borderRadius: 999, fontFamily: R.ui, fontWeight: 700, fontSize: 13.5, cursor: 'pointer' }}>{action.label}</button>
+                style={{ padding: '8px 14px', background: R.coral, color: '#fff', border: 'none', borderRadius: 999, fontFamily: R.ui, fontWeight: 700, fontSize: 12.5, cursor: 'pointer' }}>{action.label}</button>
             )}
             <button onClick={() => onUpdate(o.id, { status: 'cancelled' })}
-              style={{ padding: '9px 18px', background: R.bgAlt, color: R.ink, border: 'none', borderRadius: 999, fontFamily: R.ui, fontWeight: 700, fontSize: 13.5, cursor: 'pointer' }}>{t('Cancelar', 'Cancel')}</button>
+              style={{ padding: '8px 14px', background: R.bgAlt, color: R.ink, border: 'none', borderRadius: 999, fontFamily: R.ui, fontWeight: 700, fontSize: 12.5, cursor: 'pointer' }}>{t('Cancelar', 'Cancel')}</button>
           </div>
         )}
+        </div>
       </BCard>
     )
   }
 
-  return (
-    <div style={{ flex: 1, minHeight: 0, padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: 16, boxSizing: 'border-box', overflow: 'hidden' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-        <span style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink }}>{t('En curso', 'In progress')}</span>
-        <span style={{ fontSize: 12.5, fontWeight: 700, color: R.coralPress, background: R.coralTint, padding: '3px 9px', borderRadius: 999 }}>{active.length}</span>
+  // Móvil: una sola columna seleccionada por pestañas (sin arrastrar).
+  if (narrow) {
+    const current = ORDER_COLUMNS.find(c => c.key === activeTab) ?? ORDER_COLUMNS[0]
+    const list = ordersFor(current.key)
+    return (
+      <div style={{ flex: 1, minHeight: 0, padding: '16px 16px 0', display: 'flex', flexDirection: 'column', boxSizing: 'border-box', overflow: 'hidden' }}>
+        <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 12, flexShrink: 0 }}>
+          {ORDER_COLUMNS.map(col => {
+            const n = ordersFor(col.key).length
+            const on = col.key === activeTab
+            return (
+              <button key={col.key} onClick={() => setActiveTab(col.key)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, cursor: 'pointer',
+                  padding: '8px 13px', borderRadius: 999, fontFamily: R.ui, fontWeight: 700, fontSize: 13,
+                  border: `1.5px solid ${on ? col.accent : R.line}`,
+                  background: on ? col.tint : R.surface, color: on ? col.accent : R.inkSoft,
+                }}>
+                <span style={{ width: 7, height: 7, borderRadius: 999, background: col.accent, flexShrink: 0 }} />
+                {en ? col.en : col.es}
+                <span style={{ fontSize: 11.5, fontWeight: 800, opacity: n ? 1 : 0.5 }}>{n}</span>
+              </button>
+            )
+          })}
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, flex: 1, minHeight: 0, overflowY: 'auto', paddingBottom: 16 }}>
+          {list.map(card)}
+          {list.length === 0 && (
+            <div style={{ textAlign: 'center', padding: '40px 12px', color: R.inkFaint, fontSize: 13, fontFamily: R.ui }}>
+              {current.key === 'paid'
+                ? t('Sin pedidos nuevos. Reva te avisa cuando entre uno.', 'No new orders. Reva notifies you when one arrives.')
+                : t('Nada aquí por ahora.', 'Nothing here yet.')}
+            </div>
+          )}
+        </div>
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12, flex: 1, minHeight: 0, overflowY: 'auto', paddingRight: 4 }}>
-        {active.map(card)}
-        {active.length === 0 && (
-          <BCard style={{ textAlign: 'center', padding: '44px 0', color: R.inkSoft }}>
-            <Icon n="check" size={28} color={R.jade} stroke={2.4} /> {t('Sin pedidos por preparar. Reva te avisa cuando entre uno.', 'No orders to prepare. Reva notifies you when one arrives.')}
-          </BCard>
-        )}
-        {done.length > 0 && (
-          <>
-            <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 15, color: R.inkSoft, marginTop: 8 }}>{t('Completados', 'Completed')}</div>
-            {done.map(card)}
-          </>
-        )}
+    )
+  }
+
+  return (
+    <div style={{ flex: 1, minHeight: 0, padding: '20px 24px', display: 'flex', flexDirection: 'column', boxSizing: 'border-box', overflow: 'hidden' }}>
+      <div style={{ display: 'flex', gap: 14, flex: 1, minHeight: 0, overflowX: 'auto', overflowY: 'hidden', paddingBottom: 4 }}>
+        {ORDER_COLUMNS.map(col => {
+          const list = ordersFor(col.key)
+          const isOver = overCol === col.key
+          return (
+            <div key={col.key}
+              onDragOver={e => { if (dragId) { e.preventDefault(); setOverCol(col.key) } }}
+              onDragLeave={() => setOverCol(c => (c === col.key ? null : c))}
+              onDrop={e => {
+                e.preventDefault()
+                if (dragId) {
+                  const target = statusForColumn(col.key)
+                  const cur = orders.find(o => o.id === dragId)
+                  if (cur && cur.status !== target) onUpdate(dragId, { status: target })
+                }
+                setDragId(null); setOverCol(null)
+              }}
+              style={{
+                width: 300, minWidth: 300, display: 'flex', flexDirection: 'column', minHeight: 0,
+                background: isOver ? col.tint : R.bg, borderRadius: 16,
+                border: `1.5px ${isOver ? 'dashed' : 'solid'} ${isOver ? col.accent : R.line}`,
+                transition: 'background .12s, border-color .12s',
+              }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '13px 15px 10px', flexShrink: 0 }}>
+                <span style={{ width: 8, height: 8, borderRadius: 999, background: col.accent, flexShrink: 0 }} />
+                <span style={{ fontFamily: R.display, fontWeight: 700, fontSize: 14.5, color: R.ink }}>{en ? col.en : col.es}</span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: col.accent, background: col.tint, padding: '2px 8px', borderRadius: 999 }}>{list.length}</span>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: '0 12px 12px', flex: 1, minHeight: 0, overflowY: 'auto' }}>
+                {list.map(card)}
+                {list.length === 0 && (
+                  <div style={{ textAlign: 'center', padding: '28px 10px', color: R.inkFaint, fontSize: 12.5, fontFamily: R.ui }}>
+                    {col.key === 'paid'
+                      ? t('Sin pedidos nuevos. Reva te avisa cuando entre uno.', 'No new orders. Reva notifies you when one arrives.')
+                      : t('Arrastra tarjetas aquí', 'Drag cards here')}
+                  </div>
+                )}
+              </div>
+            </div>
+          )
+        })}
       </div>
     </div>
   )
