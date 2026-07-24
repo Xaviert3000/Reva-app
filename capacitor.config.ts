@@ -27,7 +27,15 @@ const config: CapacitorConfig = {
     // `/auth/login` se consideran "externas" y se abren en Safari en vez de
     // quedarse dentro de la app. Al whitelistar el host, TODA navegación al
     // mismo dominio se mantiene dentro del webview.
-    allowNavigation: ['reva-app-ten.vercel.app'],
+    //
+    // `*.stripe.com` es CLAVE para los pagos: el Checkout de Stripe vive en
+    // `checkout.stripe.com`. Sin whitelistarlo, al hacer `window.location.href`
+    // hacia el checkout, Capacitor lo abre en Safari (fuera de la app). Al
+    // salir del webview, el `success_url` de Stripe (vuelve a nuestro dominio)
+    // aterriza en Safari, que NO tiene la cookie de sesión de Supabase → el
+    // usuario cae en el onboarding. Manteniendo el checkout dentro del webview,
+    // el regreso conserva la sesión y el pedido se marca pagado sin fricción.
+    allowNavigation: ['reva-app-ten.vercel.app', '*.stripe.com'],
     cleartext: false,
     // ── DEV LOCAL (para probar en el simulador contra `npm run dev`):
     //    comenta las 2 líneas de arriba y descomenta estas 2, luego `npx cap sync ios`.
