@@ -43,6 +43,9 @@ export default function CourierPage() {
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
 
+  // Pedido en espera de código para confirmar la entrega.
+  const [deliverFor, setDeliverFor] = useState<CourierOrder | null>(null)
+
   const load = useCallback(async () => {
     try {
       const r = await fetch('/api/courier/orders')
@@ -105,6 +108,21 @@ export default function CourierPage() {
     load()
   }
 
+  // Entrega: exige el código que el cliente da al recibir. No es optimista;
+  // el servidor valida la coincidencia y puede rechazarla (422).
+  async function confirmDeliver(id: string, code: string): Promise<{ ok: boolean; codeMismatch?: boolean }> {
+    try {
+      const r = await fetch('/api/courier/orders', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, status: 'delivered', confirmation_code: code }),
+      })
+      if (r.status === 422) return { ok: false, codeMismatch: true }
+      if (!r.ok) return { ok: false }
+    } catch { return { ok: false } }
+    load()
+    return { ok: true }
+  }
+
   if (!ready) {
     return <div style={{ minHeight: '100vh', background: C.bg, display: 'grid', placeItems: 'center', fontFamily: C.ui, color: C.inkSoft }}>Cargando…</div>
   }
@@ -148,7 +166,7 @@ export default function CourierPage() {
             <button onClick={() => setStatus(o.id, 'out_for_delivery')} style={btn(C.blue)}>Recogí — en camino</button>
           )}
           {o.status === 'out_for_delivery' && (
-            <button onClick={() => setStatus(o.id, 'delivered')} style={btn(C.jade)}>Marcar entregado</button>
+            <button onClick={() => setDeliverFor(o)} style={btn(C.jade)}>Marcar entregado</button>
           )}
         </div>
       )}
@@ -180,6 +198,57 @@ export default function CourierPage() {
             {done.map(card)}
           </>
         )}
+      </div>
+
+      {deliverFor && (
+        <DeliverModal
+          order={deliverFor}
+          onClose={() => setDeliverFor(null)}
+          onConfirm={code => confirmDeliver(deliverFor.id, code)}
+        />
+      )}
+    </div>
+  )
+}
+
+// Modal para confirmar la entrega con el código que da el cliente. El repartidor
+// no conoce el código: lo pide al recibir y lo captura; el servidor lo valida.
+function DeliverModal({ order, onClose, onConfirm }: { order: CourierOrder; onClose: () => void; onConfirm: (code: string) => Promise<{ ok: boolean; codeMismatch?: boolean }> }) {
+  const [code, setCode] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function submit() {
+    const c = code.trim()
+    if (c.length < 4 || busy) return
+    setBusy(true); setError(null)
+    const res = await onConfirm(c)
+    if (res.ok) { onClose(); return }
+    setBusy(false)
+    setError(res.codeMismatch ? 'Código incorrecto. Pídeselo de nuevo al cliente.' : 'No se pudo confirmar. Intenta otra vez.')
+  }
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 60, background: 'rgba(34,28,25,.45)', display: 'grid', placeItems: 'center', padding: 20 }}>
+      <div onClick={e => e.stopPropagation()} style={{ width: '100%', maxWidth: 360, background: C.surface, borderRadius: 20, padding: '22px 22px 20px', boxShadow: '0 12px 40px rgba(34,28,25,.24)' }}>
+        <div style={{ fontFamily: C.display, fontWeight: 800, fontSize: 19, color: C.ink }}>Confirmar entrega</div>
+        <div style={{ fontSize: 13.5, color: C.inkSoft, marginTop: 6, lineHeight: 1.5 }}>
+          Pídele su código a {order.customer_name || 'el cliente'} al entregar el pedido.
+        </div>
+        <input
+          value={code} onChange={e => { setCode(e.target.value.replace(/\D/g, '').slice(0, 4)); setError(null) }}
+          onKeyDown={e => { if (e.key === 'Enter') submit() }}
+          inputMode="numeric" autoFocus placeholder="0000" maxLength={4}
+          style={{ width: '100%', boxSizing: 'border-box', marginTop: 16, padding: '14px 16px', borderRadius: 14, border: `1.5px solid ${error ? C.coral : C.line}`, background: C.bg, fontFamily: C.display, fontWeight: 800, fontSize: 26, letterSpacing: '.4em', textAlign: 'center', color: C.ink, outline: 'none' }}
+        />
+        {error && <div style={{ color: C.coralPress, fontSize: 12.5, marginTop: 8, fontWeight: 600 }}>{error}</div>}
+        <div style={{ display: 'flex', gap: 9, marginTop: 16 }}>
+          <button onClick={onClose} style={{ flex: 1, padding: '12px 0', borderRadius: 999, border: `1px solid ${C.line}`, background: C.surface, color: C.ink, fontFamily: C.ui, fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>Cancelar</button>
+          <button onClick={submit} disabled={code.trim().length < 4 || busy}
+            style={{ flex: 1.4, padding: '12px 0', borderRadius: 999, border: 'none', background: code.trim().length < 4 || busy ? C.line : C.jade, color: '#fff', fontFamily: C.ui, fontWeight: 700, fontSize: 14, cursor: code.trim().length < 4 || busy ? 'default' : 'pointer' }}>
+            {busy ? 'Confirmando…' : 'Confirmar'}
+          </button>
+        </div>
       </div>
     </div>
   )

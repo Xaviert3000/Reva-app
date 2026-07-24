@@ -979,13 +979,69 @@ function useIsNarrow(maxWidth = 720): boolean {
   return narrow
 }
 
-function OrdersView({ vert, orders, couriers, onUpdate }: { vert: Vert; orders: PanelOrder[]; couriers: PanelCourier[]; onUpdate: (id: string, patch: { status?: string; courier_id?: string | null }) => void }) {
+// Modal para confirmar la entrega con el código que el cliente da al recibir.
+// El operador NO conoce el código: lo pide al cliente y lo captura aquí; el
+// servidor valida la coincidencia antes de cerrar el pedido.
+function DeliverCodeModal({ order, onClose, onConfirm }: { order: PanelOrder; onClose: () => void; onConfirm: (code: string) => Promise<{ ok: boolean; codeMismatch?: boolean }> }) {
+  const t = useT()
+  const [code, setCode] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const pickup = order.fulfillment !== 'delivery'
+
+  async function submit() {
+    const c = code.trim()
+    if (c.length < 4 || busy) return
+    setBusy(true); setError(null)
+    const res = await onConfirm(c)
+    if (res.ok) { onClose(); return }
+    setBusy(false)
+    setError(res.codeMismatch
+      ? t('Código incorrecto. Pídeselo de nuevo al cliente.', 'Wrong code. Ask the customer again.')
+      : t('No se pudo confirmar. Intenta otra vez.', 'Could not confirm. Try again.'))
+  }
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 60, background: 'rgba(34,28,25,.45)', display: 'grid', placeItems: 'center', padding: 20 }}>
+      <div onClick={e => e.stopPropagation()} style={{ width: '100%', maxWidth: 360, background: R.surface, borderRadius: 20, padding: '22px 22px 20px', boxShadow: '0 12px 40px rgba(34,28,25,.24)' }}>
+        <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 19, color: R.ink }}>
+          {t('Confirmar entrega', 'Confirm handover')}
+        </div>
+        <div style={{ fontSize: 13.5, color: R.inkSoft, marginTop: 6, lineHeight: 1.5 }}>
+          {pickup
+            ? t(`Pídele su código a ${order.customer_name || 'el cliente'} antes de entregar el pedido.`, `Ask ${order.customer_name || 'the customer'} for their code before handing over the order.`)
+            : t(`Pídele su código a ${order.customer_name || 'el cliente'} al entregar el pedido.`, `Ask ${order.customer_name || 'the customer'} for their code when delivering.`)}
+        </div>
+        <input
+          value={code} onChange={e => { setCode(e.target.value.replace(/\D/g, '').slice(0, 4)); setError(null) }}
+          onKeyDown={e => { if (e.key === 'Enter') submit() }}
+          inputMode="numeric" autoFocus placeholder="0000" maxLength={4}
+          style={{ width: '100%', boxSizing: 'border-box', marginTop: 16, padding: '14px 16px', borderRadius: 14, border: `1.5px solid ${error ? R.coral : R.line}`, background: R.bg, fontFamily: R.display, fontWeight: 800, fontSize: 26, letterSpacing: '.4em', textAlign: 'center', color: R.ink, outline: 'none' }}
+        />
+        {error && <div style={{ color: R.coralPress, fontSize: 12.5, marginTop: 8, fontWeight: 600 }}>{error}</div>}
+        <div style={{ display: 'flex', gap: 9, marginTop: 16 }}>
+          <button onClick={onClose} style={{ flex: 1, padding: '12px 0', borderRadius: 999, border: `1px solid ${R.line}`, background: R.surface, color: R.ink, fontFamily: R.ui, fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>
+            {t('Cancelar', 'Cancel')}
+          </button>
+          <button onClick={submit} disabled={code.trim().length < 4 || busy}
+            style={{ flex: 1.4, padding: '12px 0', borderRadius: 999, border: 'none', background: code.trim().length < 4 || busy ? R.line : R.jade, color: '#fff', fontFamily: R.ui, fontWeight: 700, fontSize: 14, cursor: code.trim().length < 4 || busy ? 'default' : 'pointer' }}>
+            {busy ? t('Confirmando…', 'Confirming…') : t('Confirmar entrega', 'Confirm')}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function OrdersView({ vert, orders, couriers, onUpdate }: { vert: Vert; orders: PanelOrder[]; couriers: PanelCourier[]; onUpdate: (id: string, patch: { status?: string; courier_id?: string | null; confirmation_code?: string }) => Promise<{ ok: boolean; codeMismatch?: boolean }> }) {
   const t = useT()
   const en = useEn()
   const narrow = useIsNarrow()
   const [dragId, setDragId] = useState<string | null>(null)
   const [overCol, setOverCol] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<string>('paid')
+  // Pedido en espera de código para confirmar la entrega (recoger o domicilio).
+  const [deliverFor, setDeliverFor] = useState<PanelOrder | null>(null)
 
   // Pedidos que corresponden a cada columna del tablero.
   const ordersFor = (colKey: string) =>
@@ -1063,7 +1119,7 @@ function OrdersView({ vert, orders, couriers, onUpdate }: { vert: Vert; orders: 
         {!terminal && (
           <div style={{ display: 'flex', gap: 7, marginTop: 12, alignItems: 'center', flexWrap: 'wrap' }}>
             {action && (
-              <button onClick={() => onUpdate(o.id, { status: action.status })}
+              <button onClick={() => { if (action.status === 'delivered') setDeliverFor(o); else onUpdate(o.id, { status: action.status }) }}
                 style={{ padding: '8px 14px', background: R.coral, color: '#fff', border: 'none', borderRadius: 999, fontFamily: R.ui, fontWeight: 700, fontSize: 12.5, cursor: 'pointer' }}>{action.label}</button>
             )}
             <button onClick={() => onUpdate(o.id, { status: 'cancelled' })}
@@ -1074,6 +1130,15 @@ function OrdersView({ vert, orders, couriers, onUpdate }: { vert: Vert; orders: 
       </BCard>
     )
   }
+
+  // Modal de confirmación de entrega (compartido por ambas vistas).
+  const deliverModal = deliverFor && (
+    <DeliverCodeModal
+      order={deliverFor}
+      onClose={() => setDeliverFor(null)}
+      onConfirm={code => onUpdate(deliverFor.id, { status: 'delivered', confirmation_code: code })}
+    />
+  )
 
   // Móvil: una sola columna seleccionada por pestañas (sin arrastrar).
   if (narrow) {
@@ -1110,12 +1175,14 @@ function OrdersView({ vert, orders, couriers, onUpdate }: { vert: Vert; orders: 
             </div>
           )}
         </div>
+        {deliverModal}
       </div>
     )
   }
 
   return (
     <div style={{ flex: 1, minHeight: 0, padding: '20px 24px', display: 'flex', flexDirection: 'column', boxSizing: 'border-box', overflow: 'hidden' }}>
+      {deliverModal}
       <div style={{ display: 'flex', gap: 14, flex: 1, minHeight: 0, overflowX: 'auto', overflowY: 'hidden', paddingBottom: 4 }}>
         {ORDER_COLUMNS.map(col => {
           const list = ordersFor(col.key)
@@ -1129,7 +1196,11 @@ function OrdersView({ vert, orders, couriers, onUpdate }: { vert: Vert; orders: 
                 if (dragId) {
                   const target = statusForColumn(col.key)
                   const cur = orders.find(o => o.id === dragId)
-                  if (cur && cur.status !== target) onUpdate(dragId, { status: target })
+                  if (cur && cur.status !== target) {
+                    // Entregar exige código: abre el modal en vez de soltar directo.
+                    if (target === 'delivered') setDeliverFor(cur)
+                    else onUpdate(dragId, { status: target })
+                  }
                 }
                 setDragId(null); setOverCol(null)
               }}
@@ -6181,17 +6252,23 @@ export default function BizPage() {
     const v = verts[vertIdx] ?? verts[0]
     reloadOrders(v.id); reloadCouriers(v.id)
   }, [vertIdx, verts, reloadOrders, reloadCouriers])
-  async function updateOrder(id: string, patch: { status?: string; courier_id?: string | null }) {
-    const v = verts?.[vertIdx]; if (!v) return
-    // Optimista: refleja el cambio de estado/repartidor de inmediato.
-    setOrders(prev => prev.map(o => o.id === id ? { ...o, ...('status' in patch ? { status: patch.status! } : {}), ...('courier_id' in patch ? { courier_id: patch.courier_id ?? null } : {}) } : o))
+  async function updateOrder(id: string, patch: { status?: string; courier_id?: string | null; confirmation_code?: string }): Promise<{ ok: boolean; codeMismatch?: boolean }> {
+    const v = verts?.[vertIdx]; if (!v) return { ok: false }
+    // Marcar entregado exige código y puede rechazarse: no aplicar optimista aún.
+    const gated = patch.status === 'delivered'
+    if (!gated) {
+      setOrders(prev => prev.map(o => o.id === id ? { ...o, ...('status' in patch ? { status: patch.status! } : {}), ...('courier_id' in patch ? { courier_id: patch.courier_id ?? null } : {}) } : o))
+    }
     try {
-      await fetch('/api/biz/orders', {
+      const r = await fetch('/api/biz/orders', {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id, biz_id: v.id, ...patch }),
       })
-    } catch { /* ignora */ }
+      if (r.status === 422) return { ok: false, codeMismatch: true }
+      if (!r.ok) return { ok: false }
+    } catch { return { ok: false } }
     reloadOrders(v.id)
+    return { ok: true }
   }
 
   // Realtime: refresca solicitudes/pedidos cuando cambian en la BD, sin recargar.

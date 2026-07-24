@@ -2184,6 +2184,7 @@ type TripOrder = {
   fulfillment: 'pickup' | 'delivery'
   total: number
   address: string | null
+  confirmation_code: string | null
   businesses?: { name: string; hood: string } | null
   order_items: { name: string; qty: number }[]
 }
@@ -2303,6 +2304,8 @@ function Trips({ mode, onModeToggle, onBell, onMsg }: { mode: Mode; onModeToggle
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 24 }}>
                   {dbOrders.map(o => {
                     const st = orderStatus(o)
+                    // El código sólo tiene sentido mientras el pedido está en curso.
+                    const showCode = o.confirmation_code && !['delivered', 'cancelled', 'refunded'].includes(o.status)
                     return (
                       <div key={o.id} style={{ background: '#fff', border: '1px solid #E9E0D5', borderRadius: 18, padding: 15, boxShadow: '0 2px 10px rgba(34,28,25,.06)' }}>
                         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
@@ -2317,6 +2320,15 @@ function Trips({ mode, onModeToggle, onBell, onMsg }: { mode: Mode; onModeToggle
                           </div>
                           <div style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 17, color: '#221C19', flexShrink: 0 }}>${o.total}</div>
                         </div>
+                        {showCode && (
+                          <div style={{ marginTop: 12, padding: '11px 14px', background: '#FBF3E4', border: '1px solid #EBD9B4', borderRadius: 13, display: 'flex', alignItems: 'center', gap: 12 }}>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: 11, fontWeight: 700, color: '#9A6C1C', textTransform: 'uppercase', letterSpacing: '.06em' }}>{en ? 'Confirmation code' : 'Código de confirmación'}</div>
+                              <div style={{ fontSize: 12, color: '#6B615A', marginTop: 2, lineHeight: 1.4 }}>{o.fulfillment === 'delivery' ? (en ? 'Give it to the courier on delivery.' : 'Dáselo al repartidor al recibir.') : (en ? 'Give it to the shop when you pick up.' : 'Dáselo al negocio al recoger.')}</div>
+                            </div>
+                            <div style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 24, letterSpacing: '.18em', color: '#221C19', flexShrink: 0 }}>{o.confirmation_code}</div>
+                          </div>
+                        )}
                       </div>
                     )
                   })}
@@ -3096,18 +3108,22 @@ function MessagesScreen({ mode, onClose, startBizId }: { mode: Mode; onClose: ()
 // cualquier otro tipo cae al title/body guardado en la BD.
 function presentNotif(n: NotifItem, en: boolean): { ic: keyof typeof I; c: string; bg: string; t: string; d: string } {
   const biz = n.biz_name || (en ? 'the business' : 'el negocio')
+  // El trigger anexa " Código: NNNN." al cuerpo; lo extraemos para mostrarlo
+  // localizado (el resto del texto se reconstruye aquí para respetar el idioma).
+  const codeMatch = n.body?.match(/Código:\s*(\d{4})/)
+  const codeSuffix = codeMatch ? (en ? ` Code: ${codeMatch[1]}.` : ` Código: ${codeMatch[1]}.`) : ''
   if (n.type === 'order_ready') {
     return {
       ic: 'check', c: '#1F8A6D', bg: '#DDF0E8',
       t: en ? 'Order ready' : 'Pedido listo',
-      d: en ? `${biz}: your order is ready.` : `${biz}: tu pedido está listo.`,
+      d: (en ? `${biz}: your order is ready.` : `${biz}: tu pedido está listo.`) + codeSuffix,
     }
   }
   if (n.type === 'order_out_for_delivery') {
     return {
       ic: 'pin', c: '#B5472F', bg: '#FCE9E7',
       t: en ? 'Order on the way' : 'Pedido en camino',
-      d: en ? `Your order from ${biz} is on the way.` : `Tu pedido de ${biz} va en camino.`,
+      d: (en ? `Your order from ${biz} is on the way.` : `Tu pedido de ${biz} va en camino.`) + codeSuffix,
     }
   }
   // Fallback genérico: usa lo que guardó la BD.

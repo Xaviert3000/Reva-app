@@ -46,6 +46,25 @@ export async function PATCH(req: NextRequest) {
   const { data: courier } = await admin.from('couriers').select('active').eq('user_id', user.id).maybeSingle()
   if (!courier || !courier.active) return NextResponse.json({ error: 'No es repartidor activo' }, { status: 403 })
 
+  // Al marcar ENTREGADO se exige el código de confirmación: el repartidor se lo
+  // pide al cliente y lo captura. Se valida contra el guardado (que el repartidor
+  // nunca ve). Sin coincidencia, no se cierra la entrega.
+  if (status === 'delivered') {
+    const { data: order } = await admin
+      .from('orders')
+      .select('confirmation_code,status')
+      .eq('id', id)
+      .eq('courier_id', user.id)
+      .maybeSingle()
+    if (!order) return NextResponse.json({ error: 'No autorizado' }, { status: 403 })
+    if (order.status !== 'delivered' && order.confirmation_code) {
+      const given = typeof body.confirmation_code === 'string' ? body.confirmation_code.trim() : ''
+      if (given !== order.confirmation_code) {
+        return NextResponse.json({ error: 'code_mismatch' }, { status: 422 })
+      }
+    }
+  }
+
   // Sólo puede tocar pedidos asignados a él.
   const { error } = await admin.from('orders').update({ status }).eq('id', id).eq('courier_id', user.id)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })

@@ -32,7 +32,14 @@ export async function GET(req: NextRequest) {
     .order('created_at', { ascending: false })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ orders: data ?? [] })
+  // El código de confirmación NUNCA se envía al panel: el dueño debe pedírselo
+  // al cliente y capturarlo. Se omite de la respuesta.
+  const orders = (data ?? []).map(o => {
+    const row = { ...o }
+    delete (row as Record<string, unknown>).confirmation_code
+    return row
+  })
+  return NextResponse.json({ orders })
 }
 
 // PATCH /api/biz/orders → cambia estado y/o asigna repartidor.
@@ -56,6 +63,25 @@ export async function PATCH(req: NextRequest) {
   if (Object.keys(patch).length === 0) return NextResponse.json({ ok: true })
 
   const admin = createAdminClient()
+
+  // Al marcar ENTREGADO se exige el código de confirmación que el cliente da al
+  // recibir. Se compara contra el guardado (server-side, nunca expuesto). Sin
+  // coincidencia no se completa el pedido. Los pedidos legado sin código pasan.
+  if (patch.status === 'delivered') {
+    const { data: order } = await admin
+      .from('orders')
+      .select('confirmation_code,status')
+      .eq('id', id)
+      .eq('biz_id', bizId)
+      .maybeSingle()
+    if (order?.status !== 'delivered' && order?.confirmation_code) {
+      const given = typeof body.confirmation_code === 'string' ? body.confirmation_code.trim() : ''
+      if (given !== order.confirmation_code) {
+        return NextResponse.json({ error: 'code_mismatch' }, { status: 422 })
+      }
+    }
+  }
+
   const { error } = await admin.from('orders').update(patch).eq('id', id).eq('biz_id', bizId)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ ok: true })
