@@ -575,18 +575,33 @@ function OptionCard({ biz, mode, onOpen, onBook }: { biz: Business; mode: Mode; 
 // ── Service result card (chat) — tap for details, button to book ─
 function ServiceChatCard({ biz, service, mode, onDetail, onBook }: { biz: Business; service: Service; mode: Mode; onDetail: () => void; onBook: () => void }) {
   const en = useContext(LangContext) === 'en'
+  const cart = useContext(CartContext)
   const available = inStock(service)
+  const orderable = isOrderable(biz, service)
+  // Producto de pedido ya en el carrito: mostramos control de cantidad como
+  // confirmación de que se agregó (mismo patrón que la ficha del negocio).
+  const inCart = orderable ? cart.items.find(i => i.service.id === service.id) : undefined
   return (
-    <div onClick={onDetail} style={{ display: 'flex', alignItems: 'center', gap: 12, background: '#fff', border: '1px solid #E9E0D5', borderRadius: 18, padding: 12, boxShadow: '0 2px 10px rgba(34,28,25,.06)', cursor: 'pointer' }}>
+    <div onClick={onDetail} style={{ display: 'flex', alignItems: 'center', gap: 12, background: inCart ? '#FCE9E7' : '#fff', border: inCart ? '1.5px solid #E8505B' : '1px solid #E9E0D5', borderRadius: 18, padding: 12, boxShadow: '0 2px 10px rgba(34,28,25,.06)', cursor: 'pointer' }}>
       <div style={{ width: 48, height: 48, borderRadius: 12, flexShrink: 0, background: service.img ? `center/cover no-repeat url(${service.img})` : `linear-gradient(140deg,${service.grad[0]},${service.grad[1]})`, display: 'grid', placeItems: 'center', color: 'rgba(255,255,255,.85)', fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 19 }}>{!service.img && biz.mono}</div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 14.5, fontWeight: 700, color: '#221C19', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{service.name}</div>
         <div style={{ fontSize: 12.5, color: '#6B615A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{biz.name} · {service.price}</div>
-        <div style={{ fontSize: 11.5, color: available ? '#A89E94' : '#B5472F', marginTop: 2, fontWeight: available ? 400 : 700 }}>{available ? (en ? 'Tap for details' : 'Toca para ver detalles') : (en ? 'Sold out' : 'Agotado')}</div>
+        <div style={{ fontSize: 11.5, color: inCart ? '#D23B47' : available ? '#A89E94' : '#B5472F', marginTop: 2, fontWeight: inCart || !available ? 700 : 400, display: 'flex', alignItems: 'center', gap: 4 }}>
+          {inCart ? <><Icon n="check" size={12} color="#D23B47" stroke={3} /> {en ? `${inCart.qty} in your order` : `${inCart.qty} en tu pedido`}</> : available ? (en ? 'Tap for details' : 'Toca para ver detalles') : (en ? 'Sold out' : 'Agotado')}
+        </div>
       </div>
-      <button disabled={!available} onClick={e => { e.stopPropagation(); onBook() }} style={{ flexShrink: 0, background: available ? '#E8505B' : '#F0D9D5', color: available ? '#fff' : '#B5472F', border: 'none', borderRadius: 12, padding: '9px 14px', fontFamily: 'var(--font-ui)', fontWeight: 700, fontSize: 13.5, cursor: available ? 'pointer' : 'not-allowed', whiteSpace: 'nowrap' }}>
-        {!available ? (en ? 'Sold out' : 'Agotado') : isOrderable(biz, service) ? (en ? 'Add' : 'Agregar') : isScheduled(service) ? (en ? 'Reserve' : 'Reservar') : (en ? 'Request' : 'Solicitar')}
-      </button>
+      {inCart ? (
+        <div onClick={e => e.stopPropagation()} style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+          <button aria-label={en ? 'Remove one' : 'Quitar uno'} onClick={() => cart.setQty(service.id, inCart.qty - 1)} style={qtyBtn}>−</button>
+          <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 15, minWidth: 16, textAlign: 'center', color: '#221C19' }}>{inCart.qty}</span>
+          <button aria-label={en ? 'Add one' : 'Agregar uno'} disabled={!available} onClick={() => cart.setQty(service.id, inCart.qty + 1)} style={{ ...qtyBtn, cursor: available ? 'pointer' : 'not-allowed', opacity: available ? 1 : .5 }}>+</button>
+        </div>
+      ) : (
+        <button disabled={!available} onClick={e => { e.stopPropagation(); onBook() }} style={{ flexShrink: 0, background: available ? '#E8505B' : '#F0D9D5', color: available ? '#fff' : '#B5472F', border: 'none', borderRadius: 12, padding: '9px 14px', fontFamily: 'var(--font-ui)', fontWeight: 700, fontSize: 13.5, cursor: available ? 'pointer' : 'not-allowed', whiteSpace: 'nowrap' }}>
+          {!available ? (en ? 'Sold out' : 'Agotado') : orderable ? (en ? 'Add' : 'Agregar') : isScheduled(service) ? (en ? 'Reserve' : 'Reservar') : (en ? 'Request' : 'Solicitar')}
+        </button>
+      )}
     </div>
   )
 }
