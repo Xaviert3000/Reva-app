@@ -2111,11 +2111,13 @@ function CatalogView({ vert, items, setItems }: { vert: Vert; items: CatItem[]; 
 // ── Inventario ─────────────────────────────────────────────
 // Seguimiento de disponibilidad de productos/servicios. La fuente es el mismo
 // catálogo (setItems); un `stock` numérico = con seguimiento, undefined = ilimitado.
+type InvScope = 'all' | 'tracked' | 'untracked'
 function InventoryView({ vert, items, setItems, onGo }: { vert: Vert; items: CatItem[]; setItems: React.Dispatch<React.SetStateAction<CatItem[]>>; onGo: (v: string) => void }) {
   const t = useT()
   const en = useEn()
   const [query, setQuery] = useState('')
   const [tab, setTab] = useState<'tracked' | 'untracked'>('tracked')
+  const [menu, setMenu] = useState<null | 'print' | 'export'>(null)
   useEffect(() => { setQuery(''); setTab('tracked') }, [vert.id])
 
   const bizId = SHARED_BIZ_ID[vert.id] ?? vert.id
@@ -2247,33 +2249,39 @@ function InventoryView({ vert, items, setItems, onGo }: { vert: Vert; items: Cat
     return t('Disponible', 'Available')
   }
 
-  // Filas ordenadas por categoría (con seguimiento primero) para ambas salidas.
-  const exportRows = () => {
-    const ordered = [...allTracked.map(c => ({ c, tr: true })), ...allUntracked.map(c => ({ c, tr: false }))]
-    return ordered
+  // Filas ordenadas por categoría (con seguimiento primero) filtradas por alcance.
+  const exportRows = (scope: InvScope) => {
+    const src: { c: CatItem; tr: boolean }[] = []
+    if (scope !== 'untracked') allTracked.forEach(c => src.push({ c, tr: true }))
+    if (scope !== 'tracked') allUntracked.forEach(c => src.push({ c, tr: false }))
+    return src
       .map(({ c, tr }) => ({ cat: catLabel(c), name: c.name, tracked: tr, units: typeof c.stock === 'number' ? c.stock : '', status: statusOf(c) }))
       .sort((a, b) => (a.tracked === b.tracked ? a.cat.localeCompare(b.cat, en ? 'en' : 'es') : a.tracked ? -1 : 1))
   }
 
-  function exportCSV() {
+  // Etiqueta del alcance para nombres de archivo y encabezados.
+  const scopeLabel = (scope: InvScope) => scope === 'tracked' ? t('Con seguimiento', 'Tracked') : scope === 'untracked' ? t('Sin seguimiento', 'Not tracked') : t('Todo el inventario', 'All inventory')
+
+  function exportCSV(scope: InvScope) {
     const head = [t('Categoría', 'Category'), t('Producto', 'Product'), t('Seguimiento', 'Tracking'), t('Unidades', 'Units'), t('Estado', 'Status')]
-    const body = exportRows().map(r => [r.cat, r.name, r.tracked ? t('Sí', 'Yes') : t('No', 'No'), String(r.units), r.status])
+    const body = exportRows(scope).map(r => [r.cat, r.name, r.tracked ? t('Sí', 'Yes') : t('No', 'No'), String(r.units), r.status])
     const csv = [head, ...body].map(row => row.map(x => `"${String(x).replace(/"/g, '""')}"`).join(',')).join('\n')
     // BOM (﻿) para que Excel abra los acentos correctamente.
     const url = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }))
     const stamp = new Date().toISOString().slice(0, 10)
+    const tag = scope === 'all' ? '' : `-${scope === 'tracked' ? (en ? 'tracked' : 'con-seguimiento') : (en ? 'untracked' : 'sin-seguimiento')}`
     const a = document.createElement('a')
-    a.href = url; a.download = `inventario-${vert.id}-${stamp}.csv`
+    a.href = url; a.download = `inventario-${vert.id}${tag}-${stamp}.csv`
     document.body.appendChild(a); a.click(); a.remove()
     setTimeout(() => URL.revokeObjectURL(url), 1500)
   }
 
-  function printInventory() {
+  function printInventory(scope: InvScope) {
     const esc = (s: string) => String(s).replace(/[&<>]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[ch] as string))
     const when = new Date().toLocaleString(en ? 'en-US' : 'es-MX', { dateStyle: 'long', timeStyle: 'short' })
     // Reagrupa por categoría respetando el orden con seguimiento → sin seguimiento.
     const groups = new Map<string, { name: string; units: string; status: string }[]>()
-    exportRows().forEach(r => {
+    exportRows(scope).forEach(r => {
       const key = `${r.tracked ? '0' : '1'}·${r.cat}`
       const g = groups.get(key) || []
       g.push({ name: r.name, units: r.tracked ? String(r.units) : '—', status: r.status })
@@ -2311,8 +2319,8 @@ function InventoryView({ vert, items, setItems, onGo }: { vert: Vert; items: Cat
     </style></head><body>
       <header><h1>${esc(vert.full || vert.name)}</h1><div class="meta">${en ? 'Inventory report' : 'Reporte de inventario'} · ${en ? 'Generated' : 'Generado'}: ${esc(when)}</div></header>
       <div class="title">${en ? 'Inventory' : 'Inventario'}</div>
-      <div class="sub">${en ? 'Availability of your products and services' : 'Disponibilidad de tus productos y servicios'}</div>
-      <div class="summary">${kpis}</div>
+      <div class="sub">${en ? 'Availability of your products and services' : 'Disponibilidad de tus productos y servicios'} · ${esc(scopeLabel(scope))}</div>
+      ${scope === 'untracked' ? '' : `<div class="summary">${kpis}</div>`}
       ${sections}
       <footer>${en ? 'Generated by Reva · Via Reva' : 'Generado por Reva · Vía Reva'}</footer>
     </body></html>`
@@ -2329,6 +2337,42 @@ function InventoryView({ vert, items, setItems, onGo }: { vert: Vert; items: Cat
   const empty = items.length === 0
   const actionBtn: CSSProperties = { display: 'flex', alignItems: 'center', gap: 7, padding: '10px 14px', background: R.bgAlt, color: R.inkSoft, border: 'none', borderRadius: 999, fontFamily: R.ui, fontWeight: 700, fontSize: 13.5, cursor: empty ? 'not-allowed' : 'pointer', opacity: empty ? .5 : 1 }
 
+  // Botón con menú de alcance: Todo · Con seguimiento · Sin seguimiento.
+  const scopeOptions: { id: InvScope; label: string; count: number }[] = [
+    { id: 'all', label: t('Todo el inventario', 'All inventory'), count: allTracked.length + allUntracked.length },
+    { id: 'tracked', label: t('Con seguimiento', 'Tracked'), count: allTracked.length },
+    { id: 'untracked', label: t('Sin seguimiento', 'Not tracked'), count: allUntracked.length },
+  ]
+  function ScopeButton({ kind, icon, label, run }: { kind: 'print' | 'export'; icon: string; label: string; run: (s: InvScope) => void }) {
+    const open = menu === kind
+    return (
+      <div style={{ position: 'relative' }}>
+        <button onClick={() => { if (!empty) setMenu(open ? null : kind) }} disabled={empty} title={label} style={{ ...actionBtn, background: open ? R.line : R.bgAlt }}>
+          <Icon n={icon} size={15} color={R.inkSoft} /> {label} <Icon n="chevD" size={13} color={R.inkFaint} />
+        </button>
+        {open && (
+          <>
+            <div onClick={() => setMenu(null)} style={{ position: 'fixed', inset: 0, zIndex: 40 }} />
+            <div style={{ position: 'absolute', top: 'calc(100% + 6px)', right: 0, zIndex: 41, background: R.surface, border: `1px solid ${R.line}`, borderRadius: 12, boxShadow: '0 8px 24px rgba(0,0,0,.12)', padding: 6, minWidth: 208 }}>
+              <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', color: R.inkFaint, padding: '6px 10px 4px' }}>{kind === 'print' ? t('Imprimir…', 'Print…') : t('Exportar…', 'Export…')}</div>
+              {scopeOptions.map(o => {
+                const off = o.count === 0
+                return (
+                  <button key={o.id} disabled={off} onClick={() => { setMenu(null); run(o.id) }}
+                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, width: '100%', padding: '9px 10px', background: 'none', border: 'none', borderRadius: 8, cursor: off ? 'not-allowed' : 'pointer', fontFamily: R.ui, fontWeight: 600, fontSize: 13.5, color: off ? R.inkFaint : R.ink, textAlign: 'left', opacity: off ? .6 : 1 }}
+                    onMouseEnter={e => { if (!off) e.currentTarget.style.background = R.bgAlt }} onMouseLeave={e => { e.currentTarget.style.background = 'none' }}>
+                    {o.label}
+                    <span style={{ fontSize: 11, fontWeight: 700, color: R.inkFaint, background: R.bgAlt, padding: '2px 8px', borderRadius: 999 }}>{o.count}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </>
+        )}
+      </div>
+    )
+  }
+
   return (
     <div style={{ padding: '24px 28px' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
@@ -2337,12 +2381,8 @@ function InventoryView({ vert, items, setItems, onGo }: { vert: Vert; items: Cat
           <div style={{ fontSize: 13.5, color: R.inkSoft }}>{t('Controla cuántas unidades quedan de cada producto o servicio', 'Track how many units are left of each product or service')}</div>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={() => { if (!empty) printInventory() }} disabled={empty} title={t('Imprimir el inventario', 'Print inventory')} style={actionBtn}>
-            <Icon n="printer" size={15} color={R.inkSoft} /> {t('Imprimir', 'Print')}
-          </button>
-          <button onClick={() => { if (!empty) exportCSV() }} disabled={empty} title={t('Descargar CSV (se abre en Excel)', 'Download CSV (opens in Excel)')} style={actionBtn}>
-            <Icon n="download" size={15} color={R.inkSoft} /> {t('Exportar', 'Export')}
-          </button>
+          <ScopeButton kind="print" icon="printer" label={t('Imprimir', 'Print')} run={printInventory} />
+          <ScopeButton kind="export" icon="download" label={t('Exportar', 'Export')} run={exportCSV} />
           <button onClick={() => onGo('catalog')} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '10px 16px', background: R.bgAlt, color: R.inkSoft, border: 'none', borderRadius: 999, fontFamily: R.ui, fontWeight: 700, fontSize: 13.5, cursor: 'pointer' }}>
             <Icon n="grid" size={15} color={R.inkSoft} /> {t('Ir al Catálogo', 'Go to Catalog')}
           </button>
