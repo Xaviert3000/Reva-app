@@ -39,6 +39,14 @@ interface CartState {
 }
 const CartContext = createContext<CartState>({ biz: null, items: [], count: 0, subtotal: 0, add: () => {}, setQty: () => {}, clear: () => {}, open: () => {} })
 
+// ── Notificaciones ─────────────────────────────────────────
+// Se crean en la BD (trigger sobre orders) cuando un pedido pasa a "listo" o
+// "en camino"; la app las recibe por realtime y las pinta en el centro de
+// notificaciones. El punto rojo del header refleja las no leídas.
+export type NotifItem = { id: string; type: string; title: string; body: string | null; biz_name: string | null; order_id: string | null; read: boolean; created_at: string }
+interface NotifState { items: NotifItem[]; unread: number; markAllRead: () => void }
+const NotifContext = createContext<NotifState>({ items: [], unread: 0, markAllRead: () => {} })
+
 // Precio numérico de un producto a partir del string mostrado ("$45", "56").
 // null = sin precio numérico (p. ej. "Cotización") → no se puede agregar al carrito.
 function priceNumber(s: Service): number | null {
@@ -153,6 +161,7 @@ function AppHeader({
 }) {
   const en = useContext(LangContext) === 'en'
   const cart = useContext(CartContext)
+  const notif = useContext(NotifContext)
   return (
     <div style={{ padding: 'max(52px, calc(env(safe-area-inset-top) + 16px)) 18px 14px', background: '#FAF5EE' }}>
       {label && <div style={{ fontSize: 12, color: '#A89E94', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 2 }}>{label}</div>}
@@ -181,7 +190,7 @@ function AppHeader({
           {/* Bell */}
           <button onClick={onBell} style={{ width: 36, height: 36, borderRadius: '50%', background: '#fff', border: '1px solid #E9E0D5', display: 'grid', placeItems: 'center', cursor: 'pointer', position: 'relative' }}>
             <Icon n="bell" size={18} color="#221C19" />
-            {hasNotif && <span style={{ position: 'absolute', top: 7, right: 8, width: 7, height: 7, borderRadius: '50%', background: '#E8505B', border: '2px solid #FAF5EE' }} />}
+            {hasNotif && notif.unread > 0 && <span style={{ position: 'absolute', top: 7, right: 8, width: 7, height: 7, borderRadius: '50%', background: '#E8505B', border: '2px solid #FAF5EE' }} />}
           </button>
           {/* Optional extra icon (e.g. switch on Rove) */}
           {extraIcon && (
@@ -3082,29 +3091,60 @@ function MessagesScreen({ mode, onClose, startBizId }: { mode: Mode; onClose: ()
 }
 
 // ── Notifications Screen ───────────────────────────────────
+// Presentación de una notificación: icono, colores y textos localizados según
+// el tipo. Los pedidos se traducen en el cliente a partir de `type` + `biz_name`;
+// cualquier otro tipo cae al title/body guardado en la BD.
+function presentNotif(n: NotifItem, en: boolean): { ic: keyof typeof I; c: string; bg: string; t: string; d: string } {
+  const biz = n.biz_name || (en ? 'the business' : 'el negocio')
+  if (n.type === 'order_ready') {
+    return {
+      ic: 'check', c: '#1F8A6D', bg: '#DDF0E8',
+      t: en ? 'Order ready' : 'Pedido listo',
+      d: en ? `${biz}: your order is ready.` : `${biz}: tu pedido está listo.`,
+    }
+  }
+  if (n.type === 'order_out_for_delivery') {
+    return {
+      ic: 'pin', c: '#B5472F', bg: '#FCE9E7',
+      t: en ? 'Order on the way' : 'Pedido en camino',
+      d: en ? `Your order from ${biz} is on the way.` : `Tu pedido de ${biz} va en camino.`,
+    }
+  }
+  // Fallback genérico: usa lo que guardó la BD.
+  return { ic: 'bell', c: '#A89E94', bg: '#F1EADF', t: n.title, d: n.body ?? '' }
+}
+
+// Etiqueta de tiempo relativo compacta ("2m", "3h", "Ayer", fecha).
+function relTime(iso: string, en: boolean): string {
+  const then = new Date(iso).getTime()
+  const mins = Math.max(0, Math.round((Date.now() - then) / 60000))
+  if (mins < 1) return en ? 'now' : 'ahora'
+  if (mins < 60) return `${mins}m`
+  const hrs = Math.round(mins / 60)
+  if (hrs < 24) return `${hrs}h`
+  const days = Math.round(hrs / 24)
+  if (days === 1) return en ? 'Yesterday' : 'Ayer'
+  if (days < 7) return `${days}d`
+  return new Date(iso).toLocaleDateString(en ? 'en-US' : 'es-MX', { day: 'numeric', month: 'short' })
+}
+
 function NotificationsScreen({ mode, onClose, onMessages }: { mode: Mode; onClose: () => void; onMessages: () => void }) {
+  void mode; void onMessages
   const en = useContext(LangContext) === 'en'
-  const groups = en ? [
-    { label: 'Today', items: [
-      { ic: 'check' as const, c: '#1F8A6D', bg: '#DDF0E8', t: 'Booking confirmed', d: 'La Lupita confirmed your table tonight · 20:00.', time: '2m', unread: true, msg: false },
-      { ic: 'chat' as const, c: '#E8505B', bg: '#FCE9E7', t: 'New message', d: 'La Lupita: "We can do the terrace 🌿"', time: '18m', unread: true, msg: true },
-      { ic: 'gift' as const, c: '#B5472F', bg: '#FCE9E7', t: 'Almost a reward', d: 'Taco Club — 1 more stamp for a free pastor.', time: '3h', unread: false, msg: false },
-    ]},
-    { label: 'Earlier', items: [
-      { ic: 'ticket' as const, c: '#9A6C1C', bg: '#FBEFD7', t: '+1 Reva+ ticket', d: 'You earned a ticket from your Sunset Sail review.', time: 'Tue', unread: false, msg: false },
-      { ic: 'bell' as const, c: '#A89E94', bg: '#F1EADF', t: 'Reminder', d: 'Your Cabo Azul Sunset Sail is tomorrow · 17:30.', time: 'Tue', unread: false, msg: false },
-    ]},
-  ] : [
-    { label: 'Hoy', items: [
-      { ic: 'check' as const, c: '#1F8A6D', bg: '#DDF0E8', t: 'Reserva confirmada', d: 'La Lupita confirmó tu mesa de hoy · 21:00.', time: '2m', unread: true, msg: false },
-      { ic: 'chat' as const, c: '#E8505B', bg: '#FCE9E7', t: 'Nuevo mensaje', d: 'La Lupita: "¡Claro! Te aparto una botella."', time: '18m', unread: true, msg: true },
-      { ic: 'gift' as const, c: '#B5472F', bg: '#FCE9E7', t: 'Casi tienes premio', d: 'Taco Club — te falta 1 sello para un pastor gratis.', time: '3h', unread: false, msg: false },
-    ]},
-    { label: 'Antes', items: [
-      { ic: 'ticket' as const, c: '#9A6C1C', bg: '#FBEFD7', t: '+1 boleto Reva+', d: 'Ganaste un boleto por tu reseña del Sunset Sail.', time: 'Mar', unread: false, msg: false },
-      { ic: 'bell' as const, c: '#A89E94', bg: '#F1EADF', t: 'Recordatorio', d: 'Tu Sunset Sail de Cabo Azul es mañana · 17:30.', time: 'Mar', unread: false, msg: false },
-    ]},
-  ]
+  const { items, markAllRead } = useContext(NotifContext)
+
+  // Al abrir, marca todas como leídas (apaga el punto rojo del header).
+  useEffect(() => { markAllRead() }, [markAllRead])
+
+  // Agrupa por Hoy / Antes según la fecha de creación.
+  const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0)
+  const todayTs = startOfToday.getTime()
+  const today = items.filter(n => new Date(n.created_at).getTime() >= todayTs)
+  const earlier = items.filter(n => new Date(n.created_at).getTime() < todayTs)
+  const groups = [
+    { label: en ? 'Today' : 'Hoy', items: today },
+    { label: en ? 'Earlier' : 'Antes', items: earlier },
+  ].filter(g => g.items.length > 0)
 
   return (
     <div style={{ position: 'absolute', inset: 0, zIndex: 40, background: '#FAF5EE', display: 'flex', flexDirection: 'column' }}>
@@ -3115,31 +3155,46 @@ function NotificationsScreen({ mode, onClose, onMessages }: { mode: Mode; onClos
         <div style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 22, color: '#221C19', letterSpacing: '-.02em' }}>{en ? 'Notifications' : 'Notificaciones'}</div>
       </div>
       <div style={{ flex: 1, overflow: 'auto', padding: '6px 16px 24px' }}>
-        {groups.map((g, gi) => (
-          <div key={gi}>
-            <div style={{ fontSize: 12, color: '#A89E94', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.06em', margin: gi ? '20px 2px 10px' : '2px 2px 10px' }}>{g.label}</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
-              {g.items.map((n, i) => (
-                <button key={i} onClick={() => n.msg && onMessages()} style={{ display: 'flex', alignItems: 'flex-start', gap: 13, padding: '14px 15px', borderRadius: 16, cursor: 'pointer', textAlign: 'left', fontFamily: 'var(--font-ui)', position: 'relative', border: `1px solid ${n.unread ? '#FCE9E7' : '#E9E0D5'}`, background: n.unread ? '#FDF3F2' : '#fff', width: '100%' }}>
-                  <div style={{ width: 38, height: 38, borderRadius: 11, background: n.bg, display: 'grid', placeItems: 'center', flexShrink: 0 }}>
-                    <Icon n={n.ic} size={18} color={n.c} stroke={n.ic === 'check' ? 3 : 2} />
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 15, color: '#221C19' }}>{n.t}</span>
-                      <span style={{ marginLeft: 'auto', fontSize: 11.5, color: '#A89E94', flexShrink: 0 }}>{n.time}</span>
-                    </div>
-                    <div style={{ fontSize: 13, color: '#6B615A', marginTop: 3, lineHeight: 1.45 }}>{n.d}</div>
-                  </div>
-                  {n.unread && <span style={{ position: 'absolute', top: 14, right: 13, width: 8, height: 8, borderRadius: '50%', background: '#E8505B' }} />}
-                </button>
-              ))}
+        {items.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '48px 24px' }}>
+            <div style={{ width: 64, height: 64, borderRadius: '50%', background: '#F3EADD', display: 'grid', placeItems: 'center', margin: '0 auto 16px' }}>
+              <Icon n="bell" size={28} color="#A89E94" />
             </div>
+            <p style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 18, color: '#221C19' }}>{en ? 'No notifications yet' : 'Aún sin notificaciones'}</p>
+            <p style={{ fontSize: 14, color: '#6B615A', marginTop: 6, lineHeight: 1.5 }}>{en ? "We'll let you know when your order is ready or on the way." : 'Te avisamos cuando tu pedido esté listo o en camino.'}</p>
           </div>
-        ))}
-        <div style={{ textAlign: 'center', fontSize: 12.5, color: '#A89E94', marginTop: 22, lineHeight: 1.5, padding: '0 24px' }}>
-          {en ? 'Manage what arrives here in Profile · Notifications.' : 'Configura qué llega aquí en Perfil · Notificaciones.'}
-        </div>
+        ) : (
+          groups.map((g, gi) => (
+            <div key={gi}>
+              <div style={{ fontSize: 12, color: '#A89E94', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.06em', margin: gi ? '20px 2px 10px' : '2px 2px 10px' }}>{g.label}</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+                {g.items.map(n => {
+                  const p = presentNotif(n, en)
+                  return (
+                    <div key={n.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 13, padding: '14px 15px', borderRadius: 16, fontFamily: 'var(--font-ui)', position: 'relative', border: `1px solid ${!n.read ? '#FCE9E7' : '#E9E0D5'}`, background: !n.read ? '#FDF3F2' : '#fff', width: '100%' }}>
+                      <div style={{ width: 38, height: 38, borderRadius: 11, background: p.bg, display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+                        <Icon n={p.ic} size={18} color={p.c} stroke={p.ic === 'check' ? 3 : 2} />
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 15, color: '#221C19' }}>{p.t}</span>
+                          <span style={{ marginLeft: 'auto', fontSize: 11.5, color: '#A89E94', flexShrink: 0 }}>{relTime(n.created_at, en)}</span>
+                        </div>
+                        <div style={{ fontSize: 13, color: '#6B615A', marginTop: 3, lineHeight: 1.45 }}>{p.d}</div>
+                      </div>
+                      {!n.read && <span style={{ position: 'absolute', top: 14, right: 13, width: 8, height: 8, borderRadius: '50%', background: '#E8505B' }} />}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          ))
+        )}
+        {items.length > 0 && (
+          <div style={{ textAlign: 'center', fontSize: 12.5, color: '#A89E94', marginTop: 22, lineHeight: 1.5, padding: '0 24px' }}>
+            {en ? 'Manage what arrives here in Profile · Notifications.' : 'Configura qué llega aquí en Perfil · Notificaciones.'}
+          </div>
+        )}
       </div>
     </div>
   )
@@ -3265,6 +3320,20 @@ export default function AppPage() {
   const [showNotifs, setShowNotifs] = useState(false)
   const [showSupport, setShowSupport] = useState(false)
 
+  // Notificaciones del usuario con sesión: carga inicial + realtime (INSERT).
+  const [notifs, setNotifs] = useState<NotifItem[]>([])
+  const loadNotifs = useCallback(() => {
+    fetch('/api/notifications')
+      .then(r => r.ok ? r.json() : { notifications: [] })
+      .then(d => setNotifs(d.notifications ?? []))
+      .catch(() => {})
+  }, [])
+  const notifUnread = notifs.reduce((n, x) => n + (x.read ? 0 : 1), 0)
+  const markNotifsRead = useCallback(() => {
+    setNotifs(prev => prev.some(n => !n.read) ? prev.map(n => ({ ...n, read: true })) : prev)
+    fetch('/api/notifications', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ all: true }) }).catch(() => {})
+  }, [])
+
   // Auth gate: track registration state and pending booking intent.
   // isRegistered ahora refleja la sesión real de Supabase.
   const [isRegistered, setIsRegistered] = useState(false)
@@ -3291,6 +3360,18 @@ export default function AppPage() {
     })
     return () => sub.subscription.unsubscribe()
   }, [])
+
+  // Carga notificaciones y se suscribe a nuevas (realtime) mientras haya sesión.
+  useEffect(() => {
+    if (!isRegistered) { setNotifs([]); return }
+    loadNotifs()
+    const supabase = createClient()
+    const ch = supabase
+      .channel('notifs')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, () => loadNotifs())
+      .subscribe()
+    return () => { supabase.removeChannel(ch) }
+  }, [isRegistered, loadNotifs])
 
   const en = useContext(LangContext) === 'en'
 
@@ -3402,6 +3483,7 @@ export default function AppPage() {
     <LangContext.Provider value={lang}>
     <BizDataContext.Provider value={{ ...bizData, city: currentCity }}>
     <CartContext.Provider value={cartState}>
+    <NotifContext.Provider value={{ items: notifs, unread: notifUnread, markAllRead: markNotifsRead }}>
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#FAF5EE', position: 'relative' }}>
       {/* Screen */}
       <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
@@ -3459,6 +3541,7 @@ export default function AppPage() {
         />
       )}
     </div>
+    </NotifContext.Provider>
     </CartContext.Provider>
     </BizDataContext.Provider>
     </LangContext.Provider>
