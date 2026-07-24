@@ -5937,8 +5937,8 @@ export default function BizPage() {
   const [agentCfg, setAgentCfgState] = useState<BizAgentConfig>(DEFAULT_AGENT_CONFIG)
   const [switcher, setSwitcher] = useState(false)
   const [notifOpen, setNotifOpen] = useState(false)
-  // Grupos de navegación desplegables — todos abiertos por defecto.
-  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => Object.fromEntries(NAV_GROUPS.map(g => [g.id, true])))
+  // Grupos de navegación desplegables — solo Operación abierto por defecto.
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => Object.fromEntries(NAV_GROUPS.map(g => [g.id, g.id === 'ops'])))
   // Catálogo compartido: lo edita CatalogView y lo consume el Punto de venta
   const [catalog, setCatalog] = useState<CatItem[]>([])
   // Datos fiscales/de contacto del negocio para el ticket
