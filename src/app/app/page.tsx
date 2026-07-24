@@ -3425,7 +3425,15 @@ export default function AppPage() {
         }),
       })
       const data = await r.json().catch(() => ({}))
-      if (r.ok && data.url) { window.location.href = data.url; return null }
+      if (r.ok && data.url) {
+        // El pedido YA existe en el servidor. Vaciamos el carrito ANTES de ir a
+        // Stripe: en el webview de iOS el regreso vía success_url no siempre
+        // re-monta la app, así que no podemos depender de ?order=success para
+        // limpiar. Guardamos un snapshot para restaurar si el pago se cancela.
+        try { localStorage.setItem('reva.cart.pending', JSON.stringify({ biz: cartBiz, items: cartItems })) } catch {}
+        setCartItems([]); setCartBiz(null); setShowCart(false)
+        window.location.href = data.url; return null
+      }
       return data.error || (en ? 'Could not start payment' : 'No se pudo iniciar el pago')
     } catch {
       return en ? 'Could not start payment' : 'No se pudo iniciar el pago'
@@ -3436,9 +3444,24 @@ export default function AppPage() {
   useEffect(() => {
     if (typeof window === 'undefined') return
     const p = new URLSearchParams(window.location.search)
-    if (p.get('order') === 'success') {
+    const order = p.get('order')
+    if (order === 'success') {
+      // El carrito ya se vació al iniciar el checkout; descartamos el respaldo
+      // y (por si acaso) limpiamos de nuevo antes de ir a Reservas.
+      try { localStorage.removeItem('reva.cart.pending') } catch {}
       setCartItems([]); setCartBiz(null); setShowCart(false)
       setTab('bookings')
+      window.history.replaceState({}, '', window.location.pathname)
+    } else if (order === 'cancelled') {
+      // Pago cancelado: restauramos el carrito desde el respaldo.
+      try {
+        const raw = localStorage.getItem('reva.cart.pending')
+        if (raw) {
+          const snap = JSON.parse(raw)
+          if (snap?.items?.length) { setCartItems(snap.items); setCartBiz(snap.biz ?? null) }
+        }
+        localStorage.removeItem('reva.cart.pending')
+      } catch {}
       window.history.replaceState({}, '', window.location.pathname)
     }
   }, [])
