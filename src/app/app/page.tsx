@@ -2316,6 +2316,11 @@ function Trips({ mode, onModeToggle, onBell, onMsg }: { mode: Mode; onModeToggle
                     const st = orderStatus(o)
                     // El código sólo tiene sentido mientras el pedido está en curso.
                     const showCode = o.confirmation_code && !['delivered', 'cancelled', 'refunded'].includes(o.status)
+                    // Una vez entregado, el cliente puede reseñar la experiencia —
+                    // igual que en las reservas pasadas. Clave prefijada para no
+                    // chocar con los ids de reserva en el mismo estado `reviewed`.
+                    const rid = `order:${o.id}`
+                    const canReview = o.status === 'delivered'
                     return (
                       <div key={o.id} style={{ background: '#fff', border: '1px solid #E9E0D5', borderRadius: 18, padding: 15, boxShadow: '0 2px 10px rgba(34,28,25,.06)' }}>
                         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
@@ -2337,6 +2342,20 @@ function Trips({ mode, onModeToggle, onBell, onMsg }: { mode: Mode; onModeToggle
                               <div style={{ fontSize: 12, color: '#6B615A', marginTop: 2, lineHeight: 1.4 }}>{o.fulfillment === 'delivery' ? (en ? 'Give it to the courier on delivery.' : 'Dáselo al repartidor al recibir.') : (en ? 'Give it to the shop when you pick up.' : 'Dáselo al negocio al recoger.')}</div>
                             </div>
                             <div style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 24, letterSpacing: '.18em', color: '#221C19', flexShrink: 0 }}>{o.confirmation_code}</div>
+                          </div>
+                        )}
+                        {canReview && !reviewed[rid] && (
+                          <div style={{ marginTop: 12 }}>
+                            <button onClick={() => setReviewed(r => ({ ...r, [rid]: true }))}
+                              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, width: '100%', padding: 12, borderRadius: 13, border: 'none', cursor: 'pointer', background: '#FBEFD7', color: '#9A6C1C', fontFamily: 'var(--font-ui)', fontWeight: 700, fontSize: 14 }}>
+                              <Icon n="star" size={16} color="#9A6C1C" fill="#9A6C1C" />
+                              {en ? 'How was it? Leave a review' : '¿Cómo te fue? Deja tu reseña'}
+                            </button>
+                          </div>
+                        )}
+                        {canReview && reviewed[rid] && (
+                          <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 8, padding: '11px 14px', background: '#DDF0E8', borderRadius: 13, fontSize: 13, fontWeight: 600, color: '#16614c' }}>
+                            <Icon n="check" size={15} color="#1F8A6D" stroke={3} /> {en ? 'Review published — thanks!' : 'Reseña publicada — ¡gracias!'}
                           </div>
                         )}
                       </div>
