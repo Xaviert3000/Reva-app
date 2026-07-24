@@ -2114,7 +2114,8 @@ function InventoryView({ vert, items, setItems, onGo }: { vert: Vert; items: Cat
   const t = useT()
   const en = useEn()
   const [query, setQuery] = useState('')
-  useEffect(() => { setQuery('') }, [vert.id])
+  const [tab, setTab] = useState<'tracked' | 'untracked'>('tracked')
+  useEffect(() => { setQuery(''); setTab('tracked') }, [vert.id])
 
   const bizId = SHARED_BIZ_ID[vert.id] ?? vert.id
   // Persiste el cambio en Supabase (no-op silencioso en modo demo / sin sesión).
@@ -2143,6 +2144,7 @@ function InventoryView({ vert, items, setItems, onGo }: { vert: Vert; items: Cat
   const untracked = rows.filter(({ c }) => typeof c.stock !== 'number')
 
   const allTracked = items.filter(c => typeof c.stock === 'number')
+  const allUntracked = items.filter(c => typeof c.stock !== 'number')
   const totalUnits = allTracked.reduce((s, c) => s + (c.stock ?? 0), 0)
   const outCount = allTracked.filter(c => c.stock === 0).length
   const lowCount = allTracked.filter(c => (c.stock ?? 0) > 0 && (c.stock ?? 0) <= 3).length
@@ -2188,6 +2190,54 @@ function InventoryView({ vert, items, setItems, onGo }: { vert: Vert; items: Cat
     )
   }
 
+  function UntrackedRow({ c, idx }: { c: CatItem; idx: number }) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '13px 16px', borderBottom: `1px solid ${R.lineSoft}` }}>
+        <div style={{ width: 40, height: 40, borderRadius: 10, flexShrink: 0, background: c.img ? `center/cover no-repeat url(${c.img})` : `linear-gradient(140deg, ${c.grad[0]}, ${c.grad[1]})` }} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 700, fontSize: 14, color: R.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</div>
+          <div style={{ fontSize: 12, color: R.inkSoft, marginTop: 1 }}>{c.category || c.sub}{!c.active && ` · ${t('Inactivo', 'Inactive')}`}</div>
+        </div>
+        <span style={{ fontSize: 12.5, color: R.inkFaint, whiteSpace: 'nowrap' }}>{t('Disponibilidad ilimitada', 'Unlimited availability')}</span>
+        <button onClick={() => setStock(idx, 10)} title={t('Empezar a llevar el conteo de unidades de este producto', 'Start counting units for this product')} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 13px', background: R.ink, color: '#fff', border: 'none', borderRadius: 999, fontFamily: R.ui, fontWeight: 700, fontSize: 12.5, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 }}>
+          <Icon n="box" size={14} color="#fff" /> {t('Controlar', 'Track')}
+        </button>
+      </div>
+    )
+  }
+
+  // Agrupa las filas por categoría conservando el índice real del catálogo.
+  const catLabel = (c: CatItem) => (c.category || c.sub || '').trim() || t('Sin categoría', 'Uncategorized')
+  function groupByCategory(list: { c: CatItem; idx: number }[]) {
+    const groups = new Map<string, { c: CatItem; idx: number }[]>()
+    for (const r of list) {
+      const key = catLabel(r.c)
+      const g = groups.get(key)
+      if (g) g.push(r); else groups.set(key, [r])
+    }
+    return [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0], en ? 'en' : 'es'))
+  }
+
+  const CategorySection = ({ label, count, children }: { label: string; count: number; children: React.ReactNode }) => (
+    <div style={{ marginBottom: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '4px 2px 8px' }}>
+        <div style={{ fontSize: 12.5, fontWeight: 800, color: R.inkSoft, textTransform: 'uppercase', letterSpacing: '.04em' }}>{label}</div>
+        <span style={{ fontSize: 11, fontWeight: 700, color: R.inkFaint, background: R.bgAlt, padding: '2px 8px', borderRadius: 999 }}>{count}</span>
+      </div>
+      <BCard style={{ padding: 0, overflow: 'hidden' }}>{children}</BCard>
+    </div>
+  )
+
+  const trackedGroups = groupByCategory(tracked)
+  const untrackedGroups = groupByCategory(untracked)
+
+  const tabBtn = (id: 'tracked' | 'untracked'): CSSProperties => ({
+    flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '9px 14px',
+    border: 'none', borderRadius: 999, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5,
+    background: tab === id ? R.surface : 'transparent', color: tab === id ? R.ink : R.inkSoft,
+    boxShadow: tab === id ? '0 1px 3px rgba(0,0,0,.08)' : 'none', transition: 'background .15s',
+  })
+
   return (
     <div style={{ padding: '24px 28px' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
@@ -2213,51 +2263,62 @@ function InventoryView({ vert, items, setItems, onGo }: { vert: Vert; items: Cat
           style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 999, padding: '11px 14px 11px 38px', fontSize: 14, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.surface }} />
       </div>
 
-      {allTracked.length === 0 && !q && (
-        <BCard style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: 8, padding: '32px 20px', color: R.inkSoft, marginBottom: 16 }}>
-          <Icon n="box" size={28} color={R.inkFaint} />
-          <div style={{ maxWidth: 340 }}>{en ? <>You’re not tracking inventory for any product yet. Enable it below or from the <b>Catalog</b> when creating or editing a service.</> : <>Aún no controlas inventario de ningún producto. Actívalo aquí abajo o desde el <b>Catálogo</b> al crear o editar un servicio.</>}</div>
-        </BCard>
-      )}
+      {/* Dos pestañas: con seguimiento / sin seguimiento; dentro se agrupa por categoría. */}
+      <div style={{ display: 'flex', gap: 4, padding: 4, background: R.bgAlt, borderRadius: 999, marginBottom: 18 }}>
+        <button onClick={() => setTab('tracked')} style={tabBtn('tracked')}>
+          {t('Con seguimiento', 'Tracked')}
+          <span style={{ fontSize: 11, fontWeight: 800, color: tab === 'tracked' ? '#fff' : R.inkFaint, background: tab === 'tracked' ? R.ink : R.line, padding: '1px 8px', borderRadius: 999 }}>{allTracked.length}</span>
+        </button>
+        <button onClick={() => setTab('untracked')} style={tabBtn('untracked')}>
+          {t('Sin seguimiento', 'Not tracked')}
+          <span style={{ fontSize: 11, fontWeight: 800, color: tab === 'untracked' ? '#fff' : R.inkFaint, background: tab === 'untracked' ? R.ink : R.line, padding: '1px 8px', borderRadius: 999 }}>{allUntracked.length}</span>
+        </button>
+      </div>
 
-      {tracked.length > 0 && (
+      {tab === 'tracked' && (
         <>
-          <div style={{ margin: '4px 2px 8px' }}>
-            <div style={{ fontSize: 12.5, fontWeight: 700, color: R.inkSoft, textTransform: 'uppercase', letterSpacing: '.03em' }}>{t('Con seguimiento', 'Tracked')}</div>
-            <div style={{ fontSize: 12, color: R.inkFaint, marginTop: 2 }}>{t('Ajusta las unidades con − y + o escribe la cantidad. La etiqueta de color aparece sola cuando quedan pocas (ámbar) o se agota (rojo); cada venta descuenta una unidad.', 'Adjust units with − and + or type the amount. The color label appears on its own when stock is low (amber) or sold out (red); each sale subtracts one unit.')}</div>
-          </div>
-          <BCard style={{ padding: 0, overflow: 'hidden', marginBottom: 20 }}>
-            {tracked.map(({ c, idx }) => <StockRow key={idx} c={c} idx={idx} />)}
-          </BCard>
+          <div style={{ margin: '0 2px 12px', fontSize: 12, color: R.inkFaint }}>{t('Ajusta las unidades con − y + o escribe la cantidad. La etiqueta de color aparece sola cuando quedan pocas (ámbar) o se agota (rojo); cada venta descuenta una unidad.', 'Adjust units with − and + or type the amount. The color label appears on its own when stock is low (amber) or sold out (red); each sale subtracts one unit.')}</div>
+
+          {allTracked.length === 0 && !q && (
+            <BCard style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: 8, padding: '32px 20px', color: R.inkSoft }}>
+              <Icon n="box" size={28} color={R.inkFaint} />
+              <div style={{ maxWidth: 340 }}>{en ? <>You’re not tracking inventory for any product yet. Enable it from the <b>Not tracked</b> tab or the <b>Catalog</b> when creating or editing a service.</> : <>Aún no controlas inventario de ningún producto. Actívalo desde la pestaña <b>Sin seguimiento</b> o el <b>Catálogo</b> al crear o editar un servicio.</>}</div>
+            </BCard>
+          )}
+
+          {trackedGroups.map(([label, list]) => (
+            <CategorySection key={label} label={label} count={list.length}>
+              {list.map(({ c, idx }) => <StockRow key={idx} c={c} idx={idx} />)}
+            </CategorySection>
+          ))}
+
+          {allTracked.length > 0 && tracked.length === 0 && (
+            <div style={{ textAlign: 'center', color: R.inkFaint, fontSize: 13, padding: '28px 0' }}>{en ? `No results for “${query}”.` : `Sin resultados para “${query}”.`}</div>
+          )}
         </>
       )}
 
-      {untracked.length > 0 && (
+      {tab === 'untracked' && (
         <>
-          <div style={{ margin: '4px 2px 8px' }}>
-            <div style={{ fontSize: 12.5, fontWeight: 700, color: R.inkSoft, textTransform: 'uppercase', letterSpacing: '.03em' }}>{t('Sin seguimiento de inventario', 'No inventory tracking')}</div>
-            <div style={{ fontSize: 12, color: R.inkFaint, marginTop: 2 }}>{en ? <>These products aren’t counted — they’re always available. Tap <b>Track</b> to start counting units.</> : <>Estos productos no llevan conteo — siempre están disponibles. Toca <b>Controlar</b> para empezar a contar unidades.</>}</div>
-          </div>
-          <BCard style={{ padding: 0, overflow: 'hidden' }}>
-            {untracked.map(({ c, idx }) => (
-              <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '13px 16px', borderBottom: `1px solid ${R.lineSoft}` }}>
-                <div style={{ width: 40, height: 40, borderRadius: 10, flexShrink: 0, background: c.img ? `center/cover no-repeat url(${c.img})` : `linear-gradient(140deg, ${c.grad[0]}, ${c.grad[1]})` }} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 700, fontSize: 14, color: R.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</div>
-                  <div style={{ fontSize: 12, color: R.inkSoft, marginTop: 1 }}>{c.category || c.sub}{!c.active && ` · ${t('Inactivo', 'Inactive')}`}</div>
-                </div>
-                <span style={{ fontSize: 12.5, color: R.inkFaint, whiteSpace: 'nowrap' }}>{t('Disponibilidad ilimitada', 'Unlimited availability')}</span>
-                <button onClick={() => setStock(idx, 10)} title={t('Empezar a llevar el conteo de unidades de este producto', 'Start counting units for this product')} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 13px', background: R.ink, color: '#fff', border: 'none', borderRadius: 999, fontFamily: R.ui, fontWeight: 700, fontSize: 12.5, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 }}>
-                  <Icon n="box" size={14} color="#fff" /> {t('Controlar', 'Track')}
-                </button>
-              </div>
-            ))}
-          </BCard>
-        </>
-      )}
+          <div style={{ margin: '0 2px 12px', fontSize: 12, color: R.inkFaint }}>{en ? <>These products aren’t counted — they’re always available. Tap <b>Track</b> to start counting units.</> : <>Estos productos no llevan conteo — siempre están disponibles. Toca <b>Controlar</b> para empezar a contar unidades.</>}</div>
 
-      {rows.length === 0 && (
-        <div style={{ textAlign: 'center', color: R.inkFaint, fontSize: 13, padding: '28px 0' }}>{en ? `No results for “${query}”.` : `Sin resultados para “${query}”.`}</div>
+          {allUntracked.length === 0 && !q && (
+            <BCard style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: 8, padding: '32px 20px', color: R.inkSoft }}>
+              <Icon n="box" size={28} color={R.inkFaint} />
+              <div style={{ maxWidth: 340 }}>{t('Todos tus productos llevan seguimiento de inventario.', 'All your products have inventory tracking.')}</div>
+            </BCard>
+          )}
+
+          {untrackedGroups.map(([label, list]) => (
+            <CategorySection key={label} label={label} count={list.length}>
+              {list.map(({ c, idx }) => <UntrackedRow key={idx} c={c} idx={idx} />)}
+            </CategorySection>
+          ))}
+
+          {allUntracked.length > 0 && untracked.length === 0 && (
+            <div style={{ textAlign: 'center', color: R.inkFaint, fontSize: 13, padding: '28px 0' }}>{en ? `No results for “${query}”.` : `Sin resultados para “${query}”.`}</div>
+          )}
+        </>
       )}
     </div>
   )
