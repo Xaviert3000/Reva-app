@@ -2180,6 +2180,7 @@ type DbReservation = {
 // Pedido real del usuario tal como lo devuelve GET /api/orders.
 type TripOrder = {
   id: string
+  biz_id: string
   status: string
   fulfillment: 'pickup' | 'delivery'
   total: number
@@ -2189,10 +2190,116 @@ type TripOrder = {
   order_items: { name: string; qty: number }[]
 }
 
+// Hoja de reseña: estrellas (1-5) + texto opcional. Publica en /api/reviews.
+function ReviewSheet({ en, target, onClose, onDone }: {
+  en: boolean
+  target: { rid: string; bizId: string; bizName: string }
+  onClose: () => void
+  onDone: (rid: string) => void
+}) {
+  const [rating, setRating] = useState(0)
+  const [hover, setHover] = useState(0)
+  const [text, setText] = useState('')
+  const [sending, setSending] = useState(false)
+  const [err, setErr] = useState('')
+
+  const submit = async () => {
+    if (rating < 1 || sending) return
+    setSending(true); setErr('')
+    // rid codifica el origen: "order:<id>" para pedidos, o el id de la reserva.
+    const isOrder = target.rid.startsWith('order:')
+    try {
+      const res = await fetch('/api/reviews', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          biz_id: target.bizId, rating, body: text.trim(), lang: en ? 'en' : 'es',
+          order_id: isOrder ? target.rid.slice(6) : null,
+          reservation_id: isOrder ? null : target.rid,
+        }),
+      })
+      if (!res.ok) throw new Error()
+      onDone(target.rid)
+    } catch {
+      setErr(en ? "Couldn't publish. Try again." : 'No se pudo publicar. Intenta de nuevo.')
+      setSending(false)
+    }
+  }
+
+  return (
+    <div onClick={onClose}
+      style={{ position: 'absolute', inset: 0, zIndex: 60, background: 'rgba(34,28,25,.45)', display: 'flex', alignItems: 'flex-end' }}>
+      <div onClick={e => e.stopPropagation()}
+        style={{ width: '100%', background: '#FAF5EE', borderRadius: '22px 22px 0 0', padding: '10px 20px calc(24px + env(safe-area-inset-bottom))', boxShadow: '0 -8px 30px rgba(34,28,25,.18)' }}>
+        <div style={{ width: 38, height: 4, borderRadius: 999, background: '#E1D7C9', margin: '0 auto 16px' }} />
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+          <div>
+            <div style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 20, color: '#221C19', letterSpacing: '-.01em' }}>
+              {en ? 'How was it?' : '¿Cómo te fue?'}
+            </div>
+            <div style={{ fontSize: 13.5, color: '#6B615A', marginTop: 2 }}>{target.bizName}</div>
+          </div>
+          <button onClick={onClose} style={{ width: 34, height: 34, borderRadius: '50%', border: '1px solid #E9E0D5', background: '#fff', cursor: 'pointer', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+            <Icon n="x" size={17} color="#6B615A" />
+          </button>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'center', gap: 8, margin: '20px 0 6px' }}>
+          {[1, 2, 3, 4, 5].map(n => {
+            const on = n <= (hover || rating)
+            return (
+              <button key={n} onClick={() => setRating(n)}
+                onMouseEnter={() => setHover(n)} onMouseLeave={() => setHover(0)}
+                aria-label={`${n}`}
+                style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 4, lineHeight: 0 }}>
+                <Icon n="star" size={38} color={on ? '#E7A33C' : '#DED3C4'} fill={on ? '#E7A33C' : 'none'} stroke={1.5} />
+              </button>
+            )
+          })}
+        </div>
+        <div style={{ textAlign: 'center', height: 18, fontSize: 13, fontWeight: 600, color: '#9A6C1C' }}>
+          {(hover || rating) > 0 && [
+            '', en ? 'Bad' : 'Mala', en ? 'Meh' : 'Regular', en ? 'Good' : 'Buena', en ? 'Great' : 'Muy buena', en ? 'Excellent' : 'Excelente',
+          ][hover || rating]}
+        </div>
+
+        <textarea value={text} onChange={e => setText(e.target.value)} rows={3} maxLength={500}
+          placeholder={en ? 'Tell others what stood out (optional)' : 'Cuéntale a otros qué te gustó (opcional)'}
+          style={{ width: '100%', marginTop: 14, padding: '13px 14px', borderRadius: 14, border: '1px solid #E9E0D5', background: '#fff', resize: 'none', fontFamily: 'var(--font-ui)', fontSize: 14.5, color: '#221C19', outline: 'none', boxSizing: 'border-box', lineHeight: 1.5 }} />
+
+        {err && <div style={{ fontSize: 13, color: '#D23B47', fontWeight: 600, marginTop: 10 }}>{err}</div>}
+
+        <button onClick={submit} disabled={rating < 1 || sending}
+          style={{ width: '100%', marginTop: 14, padding: 15, borderRadius: 14, border: 'none', cursor: rating < 1 || sending ? 'default' : 'pointer', background: rating < 1 || sending ? '#E9E0D5' : '#E8505B', color: rating < 1 || sending ? '#A89E94' : '#fff', fontFamily: 'var(--font-ui)', fontWeight: 700, fontSize: 15, transition: 'background .15s' }}>
+          {sending ? (en ? 'Publishing…' : 'Publicando…') : (en ? 'Publish review' : 'Publicar reseña')}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function Trips({ mode, onModeToggle, onBell, onMsg }: { mode: Mode; onModeToggle: () => void; onBell: () => void; onMsg: () => void }) {
   const en = useContext(LangContext) === 'en'
   const { businesses } = useContext(BizDataContext)
   const [reviewed, setReviewed] = useState<Record<string, boolean>>({})
+  // Reseña en curso: qué tarjeta se está reseñando (null = modal cerrado).
+  const [reviewFor, setReviewFor] = useState<{ rid: string; bizId: string; bizName: string } | null>(null)
+
+  // Marca como reseñado lo que el usuario ya calificó (persiste tras recargar).
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/reviews')
+      .then(r => r.ok ? r.json() : { orderIds: [], reservationIds: [] })
+      .then((d: { orderIds?: string[]; reservationIds?: string[] }) => {
+        if (cancelled) return
+        const seed: Record<string, boolean> = {}
+        for (const id of d.orderIds ?? []) seed[`order:${id}`] = true
+        for (const id of d.reservationIds ?? []) seed[id] = true
+        setReviewed(prev => ({ ...seed, ...prev }))
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [])
 
   // Carga las reservas reales del usuario con sesión.
   const [rsvs, setRsvs] = useState<DbReservation[]>([])
@@ -2279,7 +2386,7 @@ function Trips({ mode, onModeToggle, onBell, onMsg }: { mode: Mode; onModeToggle
       </div>
       {status.tone === 'past' && !reviewed[rid] && (
         <div style={{ padding: '0 15px 15px' }}>
-          <button onClick={() => setReviewed(r => ({ ...r, [rid]: true }))}
+          <button onClick={() => setReviewFor({ rid, bizId: bk.biz.id, bizName: bk.biz.name })}
             style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, width: '100%', padding: 12, borderRadius: 13, border: 'none', cursor: 'pointer', background: '#FBEFD7', color: '#9A6C1C', fontFamily: 'var(--font-ui)', fontWeight: 700, fontSize: 14 }}>
             <Icon n="star" size={16} color="#9A6C1C" fill="#9A6C1C" />
             {en ? 'How was it? Leave a review' : '¿Cómo te fue? Deja tu reseña'}
@@ -2346,7 +2453,7 @@ function Trips({ mode, onModeToggle, onBell, onMsg }: { mode: Mode; onModeToggle
                         )}
                         {canReview && !reviewed[rid] && (
                           <div style={{ marginTop: 12 }}>
-                            <button onClick={() => setReviewed(r => ({ ...r, [rid]: true }))}
+                            <button onClick={() => setReviewFor({ rid, bizId: o.biz_id, bizName: o.businesses?.name ?? (en ? 'Business' : 'Negocio') })}
                               style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, width: '100%', padding: 12, borderRadius: 13, border: 'none', cursor: 'pointer', background: '#FBEFD7', color: '#9A6C1C', fontFamily: 'var(--font-ui)', fontWeight: 700, fontSize: 14 }}>
                               <Icon n="star" size={16} color="#9A6C1C" fill="#9A6C1C" />
                               {en ? 'How was it? Leave a review' : '¿Cómo te fue? Deja tu reseña'}
@@ -2383,6 +2490,14 @@ function Trips({ mode, onModeToggle, onBell, onMsg }: { mode: Mode; onModeToggle
           </>
         )}
       </div>
+      {reviewFor && (
+        <ReviewSheet
+          en={en}
+          target={reviewFor}
+          onClose={() => setReviewFor(null)}
+          onDone={(rid) => { setReviewed(r => ({ ...r, [rid]: true })); setReviewFor(null) }}
+        />
+      )}
     </div>
   )
 }
