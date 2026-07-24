@@ -2207,14 +2207,24 @@ function Trips({ mode, onModeToggle, onBell, onMsg }: { mode: Mode; onModeToggle
 
   // Carga los pedidos (ecommerce) del usuario con sesión.
   const [dbOrders, setDbOrders] = useState<TripOrder[]>([])
-  useEffect(() => {
-    let cancelled = false
+  const loadOrders = useCallback(() => {
     fetch('/api/orders')
       .then(r => r.ok ? r.json() : { orders: [] })
-      .then(d => { if (!cancelled) setDbOrders(d.orders ?? []) })
+      .then(d => setDbOrders(d.orders ?? []))
       .catch(() => {})
-    return () => { cancelled = true }
   }, [])
+  useEffect(() => { loadOrders() }, [loadOrders])
+  // El negocio cambia la etapa del pedido (preparando, listo, en camino…) desde
+  // su panel; nos suscribimos a la tabla orders para reflejarlo al instante sin
+  // que el cliente tenga que salir y volver a la pantalla o refrescar.
+  useEffect(() => {
+    const supabase = createClient()
+    const ch = supabase
+      .channel('trip-orders')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => loadOrders())
+      .subscribe()
+    return () => { supabase.removeChannel(ch) }
+  }, [loadOrders])
   const orderStatus = (o: TripOrder): { label: string; tone: 'pending' | 'ok' | 'past' } => {
     if (o.status === 'cancelled') return { label: en ? 'Cancelled' : 'Cancelado', tone: 'past' }
     if (o.status === 'refunded') return { label: en ? 'Refunded' : 'Reembolsado', tone: 'past' }
