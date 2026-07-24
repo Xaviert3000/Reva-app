@@ -74,6 +74,7 @@ function Icon({ n, size = 20, color = 'currentColor', stroke = 2, fill = 'none' 
     cash: <><rect x="2.5" y="6" width="19" height="12" rx="2" /><circle cx="12" cy="12" r="2.6" /><path d="M6 9.5h.01M18 14.5h.01" /></>,
     trash: <><path d="M4 7h16M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2M6 7l1 13a1 1 0 001 1h8a1 1 0 001-1l1-13" /></>,
     printer: <><path d="M6 9V3h12v6" /><path d="M6 18H5a2 2 0 01-2-2v-4a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2h-1" /><rect x="7" y="14" width="10" height="7" rx="1" /></>,
+    download: <><path d="M12 3v12" /><path d="M7 11l5 5 5-5" /><path d="M4 20h16" /></>,
     report: <><path d="M9 3H6a2 2 0 00-2 2v14a2 2 0 002 2h12a2 2 0 002-2V8l-5-5z" /><path d="M14 3v5h5" /><path d="M8 17v-3M12 17v-5M16 17v-2" /></>,
     bolt: <path d="M13 3L5 13h7l-1 8 8-10h-7l1-8z" />,
     send: <path d="M5 12l14-7-5 16-3-6-6-3z" />,
@@ -2238,6 +2239,96 @@ function InventoryView({ vert, items, setItems, onGo }: { vert: Vert; items: Cat
     boxShadow: tab === id ? '0 1px 3px rgba(0,0,0,.08)' : 'none', transition: 'background .15s',
   })
 
+  // Estado legible de cada producto para exportar/imprimir.
+  const statusOf = (c: CatItem) => {
+    if (typeof c.stock !== 'number') return t('Sin seguimiento', 'Not tracked')
+    if (c.stock === 0) return t('Agotado', 'Sold out')
+    if (c.stock <= 3) return t('Quedan pocas', 'Low stock')
+    return t('Disponible', 'Available')
+  }
+
+  // Filas ordenadas por categoría (con seguimiento primero) para ambas salidas.
+  const exportRows = () => {
+    const ordered = [...allTracked.map(c => ({ c, tr: true })), ...allUntracked.map(c => ({ c, tr: false }))]
+    return ordered
+      .map(({ c, tr }) => ({ cat: catLabel(c), name: c.name, tracked: tr, units: typeof c.stock === 'number' ? c.stock : '', status: statusOf(c) }))
+      .sort((a, b) => (a.tracked === b.tracked ? a.cat.localeCompare(b.cat, en ? 'en' : 'es') : a.tracked ? -1 : 1))
+  }
+
+  function exportCSV() {
+    const head = [t('Categoría', 'Category'), t('Producto', 'Product'), t('Seguimiento', 'Tracking'), t('Unidades', 'Units'), t('Estado', 'Status')]
+    const body = exportRows().map(r => [r.cat, r.name, r.tracked ? t('Sí', 'Yes') : t('No', 'No'), String(r.units), r.status])
+    const csv = [head, ...body].map(row => row.map(x => `"${String(x).replace(/"/g, '""')}"`).join(',')).join('\n')
+    // BOM (﻿) para que Excel abra los acentos correctamente.
+    const url = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }))
+    const stamp = new Date().toISOString().slice(0, 10)
+    const a = document.createElement('a')
+    a.href = url; a.download = `inventario-${vert.id}-${stamp}.csv`
+    document.body.appendChild(a); a.click(); a.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 1500)
+  }
+
+  function printInventory() {
+    const esc = (s: string) => String(s).replace(/[&<>]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[ch] as string))
+    const when = new Date().toLocaleString(en ? 'en-US' : 'es-MX', { dateStyle: 'long', timeStyle: 'short' })
+    // Reagrupa por categoría respetando el orden con seguimiento → sin seguimiento.
+    const groups = new Map<string, { name: string; units: string; status: string }[]>()
+    exportRows().forEach(r => {
+      const key = `${r.tracked ? '0' : '1'}·${r.cat}`
+      const g = groups.get(key) || []
+      g.push({ name: r.name, units: r.tracked ? String(r.units) : '—', status: r.status })
+      groups.set(key, g)
+    })
+    const sections = [...groups.entries()].map(([key, list]) => {
+      const [, cat] = key.split('·')
+      const rows = list.map(x => `<tr><td>${esc(x.name)}</td><td class="r">${esc(x.units)}</td><td class="s">${esc(x.status)}</td></tr>`).join('')
+      return `<div class="sec"><h2>${esc(cat)} <span class="c">${list.length}</span></h2><table class="dt"><thead><tr><th class="l">${en ? 'Product' : 'Producto'}</th><th class="r">${en ? 'Units' : 'Unidades'}</th><th class="s">${en ? 'Status' : 'Estado'}</th></tr></thead><tbody>${rows}</tbody></table></div>`
+    }).join('')
+    const kpis = [[t('Con seguimiento', 'Tracked'), allTracked.length], [t('Unidades en total', 'Total units'), totalUnits], [t('Stock bajo', 'Low stock'), lowCount], [t('Agotados', 'Sold out'), outCount]]
+      .map(k => `<div class="kv"><span>${esc(String(k[0]))}</span><b>${esc(String(k[1]))}</b></div>`).join('')
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${en ? 'Inventory' : 'Inventario'} · ${esc(vert.full || vert.name)}</title>
+    <style>
+      *{margin:0;padding:0;box-sizing:border-box}
+      body{font-family:-apple-system,'Segoe UI',Roboto,Helvetica,sans-serif;color:#221C19;padding:36px;max-width:720px;margin:0 auto}
+      header{border-bottom:2px solid #E8505B;padding-bottom:12px}
+      h1{font-size:22px;letter-spacing:-.01em}
+      .meta{font-size:11px;color:#6B615A;margin-top:5px}
+      .title{font-size:17px;font-weight:700;margin-top:18px}
+      .sub{font-size:12px;color:#6B615A;margin-bottom:14px}
+      .summary{display:grid;grid-template-columns:repeat(4,1fr);gap:0 20px;margin-bottom:6px}
+      .kv{display:flex;flex-direction:column;font-size:12px;padding:6px 0;border-bottom:1px solid #F1EADF}
+      .kv b{font-size:18px;margin-top:2px}
+      h2{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:#6B615A;border-bottom:1px solid #E9E0D5;padding-bottom:5px;margin:18px 0 8px}
+      h2 .c{color:#A89E94}
+      .sec{break-inside:avoid}
+      table{width:100%;border-collapse:collapse;font-size:13px}
+      table.dt th{font-size:10px;text-transform:uppercase;letter-spacing:.03em;color:#A89E94;text-align:left;padding:4px 6px;border-bottom:1px solid #E9E0D5}
+      th.r,td.r{text-align:right}
+      th.s,td.s{text-align:right;width:120px}
+      table.dt td{padding:5px 6px;border-bottom:1px solid #F1EADF}
+      footer{margin-top:30px;border-top:1px solid #E9E0D5;padding-top:10px;font-size:11px;color:#A89E94;text-align:center}
+      @media print{body{padding:0}}
+    </style></head><body>
+      <header><h1>${esc(vert.full || vert.name)}</h1><div class="meta">${en ? 'Inventory report' : 'Reporte de inventario'} · ${en ? 'Generated' : 'Generado'}: ${esc(when)}</div></header>
+      <div class="title">${en ? 'Inventory' : 'Inventario'}</div>
+      <div class="sub">${en ? 'Availability of your products and services' : 'Disponibilidad de tus productos y servicios'}</div>
+      <div class="summary">${kpis}</div>
+      ${sections}
+      <footer>${en ? 'Generated by Reva · Via Reva' : 'Generado por Reva · Vía Reva'}</footer>
+    </body></html>`
+    const frame = document.createElement('iframe')
+    frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0'
+    document.body.appendChild(frame)
+    const doc = frame.contentWindow?.document
+    if (!doc) return
+    doc.open(); doc.write(html); doc.close()
+    const w = frame.contentWindow
+    setTimeout(() => { try { w?.focus(); w?.print() } catch {} setTimeout(() => frame.remove(), 800) }, 200)
+  }
+
+  const empty = items.length === 0
+  const actionBtn: CSSProperties = { display: 'flex', alignItems: 'center', gap: 7, padding: '10px 14px', background: R.bgAlt, color: R.inkSoft, border: 'none', borderRadius: 999, fontFamily: R.ui, fontWeight: 700, fontSize: 13.5, cursor: empty ? 'not-allowed' : 'pointer', opacity: empty ? .5 : 1 }
+
   return (
     <div style={{ padding: '24px 28px' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
@@ -2245,9 +2336,17 @@ function InventoryView({ vert, items, setItems, onGo }: { vert: Vert; items: Cat
           <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 18, color: R.ink }}>{t('Inventario', 'Inventory')}</div>
           <div style={{ fontSize: 13.5, color: R.inkSoft }}>{t('Controla cuántas unidades quedan de cada producto o servicio', 'Track how many units are left of each product or service')}</div>
         </div>
-        <button onClick={() => onGo('catalog')} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '10px 16px', background: R.bgAlt, color: R.inkSoft, border: 'none', borderRadius: 999, fontFamily: R.ui, fontWeight: 700, fontSize: 13.5, cursor: 'pointer' }}>
-          <Icon n="grid" size={15} color={R.inkSoft} /> {t('Ir al Catálogo', 'Go to Catalog')}
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={() => { if (!empty) printInventory() }} disabled={empty} title={t('Imprimir el inventario', 'Print inventory')} style={actionBtn}>
+            <Icon n="printer" size={15} color={R.inkSoft} /> {t('Imprimir', 'Print')}
+          </button>
+          <button onClick={() => { if (!empty) exportCSV() }} disabled={empty} title={t('Descargar CSV (se abre en Excel)', 'Download CSV (opens in Excel)')} style={actionBtn}>
+            <Icon n="download" size={15} color={R.inkSoft} /> {t('Exportar', 'Export')}
+          </button>
+          <button onClick={() => onGo('catalog')} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '10px 16px', background: R.bgAlt, color: R.inkSoft, border: 'none', borderRadius: 999, fontFamily: R.ui, fontWeight: 700, fontSize: 13.5, cursor: 'pointer' }}>
+            <Icon n="grid" size={15} color={R.inkSoft} /> {t('Ir al Catálogo', 'Go to Catalog')}
+          </button>
+        </div>
       </div>
 
       <div style={{ display: 'flex', gap: 12, marginBottom: 18 }}>
