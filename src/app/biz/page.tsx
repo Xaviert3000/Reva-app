@@ -1116,16 +1116,18 @@ function OrdersView({ vert, orders, couriers, onUpdate }: { vert: Vert; orders: 
           </div>
         )}
 
-        {!terminal && (
-          <div style={{ display: 'flex', gap: 7, marginTop: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-            {action && (
-              <button onClick={() => { if (action.status === 'delivered') setDeliverFor(o); else onUpdate(o.id, { status: action.status }) }}
-                style={{ padding: '8px 14px', background: R.coral, color: '#fff', border: 'none', borderRadius: 999, fontFamily: R.ui, fontWeight: 700, fontSize: 12.5, cursor: 'pointer' }}>{action.label}</button>
-            )}
+        <div style={{ display: 'flex', gap: 7, marginTop: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+          {!terminal && action && (
+            <button onClick={() => { if (action.status === 'delivered') setDeliverFor(o); else onUpdate(o.id, { status: action.status }) }}
+              style={{ padding: '8px 14px', background: R.coral, color: '#fff', border: 'none', borderRadius: 999, fontFamily: R.ui, fontWeight: 700, fontSize: 12.5, cursor: 'pointer' }}>{action.label}</button>
+          )}
+          <button onClick={() => printOrderTicket(o, vert.full || vert.name, en)}
+            style={{ padding: '8px 14px', background: R.bgAlt, color: R.ink, border: 'none', borderRadius: 999, fontFamily: R.ui, fontWeight: 700, fontSize: 12.5, cursor: 'pointer' }}>🖨️ {t('Imprimir', 'Print')}</button>
+          {!terminal && (
             <button onClick={() => onUpdate(o.id, { status: 'cancelled' })}
               style={{ padding: '8px 14px', background: R.bgAlt, color: R.ink, border: 'none', borderRadius: 999, fontFamily: R.ui, fontWeight: 700, fontSize: 12.5, cursor: 'pointer' }}>{t('Cancelar', 'Cancel')}</button>
-          </div>
-        )}
+          )}
+        </div>
         </div>
       </BCard>
     )
@@ -2728,6 +2730,61 @@ function printTicketHTML(o: {
     ${o.reference ? `<div class="pay">${en ? 'Reference' : 'Referencia'}: ${esc(o.reference)}</div>` : ''}
     ${typeof o.change === 'number' ? `<div class="pay">${en ? 'Cash received' : 'Efectivo recibido'}: ${money(o.cashReceived ?? 0)}</div><div class="pay">${en ? 'Change' : 'Cambio'}: ${money(o.change)}</div>` : ''}
     <div class="thanks">${en ? 'Thank you for your purchase! 🌮' : '¡Gracias por tu compra! 🌮'}<br>${en ? 'Via Reva' : 'Vía Reva'}</div>
+    </body></html>`
+  const frame = document.createElement('iframe')
+  frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0'
+  document.body.appendChild(frame)
+  const doc = frame.contentWindow?.document
+  if (!doc) return
+  doc.open(); doc.write(html); doc.close()
+  const w = frame.contentWindow
+  setTimeout(() => { try { w?.focus(); w?.print() } catch {} setTimeout(() => frame.remove(), 800) }, 150)
+}
+// Imprime una comanda del pedido (para cocina / mostrador): tipo de entrega,
+// datos del cliente, artículos, notas y totales. Reutiliza el mismo enfoque de
+// iframe oculto que printTicketHTML para no abrir ventanas nuevas.
+function printOrderTicket(o: PanelOrder, bizName: string, en = false) {
+  const esc = (s: string) => (s || '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c] as string))
+  const folio = '#' + o.id.slice(0, 8).toUpperCase()
+  const isDelivery = o.fulfillment === 'delivery'
+  const typeLabel = isDelivery ? (en ? '🛵 Delivery' : '🛵 Entrega') : (en ? '🏪 Pickup' : '🏪 Recoger')
+  const rows = o.order_items.map(it =>
+    `<tr><td class="q">${it.qty}×</td><td>${esc(it.name)}</td><td class="r">${money(it.line_total ?? it.unit_price * it.qty)}</td></tr>`).join('')
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>${en ? 'Order' : 'Pedido'} ${esc(folio)}</title>
+    <style>
+      *{margin:0;padding:0;box-sizing:border-box}
+      body{font-family:'Courier New',monospace;color:#1a1a1a;padding:14px;width:280px}
+      h1{font-size:15px;text-align:center}
+      .type{text-align:center;font-size:13px;font-weight:bold;border:2px solid #1a1a1a;border-radius:6px;padding:4px;margin:8px 0}
+      .hr{border-top:1px dashed #999;margin:8px 0}
+      .meta{font-size:11px;color:#555;display:flex;justify-content:space-between}
+      .cust{font-size:12px;margin:2px 0}
+      .cust b{font-size:13px}
+      table{width:100%;border-collapse:collapse;font-size:12px;margin:6px 0}
+      td{padding:2px 0;vertical-align:top}
+      td.q{width:28px;font-weight:bold}
+      td.r{text-align:right;white-space:nowrap;padding-left:8px}
+      .notes{font-size:12px;border:1px dashed #B5472F;border-radius:6px;padding:6px;margin:6px 0;color:#B5472F}
+      .row{display:flex;justify-content:space-between;font-size:12px;color:#555;margin:2px 0}
+      .total{display:flex;justify-content:space-between;font-size:15px;font-weight:bold;margin-top:4px}
+      .thanks{text-align:center;font-size:11px;margin-top:12px;color:#555}
+      @media print{body{width:auto}}
+    </style></head><body>
+    <h1>${esc(bizName)}</h1>
+    <div class="type">${typeLabel}</div>
+    <div class="meta"><span>${esc(saleWhen(o.created_at, en))}</span><span>${esc(folio)}</span></div>
+    <div class="hr"></div>
+    <div class="cust"><b>${esc(o.customer_name || (en ? 'Customer' : 'Cliente'))}</b></div>
+    ${o.customer_phone ? `<div class="cust">📞 ${esc(o.customer_phone)}</div>` : ''}
+    ${isDelivery && o.address ? `<div class="cust">📍 ${esc(o.address)}</div>` : ''}
+    <div class="hr"></div>
+    <table>${rows}</table>
+    ${o.notes ? `<div class="notes">${en ? 'Notes' : 'Notas'}: ${esc(o.notes)}</div>` : ''}
+    <div class="hr"></div>
+    <div class="row"><span>${en ? 'Subtotal' : 'Subtotal'}</span><span>${money(o.subtotal)}</span></div>
+    ${o.delivery_fee > 0 ? `<div class="row"><span>${en ? 'Delivery' : 'Envío'}</span><span>${money(o.delivery_fee)}</span></div>` : ''}
+    <div class="total"><span>TOTAL</span><span>${money(o.total)}</span></div>
+    <div class="thanks">${en ? 'Via Reva' : 'Vía Reva'}</div>
     </body></html>`
   const frame = document.createElement('iframe')
   frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0'
