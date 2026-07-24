@@ -1350,7 +1350,13 @@ function MessagesView({ vert, agentCfg }: { vert: Vert; agentCfg: BizAgentConfig
           bizName: vert.full,
           bizType: vert.kind,
           greeting: `Hola, soy el agente de ${vert.full}.`,
-          services: vert.catalog.map(c => c.name),
+          services: vert.catalog.map(c => {
+            // [producto] = pedido (carrito + pago): requiere pedidos activos,
+            // sin calendario y precio numérico. Espeja isOrderable() del cliente.
+            const priceNum = Number(String(c.price).replace(/[^0-9.]/g, ''))
+            const isProduct = vert.caps.orders && c.scheduled === false && Number.isFinite(priceNum) && priceNum > 0
+            return `${c.name} (${c.price})${isProduct ? ' [producto]' : ' [reserva]'}`
+          }),
           hours: vert.hours,
           depositPolicy: depositItem ? 'deposit' : 'none',
           depositAmount,
@@ -1358,6 +1364,8 @@ function MessagesView({ vert, agentCfg }: { vert: Vert; agentCfg: BizAgentConfig
           tone: agentCfg.tone,
           instructions: agentCfg.instructions,
           maxDiscount: agentCfg.maxDiscount,
+          doesOrders: vert.caps.orders,
+          doesReservations: vert.caps.reservations,
         }),
       })
       if (!res.ok || !res.body) throw new Error('API error')

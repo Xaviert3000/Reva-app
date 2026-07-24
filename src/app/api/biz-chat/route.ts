@@ -13,7 +13,7 @@ export async function POST(req: Request) {
   const limited = enforceRateLimit(req, 'ai')
   if (limited) return limited
   try {
-    const { messages, bizName, bizType, greeting, services, hours, depositPolicy, depositAmount, mode, tone, instructions, maxDiscount } = await req.json() as {
+    const { messages, bizName, bizType, greeting, services, hours, depositPolicy, depositAmount, mode, tone, instructions, maxDiscount, doesOrders, doesReservations } = await req.json() as {
       messages: ChatMessage[]
       bizName: string
       bizType: string
@@ -26,11 +26,13 @@ export async function POST(req: Request) {
       tone?: string
       instructions?: string
       maxDiscount?: number
+      doesOrders?: boolean
+      doesReservations?: boolean
     }
 
     const cfg = await loadPlatformConfig()
     const system = bizChatSystemPrompt(
-      { bizName, bizType, greeting, services, hours, depositPolicy, depositAmount, mode, tone, instructions, maxDiscount },
+      { bizName, bizType, greeting, services, hours, depositPolicy, depositAmount, mode, tone, instructions, maxDiscount, doesOrders, doesReservations },
       resolvedPrompt(cfg, 'biz-chat'),
     )
     const fullMessages: ChatMessage[] = [{ role: 'system', content: system }, ...messages]

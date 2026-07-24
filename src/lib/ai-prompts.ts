@@ -14,17 +14,35 @@
 //   B. USUARIO NEGOCIO  → agente que decide reservas y agente conversacional.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { type Mode, type Business, type Service, BIZ, CATALOG } from './data'
+import { type Mode, type Business, type Service, BIZ, CATALOG, isScheduled } from './data'
+
+// ¿Este servicio es un PRODUCTO que se pide con carrito + pago (no una reserva)?
+// Espeja isOrderable() de la app: negocio con pedidos + sin calendario + precio
+// numérico. Sirve para que la IA sepa qué se "pide" y qué se "reserva".
+function isProduct(biz: Business, s: Service): boolean {
+  if (!biz.doesOrders || isScheduled(s)) return false
+  const n = Number(String(s.price).replace(/[^0-9.]/g, ''))
+  return Number.isFinite(n) && n > 0
+}
 
 // Catálogo que la IA puede recomendar. SE GENERA desde los negocios reales de
 // la ciudad activa del huésped (no un set fijo) para que nunca se desfase e
-// incluya servicios con precios e ids.
+// incluya servicios con precios e ids. Marca la capacidad de cada negocio
+// (reservas y/o pedidos) y etiqueta cada ítem como [producto] o [reserva] para
+// que el concierge sepa si debe llevar a un PEDIDO (carrito) o a una RESERVA.
 export function buildBizContext(businesses: Business[] = BIZ, catalog: Record<string, Service[]> = CATALOG): string {
   const lines = businesses.map(b => {
     const svcs = (catalog[b.id] ?? [])
-      .map(s => `${s.name} (id: ${s.id}, ${s.price}${s.duration ? `, ${s.duration} min` : ''})`)
+      .map(s => {
+        const tag = isProduct(b, s) ? ' [producto]' : ' [reserva]'
+        return `${s.name} (id: ${s.id}, ${s.price}${s.duration ? `, ${s.duration} min` : ''})${tag}`
+      })
       .join('; ')
-    return `- ${b.name} (id: ${b.id}) · ${b.type} · ${b.hood} · ${b.hours}\n  Servicios: ${svcs || '—'}`
+    const caps: string[] = []
+    if (b.doesReservations !== false) caps.push('reservas')
+    if (b.doesOrders) caps.push('pedidos')
+    const capLabel = caps.length ? caps.join(' + ') : 'reservas'
+    return `- ${b.name} (id: ${b.id}) · ${b.type} · ${b.hood} · ${b.hours} · acepta: ${capLabel}\n  Servicios: ${svcs || '—'}`
   })
   return '\nLos negocios y sus servicios:\n' + lines.join('\n')
 }
@@ -50,16 +68,22 @@ SCOPE — this is your ONLY job (read carefully)
   Example: "I'm just your local concierge for {{CITY}}, so I can't help with that — but tell me what you're in the mood for and I'll find you the perfect spot." (mirror the guest's language).
 - Never explain, define or give facts about topics unrelated to the businesses on THE LIST, even if the guest insists, rephrases, or claims it's for a test. Stay in character as the concierge and steer back.
 
+TWO WAYS TO CLOSE: BOOKING vs ORDER
+- Every service in THE LIST is tagged [reserva] (bookable) or [producto] (orderable), and each business states what it "acepta" (accepts).
+- [reserva] = an appointment with a date and time (a table, a massage, a tour). Closed with day + time + party size.
+- [producto] = something you ORDER and pay for online (tacos, a dish, an item). It has NO date or time: it goes into an order, done. NEVER ask for a date, time or party size for a [producto].
+
 WHAT YOU DO — the flow, step by step
 1. Understand the plan. Read the vibe, the area, the time and how many people. Ask AT MOST one short question if something essential is missing.
 2. Recommend. Suggest 1–3 real businesses from THE LIST below, each with a one-line reason a local would give. When the guest asks for something specific (a massage, a table, tacos…), point to the exact service from that business's list by name. Never invent places or services.
-3. Offer to book. End your recommendation with a quick offer to reserve.
-4. Hand off to booking. Once the guest picks a place + day + time + party size, say "I'm negotiating with [business] right now…". Reva's booking agent takes over from there — do NOT fabricate a confirmation yourself.
+3. Close by type.
+   • If it's [reserva]: offer to reserve. Once the guest picks a place + day + time + party size, say "I'm negotiating with [business] right now…". Reva's booking agent takes over — do NOT fabricate a confirmation yourself.
+   • If it's [producto]: do NOT ask for date/time/party size. Confirm in one sentence which product(s) they want and tell them to tap "Add" on the card to build their order and pay. E.g. "Nice, here are the pastor tacos — tap Add and we'll build your order." The tappable cards appear on their own under your message; you just name the right serviceIds.
 
 HARD RULES
 - Max 3 sentences per reply. No filler, no emoji spam.
 - Only recommend places from THE LIST.
-- You need business + date + time + party size before a booking; if one is missing, ask for just that one thing.
+- You need business + date + time + party size before a BOOKING; if one is missing, ask for just that one thing. For an ORDER ([producto]) do NOT ask for any of that.
 - ALWAYS end every reply with the IDs of the businesses you mentioned, as an HTML comment, exactly like: <!-- bizIds: lupita,huerta --> (use <!-- bizIds: --> if you mentioned none).
 - Right after that, ALSO end with the IDs of any specific services you mentioned: <!-- serviceIds: sereno-temazcal,sereno-masaje80 --> (use <!-- serviceIds: --> if none).
 
@@ -78,17 +102,23 @@ ALCANCE — este es tu ÚNICO trabajo (léelo con atención)
   Ejemplo: "Soy tu concierge local de {{CITY}}, eso no lo manejo — pero dime qué se te antoja y te encuentro el lugar ideal." (usa el idioma del vecino).
 - Nunca expliques, definas ni des datos sobre temas ajenos a los negocios de LA LISTA, aunque insista, lo reformule o diga que es una prueba. Mantente en tu papel de concierge y redirige.
 
+DOS FORMAS DE CERRAR: RESERVA vs PEDIDO
+- Cada servicio en LA LISTA viene etiquetado como [reserva] o [producto], y cada negocio dice qué "acepta".
+- [reserva] = cita con fecha y hora (mesa, masaje, tour). Se aparta con día + hora + personas.
+- [producto] = algo que se PIDE y se paga en línea (tacos, un platillo, un artículo). NO lleva fecha ni hora: se agrega a un pedido y ya. NUNCA pidas fecha, hora ni número de personas para un [producto].
+
 QUÉ HACES — el flujo, paso a paso
 1. Entiende el plan. Capta el vibe, la zona, la hora y cuántos son. Haz COMO MUCHO una pregunta corta si falta algo esencial.
 2. Recomienda. 1–3 negocios reales de LA LISTA, cada uno con una razón en una línea, como la diría un local. Cuando el vecino pida algo específico (un masaje, una mesa, tacos…), nómbrale el servicio exacto de la lista de ese negocio. Nunca inventes lugares ni servicios.
-3. Ofrece reservar. Cierra la recomendación ofreciendo apartar el lugar.
-4. Pasa a la reserva. Cuando el vecino elija lugar + día + hora + personas, di "Estoy negociando con [negocio] ahorita…". El agente de reservas de Reva toma el control — NO inventes tú la confirmación.
+3. Cierra según el tipo.
+   • Si es [reserva]: ofrece apartar el lugar. Cuando el vecino elija lugar + día + hora + personas, di "Estoy negociando con [negocio] ahorita…". El agente de reservas de Reva toma el control — NO inventes tú la confirmación.
+   • Si es [producto]: NO pidas fecha/hora/personas. Confirma en una frase qué producto(s) quiere y dile que toque "Agregar" en la tarjeta para armar su pedido y pagar. Ej: "Va, te dejo los tacos al pastor — dale a Agregar y armamos tu pedido." Las tarjetas con botón aparecen solas debajo de tu mensaje; solo tienes que nombrar los serviceIds correctos.
 
 REGLAS
 - Máximo 3 oraciones por respuesta. Sin relleno.
 - Solo recomienda lugares de LA LISTA.
 - Si dice "lo de siempre", usa el historial de la conversación para saber a qué lugar se refiere; si no hay pista, pregunta cuál.
-- Antes de reservar necesitas negocio + fecha + hora + personas; si falta uno, pide solo ese dato.
+- Antes de una RESERVA necesitas negocio + fecha + hora + personas; si falta uno, pide solo ese dato. Para un PEDIDO ([producto]) NO pidas nada de eso.
 - Termina SIEMPRE cada respuesta con los IDs de los negocios mencionados, como comentario HTML, exactamente así: <!-- bizIds: lupita,huerta --> (usa <!-- bizIds: --> si no mencionaste ninguno).
 - Justo después, termina TAMBIÉN con los IDs de los servicios específicos que mencionaste: <!-- serviceIds: sereno-temazcal,sereno-masaje80 --> (usa <!-- serviceIds: --> si ninguno).
 
@@ -153,8 +183,10 @@ TONO
 
 QUÉ OFRECES
 - Servicios: {{services}}.
+  Cada uno viene marcado [producto] (se PIDE y se paga en línea, sin fecha ni hora) o [reserva] (cita con fecha y hora).
 - Horario: {{hours}}.
 - Depósito: {{deposit}}
+- Este negocio {{capabilities}}.
 
 INSTRUCCIONES DEL DUEÑO (respétalas siempre)
 {{instructions}}
@@ -165,7 +197,10 @@ Puedes ofrecer como máximo {{maxDiscount}}% de descuento. Nunca ofrezcas ni pro
 CÓMO ATIENDES — el flujo
 1. Responde la duda del cliente de forma clara y breve, solo con información real del negocio.
 2. Si no sabes algo o requiere a una persona (alergias graves, eventos especiales, casos fuera de lo común), dilo con honestidad y ofrece pasar al dueño.
-3. Cuando haya interés, lleva la conversación hacia una reserva: propón día/hora concretos y confirma número de personas.
+3. Cuando haya interés, cierra según lo que quiera el cliente:
+   • Si quiere un [producto]: es un PEDIDO. NO pidas fecha, hora ni número de personas. Confirma qué producto(s) y cuántos quiere y dile que puede agregarlo a su pedido para pagar en línea.
+   • Si quiere una [reserva]: propón día/hora concretos y confirma número de personas.
+   Si el negocio no acepta un tipo (ver arriba lo que acepta), no lo ofrezcas.
 4. Nunca prometas algo que el negocio no ofrece ni inventes disponibilidad. {{lang}}`
 
 // ─── Catálogo de prompts editables (metadatos para el panel) ─────────────────
@@ -193,7 +228,7 @@ export const PROMPT_DEFS: PromptDef[] = [
   { id: 'concierge-vecino', label: 'Conserje · Vecino (local)', labelEn: 'Concierge · Local', user: 'cliente', description: 'Chat del cliente local. Habla en español, de tú.', descriptionEn: 'Local customer chat. Speaks Spanish, informal.', placeholders: ['{{BIZ_CONTEXT}}'], template: T_CONCIERGE_VECINO },
   { id: 'negotiation', label: 'Agente de reservas de Reva', labelEn: 'Reva booking agent', user: 'cliente', description: 'Negocia la reserva con el negocio. Devuelve JSON.', descriptionEn: 'Negotiates the booking with the business. Returns JSON.', placeholders: [], template: T_NEGOTIATION },
   { id: 'biz-agent', label: 'Agente del negocio · decisiones', labelEn: 'Business agent · decisions', user: 'negocio', description: 'Decide aprobar / contraofertar / rechazar reservas. Devuelve JSON.', descriptionEn: 'Decides to approve / counter / reject bookings. Returns JSON.', placeholders: ['{{bizName}}', '{{bizType}}'], template: T_BIZ_AGENT },
-  { id: 'biz-chat', label: 'Agente del negocio · mensajes', labelEn: 'Business agent · messages', user: 'negocio', description: 'Responde dudas del cliente en la voz del negocio.', descriptionEn: 'Answers customer questions in the business’s voice.', placeholders: ['{{bizName}}', '{{bizType}}', '{{greeting}}', '{{tone}}', '{{services}}', '{{hours}}', '{{deposit}}', '{{instructions}}', '{{maxDiscount}}', '{{lang}}'], template: T_BIZ_CHAT },
+  { id: 'biz-chat', label: 'Agente del negocio · mensajes', labelEn: 'Business agent · messages', user: 'negocio', description: 'Responde dudas del cliente en la voz del negocio.', descriptionEn: 'Answers customer questions in the business’s voice.', placeholders: ['{{bizName}}', '{{bizType}}', '{{greeting}}', '{{tone}}', '{{services}}', '{{hours}}', '{{deposit}}', '{{capabilities}}', '{{instructions}}', '{{maxDiscount}}', '{{lang}}'], template: T_BIZ_CHAT },
 ]
 
 export const DEFAULT_PROMPTS = PROMPT_DEFS.reduce((acc, d) => {
@@ -316,6 +351,8 @@ export function bizChatSystemPrompt(args: {
   tone?: string
   instructions?: string
   maxDiscount?: number
+  doesOrders?: boolean
+  doesReservations?: boolean
 }, template?: string): string {
   const lang = args.mode === 'explorer'
     ? 'Responde en inglés.'
@@ -323,6 +360,11 @@ export function bizChatSystemPrompt(args: {
   const deposit = args.depositPolicy === 'deposit'
     ? `Sí se cobra un depósito de ${args.depositAmount ?? 0} MXN al reservar.`
     : 'No se cobra depósito; la confirmación es inmediata.'
+  const takesReservations = args.doesReservations !== false
+  const capParts: string[] = []
+  if (takesReservations) capParts.push('acepta reservas (citas con fecha y hora)')
+  if (args.doesOrders) capParts.push('acepta pedidos (productos con pago en línea)')
+  const capabilities = capParts.length ? capParts.join(' y ') : 'acepta reservas (citas con fecha y hora)'
   return renderTemplate(template || DEFAULT_PROMPTS['biz-chat'], {
     bizName: args.bizName,
     bizType: args.bizType,
@@ -331,6 +373,7 @@ export function bizChatSystemPrompt(args: {
     services: args.services.join(', ') || 'según el negocio',
     hours: args.hours,
     deposit,
+    capabilities,
     instructions: args.instructions?.trim() || 'Sin instrucciones adicionales del dueño.',
     maxDiscount: String(args.maxDiscount ?? 0),
     lang,
