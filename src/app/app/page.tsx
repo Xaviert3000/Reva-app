@@ -20,7 +20,7 @@ import { clsx } from 'clsx'
 
 // Live businesses + catalog for the guest's current city (Supabase-backed for
 // any municipio besides Los Cabos, which keeps the curated demo set).
-const BizDataContext = createContext<CityData & { city: string }>({ businesses: BIZ, catalog: CATALOG, city: 'Los Cabos' })
+const BizDataContext = createContext<CityData & { city: string; refresh: () => void }>({ businesses: BIZ, catalog: CATALOG, city: 'Los Cabos', refresh: () => {} })
 
 // ── Carrito de pedidos (ecommerce) ─────────────────────────
 // Sólo aplica a negocios con doesOrders. Un carrito pertenece a UN negocio a la
@@ -2280,7 +2280,7 @@ function ReviewSheet({ en, target, onClose, onDone }: {
 
 function Trips({ mode, onModeToggle, onBell, onMsg }: { mode: Mode; onModeToggle: () => void; onBell: () => void; onMsg: () => void }) {
   const en = useContext(LangContext) === 'en'
-  const { businesses } = useContext(BizDataContext)
+  const { businesses, refresh: refreshBizData } = useContext(BizDataContext)
   const [reviewed, setReviewed] = useState<Record<string, boolean>>({})
   // Reseña en curso: qué tarjeta se está reseñando (null = modal cerrado).
   const [reviewFor, setReviewFor] = useState<{ rid: string; bizId: string; bizName: string } | null>(null)
@@ -2495,7 +2495,7 @@ function Trips({ mode, onModeToggle, onBell, onMsg }: { mode: Mode; onModeToggle
           en={en}
           target={reviewFor}
           onClose={() => setReviewFor(null)}
-          onDone={(rid) => { setReviewed(r => ({ ...r, [rid]: true })); setReviewFor(null) }}
+          onDone={(rid) => { setReviewed(r => ({ ...r, [rid]: true })); setReviewFor(null); refreshBizData() }}
         />
       )}
     </div>
@@ -3439,6 +3439,12 @@ export default function AppPage() {
     fetchCityData(currentCity).then(data => { if (!cancelled) setBizData(data) })
     return () => { cancelled = true }
   }, [currentCity])
+  // Vuelve a pedir negocios + reseñas del municipio actual. Se llama tras
+  // publicar una reseña para que aparezca de inmediato en "Lo que dicen los
+  // locales" (antes el array vivía en memoria y no se refrescaba en la sesión).
+  const refreshBizData = useCallback(() => {
+    fetchCityData(currentCity).then(setBizData)
+  }, [currentCity])
 
   const handleCityChange = (city: string) => {
     setCurrentCity(city)
@@ -3664,7 +3670,7 @@ export default function AppPage() {
 
   return (
     <LangContext.Provider value={lang}>
-    <BizDataContext.Provider value={{ ...bizData, city: currentCity }}>
+    <BizDataContext.Provider value={{ ...bizData, city: currentCity, refresh: refreshBizData }}>
     <CartContext.Provider value={cartState}>
     <NotifContext.Provider value={{ items: notifs, unread: notifUnread, markAllRead: markNotifsRead }}>
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#FAF5EE', position: 'relative' }}>
