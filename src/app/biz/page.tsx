@@ -6397,6 +6397,10 @@ export default function BizPage() {
   const notifs = [
     ...panelRequests
       .map(r => ({ id: `act-${r.id}`, icon: 'bolt', tint: R.coralTint, color: R.coralPress, title: t('Acción requerida', 'Action required'), sub: `${r.who} · ${r.party} ${t('personas', 'people')} · ${r.when} ${r.time}`, time: r.when === 'Hoy' ? r.time : r.when, view: 'requests' })),
+    ...orders
+      // Pedidos pagados aún sin preparar: entraron y esperan que el negocio los tome.
+      .filter(o => o.status === 'paid')
+      .map(o => ({ id: `ord-${o.id}`, icon: 'box', tint: R.coralTint, color: R.coralPress, title: t('Pedido nuevo', 'New order'), sub: `${o.customer_name || t('Cliente', 'Customer')} · ${o.order_items.map(i => `${i.qty}× ${i.name}`).join(' · ')} · $${o.total}`, time: new Date(o.created_at).toLocaleTimeString(en ? 'en-US' : 'es-MX', { hour: '2-digit', minute: '2-digit' }), view: 'orders' })),
     ...vert.messages
       .filter(m => m.unread)
       .map(m => ({ id: `msg-${m.who}`, icon: 'chat', tint: R.jadeTint, color: '#16614c', title: `${t('Nuevo mensaje', 'New message')} · ${m.who}`, sub: m.last, time: m.time, view: 'messages' })),
