@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { getRouteUser } from '@/lib/supabase/route-auth'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { openrouterChat, type ChatMessage } from '@/lib/openrouter'
 import { bizChatSystemPrompt } from '@/lib/ai-prompts'
@@ -17,8 +17,8 @@ interface DbMessage { id: string; biz_id: string; user_id: string; from_role: st
 //  POST {biz_id, body} → guarda el mensaje del cliente, genera la respuesta del
 //                        agente del negocio y también la guarda.
 export async function GET(req: NextRequest) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  // Acepta cookie (web) o Bearer token (app nativa).
+  const { user } = await getRouteUser(req)
   if (!user) return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
 
   const bizId = req.nextUrl.searchParams.get('biz_id')
@@ -61,8 +61,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  // Acepta cookie (web) o Bearer token (app nativa).
+  const { user } = await getRouteUser(req)
   if (!user) return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
 
   const { biz_id, body, mode } = await req.json() as { biz_id: string; body: string; mode?: Mode }

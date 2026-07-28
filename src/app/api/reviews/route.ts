@@ -1,13 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { getRouteUser } from '@/lib/supabase/route-auth'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { issueTickets } from '@/lib/rove-db'
 
 // POST /api/reviews → alta de reseña del cliente sobre un negocio.
 // Recibe { biz_id, rating (1-5), body?, lang? } y guarda al autor con sesión.
 // Otorga 1 boleto Reva+ por reseña (regla review en TICKET_EARN_RULES).
 export async function POST(req: NextRequest) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  // Acepta cookie (web) o Bearer token (app nativa).
+  const { user } = await getRouteUser(req)
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json().catch(() => ({}))
@@ -28,13 +30,16 @@ export async function POST(req: NextRequest) {
   let author = (typeof meta.full_name === 'string' && meta.full_name.trim())
     || (typeof meta.name === 'string' && meta.name.trim())
     || null
+  // Service role: funciona igual por cookie o por Bearer (con Bearer no hay
+  // sesión de cookie, así que RLS de auth.uid() no aplica).
+  const admin = createAdminClient()
   if (!author) {
-    const { data: profile } = await supabase
+    const { data: profile } = await admin
       .from('profiles').select('full_name').eq('id', user.id).single()
     author = profile?.full_name?.trim() || (lang === 'en' ? 'Reva guest' : 'Cliente Reva')
   }
 
-  const { data: review, error } = await supabase
+  const { data: review, error } = await admin
     .from('reviews')
     .insert({ user_id: user.id, biz_id, rating, body: text, author, lang, order_id, reservation_id })
     .select()

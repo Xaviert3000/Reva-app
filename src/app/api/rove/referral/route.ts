@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { getRouteUser } from '@/lib/supabase/route-auth'
 import { getReferralStats, applyReferralCode } from '@/lib/rove-db'
 
 export const dynamic = 'force-dynamic'
 
 // GET — devuelve el código y stats del usuario con sesión.
-export async function GET() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+export async function GET(req: NextRequest) {
+  // Acepta cookie (web) o Bearer token (app nativa).
+  const { user } = await getRouteUser(req)
   if (!user) return NextResponse.json({ code: '', link: '', totalReferred: 0, completed: 0, pending: 0 })
 
   const stats = await getReferralStats(user.id)
@@ -23,8 +23,7 @@ export async function GET() {
 
 // POST — el usuario con sesión aplica un código de referido.
 export async function POST(req: NextRequest) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const { user } = await getRouteUser(req)
   if (!user) return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
 
   const { code } = await req.json()

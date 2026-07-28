@@ -1505,6 +1505,16 @@ function MessagesView({ vert, agentCfg }: { vert: Vert; agentCfg: BizAgentConfig
     } catch { /* deja los hilos como están */ }
   }, [vert.id])
   useEffect(() => { loadThreads() }, [loadThreads])
+  // Realtime: recarga los hilos cuando un cliente escribe (evita tener que
+  // recargar la página para ver mensajes nuevos).
+  useEffect(() => {
+    const supabase = createClient()
+    const channel = supabase
+      .channel(`biz-messages-${vert.id}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `biz_id=eq.${vert.id}` }, () => { loadThreads() })
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [vert.id, loadThreads])
   const thread = threads[active]
   const scrollRef = useRef<HTMLDivElement>(null)
   useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight }, [active, threads])

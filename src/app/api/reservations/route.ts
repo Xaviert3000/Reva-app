@@ -1,17 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { getRouteUser } from '@/lib/supabase/route-auth'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { issueStamp } from '@/lib/boomerangme'
 import { issueTickets, completeReferral } from '@/lib/rove-db'
 
 export async function POST(req: NextRequest) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  // Acepta cookie (web) o Bearer token (app nativa).
+  const { user } = await getRouteUser(req)
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json()
   const { biz_id, service_id, slot, party, notes, deposit_amount } = body
 
-  const { data: reservation, error } = await supabase
+  // Insert con service role y user_id explícito: funciona igual por cookie o por
+  // Bearer (con Bearer no hay sesión de cookie, así que RLS de auth.uid() no aplica).
+  const admin = createAdminClient()
+  const { data: reservation, error } = await admin
     .from('reservations')
     .insert({
       user_id: user.id,

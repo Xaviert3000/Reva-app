@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getStripe, commissionAmount } from '@/lib/stripe'
-import { createClient } from '@/lib/supabase/server'
+import { getRouteUser } from '@/lib/supabase/route-auth'
 import { createAdminClient } from '@/lib/supabase/admin'
 
 export const dynamic = 'force-dynamic'
@@ -12,8 +12,8 @@ interface ItemInput { service_id: string; qty: number }
 // Reva, igual que los depósitos). El webhook marca el pedido como pagado.
 // Los precios NO se confían al cliente: se recalculan desde la BD por service_id.
 export async function POST(req: NextRequest) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  // Acepta cookie (web) o Bearer token (app nativa).
+  const { user } = await getRouteUser(req)
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json()
