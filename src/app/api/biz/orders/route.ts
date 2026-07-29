@@ -13,6 +13,89 @@ async function ownerOf(bizId: string, userId: string): Promise<boolean> {
   return !!data
 }
 
+// Sólo enlazamos service_id cuando es un UUID válido (la FK lo exige); si no, el
+// renglón conserva igual su nombre y precio como snapshot. Igual que lib/pos.ts.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+interface InStoreItem { service_id?: string; name: string; unit_price: number; qty: number }
+
+// POST /api/biz/orders → crea un pedido hecho EN EL LOCAL (Punto de venta o
+// Autoservicio) directamente como 'paid', para que entre al tablero de Pedidos y
+// corra el flujo de preparación/entrega. No pasa por Stripe (ya se cobró en caja
+// o en la pantalla): el pago se registró aparte en pos_sales. Sin user_id (no hay
+// cliente con sesión) y sin confirmation_code (no se pide código al recoger).
+// body: { biz_id, channel:'pos'|'kiosk', fulfillment?, customer_name?, notes?,
+//         subtotal, total, items:[{service_id?,name,unit_price,qty}] }
+export async function POST(req: NextRequest) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
+
+  const body = await req.json()
+  const bizId: string | undefined = body.biz_id
+  const channel: string = body.channel === 'kiosk' ? 'kiosk' : 'pos'
+  if (!bizId) return NextResponse.json({ error: 'biz_id requerido' }, { status: 400 })
+  if (!(await ownerOf(bizId, user.id))) return NextResponse.json({ error: 'No autorizado' }, { status: 403 })
+
+  const rawItems: InStoreItem[] = Array.isArray(body.items) ? body.items : []
+  const items = rawItems
+    .map(i => {
+      const qty = Math.max(1, Math.min(999, Math.floor(Number(i.qty) || 1)))
+      const unit = Number(i.unit_price) || 0
+      const name = typeof i.name === 'string' ? i.name.trim() : ''
+      if (!name) return null
+      return {
+        service_id: i.service_id && UUID_RE.test(i.service_id) ? i.service_id : null,
+        name, unit_price: unit, qty, line_total: unit * qty,
+      }
+    })
+    .filter((x): x is NonNullable<typeof x> => x !== null)
+
+  if (items.length === 0) return NextResponse.json({ error: 'Pedido vacío' }, { status: 400 })
+
+  const subtotal = Number(body.subtotal) || items.reduce((s, p) => s + p.line_total, 0)
+  const total = Number(body.total) || subtotal
+  const fulfillment: 'pickup' | 'delivery' = body.fulfillment === 'delivery' ? 'delivery' : 'pickup'
+  const customerName: string | null = typeof body.customer_name === 'string' ? body.customer_name.trim() || null : null
+  const notes: string | null = typeof body.notes === 'string' ? body.notes.trim() || null : null
+
+  const admin = createAdminClient()
+  const { data: order, error: orderErr } = await admin
+    .from('orders')
+    .insert({
+      user_id: null,
+      biz_id: bizId,
+      status: 'paid',
+      channel,
+      fulfillment,
+      customer_name: customerName,
+      notes,
+      subtotal,
+      delivery_fee: 0,
+      total,
+      confirmation_code: null, // sin código: se recoge/entrega en caja
+      paid_at: new Date().toISOString(),
+    })
+    .select('id')
+    .single()
+
+  if (orderErr || !order) {
+    console.error('[biz/orders] POST insert order error', orderErr)
+    return NextResponse.json({ error: 'No se pudo crear el pedido' }, { status: 500 })
+  }
+
+  const { error: itemsErr } = await admin
+    .from('order_items')
+    .insert(items.map(p => ({ order_id: order.id, ...p })))
+  if (itemsErr) {
+    console.error('[biz/orders] POST insert items error', itemsErr)
+    await admin.from('orders').delete().eq('id', order.id)
+    return NextResponse.json({ error: 'No se pudo crear el pedido' }, { status: 500 })
+  }
+
+  return NextResponse.json({ ok: true, order_id: order.id })
+}
+
 // GET /api/biz/orders?biz_id=... → pedidos del negocio (dueño), con líneas.
 export async function GET(req: NextRequest) {
   const supabase = await createClient()

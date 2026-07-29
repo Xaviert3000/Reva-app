@@ -97,3 +97,34 @@ export async function recordSale(bizId: string, sale: SaleInput): Promise<string
     return null
   }
 }
+
+// Envía una venta hecha en el local (Punto de venta o Autoservicio) al tablero de
+// Pedidos como pedido 'paid', para que corra el flujo de preparación/entrega. Es
+// aditivo al registro en pos_sales (ingresos) y best-effort: si falla, la venta ya
+// quedó cobrada y registrada; sólo no aparece en Pedidos. No-op sin sesión de
+// negocio (la ruta exige que quien llama sea miembro del negocio).
+export interface InStoreOrderInput {
+  channel: 'pos' | 'kiosk'
+  fulfillment?: 'pickup' | 'delivery'
+  customer_name?: string | null
+  notes?: string | null
+  subtotal: number
+  total: number
+  items: { service_id?: string; name: string; unit_price: number; qty: number }[]
+}
+export async function sendInStoreOrder(bizId: string, input: InStoreOrderInput): Promise<string | null> {
+  if (!bizId || input.items.length === 0) return null
+  try {
+    const r = await fetch('/api/biz/orders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ biz_id: bizId, ...input }),
+    })
+    if (!r.ok) return null
+    const d = await r.json()
+    return (d?.order_id as string) ?? null
+  } catch (e) {
+    console.warn('[pos] sendInStoreOrder falló:', e)
+    return null
+  }
+}

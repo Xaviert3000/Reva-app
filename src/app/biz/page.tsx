@@ -5,7 +5,7 @@ import { parseRoveToken, ROVE_SERIALS, type RoveProgram } from '@/lib/rove'
 import { type RoveReward, type RewardCategory } from '@/lib/rove-rewards'
 import { type Mode, type ProactiveAlert, type AlertType, CATALOG, AGENDA, BIZ, CITIES, slotsFromHours, slotAvailability, endTime, tracksStock, inStock } from '@/lib/data'
 import { saveStock, decrementStock as decrementStockDB, fetchStock } from '@/lib/inventory'
-import { recordSale } from '@/lib/pos'
+import { recordSale, sendInStoreOrder } from '@/lib/pos'
 import { saveService, deleteService, uploadServiceImage, removeServiceImage, parsePrice } from '@/lib/catalog'
 import { clearFeatured } from '@/lib/featured'
 import { fetchPromotions, createPromotion, updatePromotion, setPromotionActive, deletePromotion, promoWindowLabel, type Promo, type PromoInput, fetchAlerts, createAlert, updateAlert, setAlertActive, deleteAlert, type BizAlert, type AlertInput } from '@/lib/promotions'
@@ -19,7 +19,7 @@ import { LangContext, useT, useEn, type Lang } from '@/lib/i18n'
 const NAV_EN: Record<string, string> = {
   requests: 'Requests', orders: 'Orders', agenda: 'Agenda', messages: 'Messages', metrics: 'Metrics',
   reports: 'Reports', destacado: 'Featured', catalog: 'Catalog', inventory: 'Inventory',
-  pos: 'Point of sale', sales: 'Sales', promos: 'Promotions', scanner: 'Scanner', settings: 'Settings',
+  pos: 'Point of sale', kiosk: 'Self-service', sales: 'Sales', promos: 'Promotions', scanner: 'Scanner', settings: 'Settings',
 }
 const VIEW_TITLES_EN: Record<string, [string, string]> = {
   requests: ['Live requests', 'What Reva is bringing to your door'],
@@ -32,6 +32,7 @@ const VIEW_TITLES_EN: Record<string, [string, string]> = {
   catalog: ['Catalog', 'What Reva can offer and book'],
   inventory: ['Inventory', 'Availability of your products and services'],
   pos: ['Point of sale', 'Charge instantly from your catalog'],
+  kiosk: ['Self-service', 'Let your customers order on their own, on screen'],
   sales: ['Sales', 'Ticket history — review, void or refund'],
   promos: ['Promotions', 'Loyalty and offers'],
   scanner: ['Scanner', 'Stamp, add points and redeem on the spot'],
@@ -95,6 +96,8 @@ function Icon({ n, size = 20, color = 'currentColor', stroke = 2, fill = 'none' 
     users: <><circle cx="8" cy="8" r="3.5" /><path d="M2 20a7 7 0 0112 0" /><circle cx="17" cy="8" r="3.5" /><path d="M23 20a7 7 0 00-10-5.8" /></>,
     mail: <><rect x="2" y="5" width="20" height="15" rx="2.5" /><path d="M2 8l10 7 10-7" /></>,
     pin: <><path d="M12 21s7-5.4 7-11a7 7 0 10-14 0c0 5.6 7 11 7 11z" /><circle cx="12" cy="10" r="2.6" /></>,
+    monitor: <><rect x="3" y="4" width="18" height="12" rx="2" /><path d="M8 20h8M12 16v4" /></>,
+    expand: <><path d="M8 3H5a2 2 0 00-2 2v3M16 3h3a2 2 0 012 2v3M21 16v3a2 2 0 01-2 2h-3M3 16v3a2 2 0 002 2h3" /></>,
   }
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill={fill} stroke={color}
@@ -231,6 +234,7 @@ interface PanelOrderItem { id: string; name: string; qty: number; unit_price: nu
 interface PanelOrder {
   id: string
   status: string
+  channel?: string   // 'ecommerce' | 'pos' | 'kiosk'
   fulfillment: 'pickup' | 'delivery'
   customer_name: string | null
   customer_phone: string | null
@@ -333,6 +337,7 @@ const NAV_GROUPS: { id: string; label: string; en: string; items: { id: string; 
   {
     id: 'sales', label: 'Ventas', en: 'Sales', items: [
       { id: 'pos', icon: 'card', label: 'Punto de venta' },
+      { id: 'kiosk', icon: 'monitor', label: 'Autoservicio' },
       { id: 'scanner', icon: 'scan', label: 'Escáner' },
       { id: 'sales', icon: 'ticket', label: 'Ventas' },
       { id: 'promos', icon: 'gift', label: 'Promociones' },
@@ -364,6 +369,7 @@ const VIEW_TITLES: Record<string, [string, string]> = {
   catalog: ['Catálogo', 'Lo que Reva puede ofrecer y reservar'],
   inventory: ['Inventario', 'Disponibilidad de tus productos y servicios'],
   pos: ['Punto de venta', 'Cobra al instante desde tu catálogo'],
+  kiosk: ['Autoservicio', 'Deja que tus clientes ordenen solos, en pantalla'],
   sales: ['Ventas', 'Historial de tickets — consulta, anula o reembolsa'],
   promos: ['Promociones', 'Lealtad y ofertas'],
   scanner: ['Escáner', 'Sella, suma puntos y canjea al momento'],
@@ -1085,6 +1091,11 @@ function OrdersView({ vert, orders, couriers, onUpdate }: { vert: Vert; orders: 
               <span style={{ fontSize: 11, fontWeight: 700, color: R.inkSoft, background: R.bgAlt, padding: '2px 8px', borderRadius: 999 }}>
                 {o.fulfillment === 'delivery' ? `🛵 ${t('Entrega', 'Delivery')}` : `🏪 ${t('Recoger', 'Pickup')}`}
               </span>
+              {(o.channel === 'pos' || o.channel === 'kiosk') && (
+                <span style={{ fontSize: 11, fontWeight: 700, color: R.coralPress, background: R.coralTint, padding: '2px 8px', borderRadius: 999 }}>
+                  {o.channel === 'kiosk' ? `🖥️ ${t('Autoservicio', 'Self-service')}` : `🧾 ${t('Punto de venta', 'Point of sale')}`}
+                </span>
+              )}
             </div>
             <div style={{ fontSize: 12.5, color: R.inkSoft, marginTop: 4 }}>
               {o.order_items.map(i => `${i.qty}× ${i.name}`).join(' · ')}
@@ -1118,7 +1129,9 @@ function OrdersView({ vert, orders, couriers, onUpdate }: { vert: Vert; orders: 
 
         <div style={{ display: 'flex', gap: 7, marginTop: 12, alignItems: 'center', flexWrap: 'wrap' }}>
           {!terminal && action && (
-            <button onClick={() => { if (action.status === 'delivered') setDeliverFor(o); else onUpdate(o.id, { status: action.status }) }}
+            // Los pedidos hechos en el local (POS/Autoservicio) no tienen código de
+            // cliente: se cierran directo, sin pedir código.
+            <button onClick={() => { if (action.status === 'delivered' && o.channel !== 'pos' && o.channel !== 'kiosk') setDeliverFor(o); else onUpdate(o.id, { status: action.status }) }}
               style={{ padding: '8px 14px', background: R.coral, color: '#fff', border: 'none', borderRadius: 999, fontFamily: R.ui, fontWeight: 700, fontSize: 12.5, cursor: 'pointer' }}>{action.label}</button>
           )}
           <button onClick={() => printOrderTicket(o, vert.full || vert.name, en)}
@@ -2895,6 +2908,16 @@ function PosView({ vert, items, setItems, onGo, taxMode, bizInfo }: { vert: Vert
       folio,
       items: lines.map(l => ({ service_id: l.id, name: l.name, unit_price: l.unit, qty: l.qty })),
     })
+    // Además de registrar la venta (ingresos), manda el pedido al tablero de
+    // Pedidos para que corra el flujo de preparación/entrega. Aditivo y
+    // best-effort: si falla, la venta ya quedó cobrada.
+    void sendInStoreOrder(bizId, {
+      channel: 'pos',
+      customer_name: `#${folio}`,
+      subtotal: total - iva,
+      total,
+      items: lines.map(l => ({ service_id: l.id, name: l.name, unit_price: l.unit, qty: l.qty })),
+    })
     setPay({ method: methodLabel, items: lines.map(l => ({ name: l.name, qty: l.qty, unit: l.unit })), base, iva, total, added, at, folio, ...extra })
     setPending(null)
     setPayFields({ authCode: '', cardLast4: '', reference: '', cashReceived: '' })
@@ -3237,6 +3260,517 @@ function PosView({ vert, items, setItems, onGo, taxMode, bizInfo }: { vert: Vert
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// ── Autoservicio (self-order kiosk) ────────────────────────
+// Comanda de cocina/mostrador para una orden hecha en el kiosko: número de
+// orden grande, tipo de consumo, artículos y total. Reutiliza el enfoque de
+// iframe oculto de printTicketHTML para imprimir sin abrir ventanas nuevas.
+function printKioskComanda(o: {
+  bizName: string; folio: string; when: string
+  orderType: 'here' | 'togo' | null
+  rows: { name: string; qty: number; lineTotal: number }[]
+  total: number; en?: boolean
+}) {
+  const en = !!o.en
+  const esc = (s: string) => (s || '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c] as string))
+  const typeLabel = o.orderType === 'togo' ? (en ? '🥡 To go' : '🥡 Para llevar')
+    : o.orderType === 'here' ? (en ? '🍽️ Dine in' : '🍽️ Comer aquí') : ''
+  const rows = o.rows.map(it =>
+    `<tr><td class="q">${it.qty}×</td><td>${esc(it.name)}</td><td class="r">${money(it.lineTotal)}</td></tr>`).join('')
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>${en ? 'Order' : 'Orden'} ${esc(o.folio)}</title>
+    <style>
+      *{margin:0;padding:0;box-sizing:border-box}
+      body{font-family:'Courier New',monospace;color:#1a1a1a;padding:14px;width:280px}
+      h1{font-size:15px;text-align:center}
+      .kiosk{text-align:center;font-size:11px;color:#555;letter-spacing:.08em;margin-bottom:6px}
+      .no{text-align:center;font-size:30px;font-weight:bold;margin:6px 0}
+      .type{text-align:center;font-size:13px;font-weight:bold;border:2px solid #1a1a1a;border-radius:6px;padding:4px;margin:8px 0}
+      .hr{border-top:1px dashed #999;margin:8px 0}
+      .meta{font-size:11px;color:#555;text-align:center}
+      table{width:100%;border-collapse:collapse;font-size:13px;margin:6px 0}
+      td{padding:3px 0;vertical-align:top}
+      td.q{width:30px;font-weight:bold}
+      td.r{text-align:right;white-space:nowrap;padding-left:8px}
+      .total{display:flex;justify-content:space-between;font-size:15px;font-weight:bold;margin-top:4px}
+      .thanks{text-align:center;font-size:11px;margin-top:12px;color:#555}
+      @media print{body{width:auto}}
+    </style></head><body>
+    <h1>${esc(o.bizName)}</h1>
+    <div class="kiosk">${en ? 'SELF-SERVICE' : 'AUTOSERVICIO'}</div>
+    <div class="no">${en ? 'ORDER' : 'ORDEN'} #${esc(o.folio)}</div>
+    ${typeLabel ? `<div class="type">${typeLabel}</div>` : ''}
+    <div class="meta">${esc(o.when)}</div>
+    <div class="hr"></div>
+    <table>${rows}</table>
+    <div class="hr"></div>
+    <div class="total"><span>TOTAL</span><span>${money(o.total)}</span></div>
+    <div class="thanks">${en ? 'Via Reva · Self-service' : 'Vía Reva · Autoservicio'}</div>
+    </body></html>`
+  const frame = document.createElement('iframe')
+  frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0'
+  document.body.appendChild(frame)
+  const doc = frame.contentWindow?.document
+  if (!doc) return
+  doc.open(); doc.write(html); doc.close()
+  const w = frame.contentWindow
+  setTimeout(() => { try { w?.focus(); w?.print() } catch {} setTimeout(() => frame.remove(), 800) }, 150)
+}
+
+type KioskCfg = { askType: boolean; payAtCounter: boolean; autoPrint: boolean; welcome: string }
+type KioskStep = 'attract' | 'ordertype' | 'menu' | 'cart' | 'pay' | 'done'
+const KIOSK_DEFAULT: KioskCfg = { askType: true, payAtCounter: true, autoPrint: true, welcome: '' }
+
+// El módulo de Autoservicio vive en la sección de Ventas. Reutiliza el mismo
+// catálogo, el mismo IVA y el mismo registro de ventas que el Punto de venta
+// (recordSale + inventario), de modo que cada orden hecha por el cliente aparece
+// en Ventas y descuenta stock exactamente igual que un cobro en caja. La única
+// diferencia es la interfaz: aquí manda el cliente, en una pantalla táctil a
+// pantalla completa. `reference` se marca como "Autoservicio" para distinguir en
+// el historial de dónde vino la venta.
+function KioskView({ vert, items, setItems, onGo, taxMode, bizInfo }: { vert: Vert; items: CatItem[]; setItems: React.Dispatch<React.SetStateAction<CatItem[]>>; onGo: (v: string) => void; taxMode: TaxMode; bizInfo: BizInfo }) {
+  const t = useT()
+  const en = useEn()
+  const bizId = SHARED_BIZ_ID[vert.id] ?? vert.id
+
+  const [cfg, setCfg] = useState<KioskCfg>(KIOSK_DEFAULT)
+  const [live, setLive] = useState(false)
+  const [step, setStep] = useState<KioskStep>('attract')
+  const [lines, setLines] = useState<PosLine[]>([])
+  const [cat, setCat] = useState('Todos')
+  const [orderType, setOrderType] = useState<'here' | 'togo' | null>(null)
+  const [flash, setFlash] = useState<string | null>(null)   // "Agregado" toast
+  const [askExit, setAskExit] = useState(false)
+  const [done, setDone] = useState<null | { folio: string; total: number; method: string; orderType: 'here' | 'togo' | null }>(null)
+
+  // Idioma DENTRO del kiosko, elegible por el cliente e independiente del idioma
+  // del panel: que un cliente ordene en inglés no cambia el idioma del dueño.
+  // Arranca en el idioma del panel y se reinicia a él cada vez que se lanza el
+  // kiosko. `kt` traduce y `ken` es el booleano de inglés para el flujo del cliente.
+  const [kioskLang, setKioskLang] = useState<'es' | 'en'>(en ? 'en' : 'es')
+  const ken = kioskLang === 'en'
+  const kt = (es: string, enTxt: string) => ken ? enTxt : es
+
+  // Carga/persiste la configuración del kiosko por negocio en localStorage. Es
+  // preferencia de la terminal (no del negocio en la nube), así que basta local.
+  const cfgKey = `reva_kiosk_cfg_${bizId}`
+  useEffect(() => {
+    try { const raw = localStorage.getItem(cfgKey); if (raw) setCfg({ ...KIOSK_DEFAULT, ...JSON.parse(raw) }) } catch {}
+  }, [cfgKey])
+  function saveCfg(next: Partial<KioskCfg>) {
+    setCfg(prev => { const merged = { ...prev, ...next }; try { localStorage.setItem(cfgKey, JSON.stringify(merged)) } catch {}; return merged })
+  }
+
+  const active = items.filter(c => c.active)
+  const cats = ['Todos', ...new Set(active.map(c => c.category?.trim()).filter(Boolean) as string[])]
+  const shown = active.filter(c => cat === 'Todos' || c.category === cat)
+
+  const base = lines.reduce((s, l) => s + l.unit * l.qty, 0)
+  const added = taxMode === 'added'
+  const iva = added ? base * TAX_RATE : base - base / (1 + TAX_RATE)
+  const total = added ? base + iva : base
+  const count = lines.reduce((s, l) => s + l.qty, 0)
+
+  // Descuenta inventario de las unidades vendidas (local + Supabase), idéntico al
+  // Punto de venta, para que la app del cliente vea el mismo stock.
+  function decrementStock(sold: PosLine[]) {
+    setItems(prev => prev.map(c => {
+      if (typeof c.stock !== 'number') return c
+      const line = sold.find(l => l.key === c.name)
+      return line ? { ...c, stock: Math.max(0, c.stock - line.qty) } : c
+    }))
+    const soldItems = sold.filter(l => l.id).map(l => ({ service_id: l.id as string, qty: l.qty }))
+    void decrementStockDB(bizId, soldItems)
+  }
+
+  function addItem(c: CatItem) {
+    setLines(prev => {
+      const i = prev.findIndex(l => l.key === c.name)
+      if (typeof c.stock === 'number') {
+        const inCart = i >= 0 ? prev[i].qty : 0
+        if (inCart >= c.stock) return prev
+      }
+      if (i >= 0) return prev.map((l, idx) => idx === i ? { ...l, qty: l.qty + 1 } : l)
+      const unit = priceToNumber(c.price)
+      return [...prev, { key: c.name, id: c.id, name: c.name, sub: c.sub, unit, variable: unit === 0, qty: 1 }]
+    })
+    setFlash(c.name)
+  }
+  useEffect(() => { if (!flash) return; const id = setTimeout(() => setFlash(null), 1100); return () => clearTimeout(id) }, [flash])
+  function changeQty(key: string, delta: number) {
+    setLines(prev => prev.flatMap(l => l.key !== key ? [l] : (l.qty + delta <= 0 ? [] : [{ ...l, qty: l.qty + delta }])))
+  }
+
+  // Arranca el kiosko a pantalla completa desde el atractor (pantalla de espera).
+  function startKiosk() { setLines([]); setCat('Todos'); setOrderType(null); setDone(null); setKioskLang(en ? 'en' : 'es'); setStep('attract'); setLive(true) }
+  function exitKiosk() { setLive(false); setAskExit(false); setStep('attract'); setLines([]); setOrderType(null); setDone(null) }
+  // Vuelve al atractor para el siguiente cliente, sin salir del modo kiosko.
+  function newOrder() { setLines([]); setCat('Todos'); setOrderType(null); setDone(null); setStep('attract') }
+
+  // Registra la venta igual que el Punto de venta y muestra la confirmación con
+  // el número de orden que el cliente recoge en el mostrador.
+  function placeOrder(methodId: string, methodLabel: string) {
+    if (lines.length === 0 || total <= 0) return
+    decrementStock(lines)
+    const at = Date.now()
+    const folio = String(at).slice(-4)
+    void recordSale(bizId, {
+      method: methodId,
+      subtotal: total - iva,
+      tax_amount: iva,
+      tax_rate: TAX_RATE,
+      total,
+      item_count: count,
+      reference: ken ? 'Self-service' : 'Autoservicio',
+      folio,
+      items: lines.map(l => ({ service_id: l.id, name: l.name, unit_price: l.unit, qty: l.qty })),
+    })
+    // Manda la orden al tablero de Pedidos para preparación/entrega. El número de
+    // orden que ve el cliente (#folio) va como nombre para llamarlo en el
+    // mostrador, y el tipo de consumo (comer aquí / para llevar) como nota.
+    void sendInStoreOrder(bizId, {
+      channel: 'kiosk',
+      customer_name: `#${folio}`,
+      notes: orderType === 'togo' ? 'Para llevar' : orderType === 'here' ? 'Comer aquí' : null,
+      subtotal: total - iva,
+      total,
+      items: lines.map(l => ({ service_id: l.id, name: l.name, unit_price: l.unit, qty: l.qty })),
+    })
+    if (cfg.autoPrint) {
+      printKioskComanda({
+        bizName: vert.full || vert.name, folio,
+        when: new Date(at).toLocaleString(ken ? 'en-US' : 'es-MX', { dateStyle: 'short', timeStyle: 'short' }),
+        orderType, rows: lines.map(l => ({ name: l.name, qty: l.qty, lineTotal: l.unit * l.qty })), total, en: ken,
+      })
+    }
+    setDone({ folio, total, method: methodLabel, orderType })
+    setStep('done')
+  }
+
+  // Tras confirmar, vuelve solo al atractor a los 12 s para el siguiente cliente.
+  useEffect(() => {
+    if (step !== 'done') return
+    const id = setTimeout(() => newOrder(), 12000)
+    return () => clearTimeout(id)
+  }, [step])
+
+  // Métodos de pago que ve el cliente en el kiosko: tarjeta (si paga en pantalla)
+  // y/o pagar en caja. Se registran como venta con su método real.
+  const kioskPays = [
+    { id: 'tarjeta', label: kt('Pagar con tarjeta', 'Pay by card'), sub: kt('Inserta o acerca tu tarjeta', 'Insert or tap your card'), icon: 'card', method: 'tarjeta' },
+    ...(cfg.payAtCounter ? [{ id: 'caja', label: kt('Pagar en caja', 'Pay at the counter'), sub: kt('Paga al recoger tu orden', 'Pay when you pick up'), icon: 'cash', method: 'efectivo' }] : []),
+  ]
+
+  // ── Landing de configuración (dentro del panel) ──
+  if (!live) {
+    return (
+      <div style={{ padding: '24px 28px', maxWidth: 760 }}>
+        <BCard style={{ padding: 0, overflow: 'hidden', marginBottom: 20 }}>
+          <div style={{ padding: '28px 30px', background: `linear-gradient(135deg, ${vert.grad[0]}, ${vert.grad[1]})`, color: '#fff', position: 'relative' }}>
+            <div style={{ position: 'absolute', right: -6, bottom: -22, fontFamily: R.display, fontWeight: 800, fontSize: 120, color: 'rgba(255,255,255,.14)', lineHeight: 1 }}>{vert.mono}</div>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, background: 'rgba(255,255,255,.2)', padding: '5px 12px', borderRadius: 999, fontSize: 12, fontWeight: 800, letterSpacing: '.04em', marginBottom: 14 }}>
+              <Icon n="monitor" size={14} color="#fff" /> {t('AUTOSERVICIO', 'SELF-SERVICE')}
+            </div>
+            <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 26, lineHeight: 1.15, maxWidth: 460 }}>{t('Convierte cualquier pantalla en un kiosko de pedidos', 'Turn any screen into a self-order kiosk')}</div>
+            <div style={{ fontSize: 14.5, opacity: .92, marginTop: 8, maxWidth: 480 }}>{t('Tus clientes arman su orden desde tu catálogo, tú recibes la comanda y la venta entra directo a Ventas e Inventario.', 'Your customers build their order from your catalog, you get the ticket, and the sale flows straight into Sales and Inventory.')}</div>
+          </div>
+          <div style={{ padding: '20px 30px', display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+            <button onClick={startKiosk} disabled={active.length === 0}
+              style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '14px 22px', border: 'none', borderRadius: 14, background: active.length ? R.coral : R.coralTint, color: active.length ? '#fff' : R.coralPress, cursor: active.length ? 'pointer' : 'not-allowed', fontFamily: R.ui, fontWeight: 800, fontSize: 15.5 }}>
+              <Icon n="expand" size={18} color={active.length ? '#fff' : R.coralPress} /> {t('Iniciar autoservicio', 'Launch self-service')}
+            </button>
+            <div style={{ fontSize: 13, color: R.inkSoft, maxWidth: 300 }}>
+              {active.length === 0
+                ? t('Agrega productos activos a tu catálogo para poder iniciar.', 'Add active products to your catalog to launch.')
+                : t('Se abre a pantalla completa. Coloca la tablet o pantalla frente a tus clientes.', 'Opens full-screen. Place the tablet or screen facing your customers.')}
+            </div>
+            {active.length === 0 && (
+              <button onClick={() => onGo('catalog')} style={{ padding: '12px 18px', background: R.ink, color: '#fff', border: 'none', borderRadius: 12, fontFamily: R.ui, fontWeight: 700, fontSize: 13.5, cursor: 'pointer' }}>{t('Ir al Catálogo', 'Go to Catalog')}</button>
+            )}
+          </div>
+        </BCard>
+
+        <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 15, color: R.ink, margin: '4px 2px 12px' }}>{t('Cómo se comporta el kiosko', 'How the kiosk behaves')}</div>
+        <BCard style={{ padding: '8px 6px' }}>
+          <KioskToggle label={t('Preguntar “¿comer aquí o para llevar?”', 'Ask “dine in or to go?”')} sub={t('Un paso antes del menú para marcar el tipo de consumo.', 'A step before the menu to tag the order type.')} on={cfg.askType} onToggle={() => saveCfg({ askType: !cfg.askType })} />
+          <KioskToggle label={t('Permitir “pagar en caja”', 'Allow “pay at the counter”')} sub={t('El cliente ordena y paga contigo al recoger.', 'The customer orders and pays with you at pickup.')} on={cfg.payAtCounter} onToggle={() => saveCfg({ payAtCounter: !cfg.payAtCounter })} />
+          <KioskToggle label={t('Imprimir comanda al confirmar', 'Print ticket on confirm')} sub={t('Manda la orden a tu impresora en cuanto el cliente confirma.', 'Sends the order to your printer as soon as the customer confirms.')} on={cfg.autoPrint} onToggle={() => saveCfg({ autoPrint: !cfg.autoPrint })} last />
+        </BCard>
+
+        <label style={{ display: 'block', marginTop: 18 }}>
+          <span style={{ display: 'block', fontSize: 13, fontWeight: 700, color: R.inkSoft, marginBottom: 7 }}>{t('Mensaje de bienvenida (opcional)', 'Welcome message (optional)')}</span>
+          <input value={cfg.welcome} onChange={e => saveCfg({ welcome: e.target.value.slice(0, 60) })} placeholder={t('Ej. ¡Bienvenido! Ordena aquí 👇', 'e.g. Welcome! Order here 👇')}
+            style={{ width: '100%', maxWidth: 420, boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 12, padding: '12px 14px', fontSize: 14, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.surface }} />
+        </label>
+      </div>
+    )
+  }
+
+  // ── Modo kiosko a pantalla completa (lo usa el cliente) ──
+  const heroWelcome = cfg.welcome.trim() || kt('Toca para ordenar', 'Tap to order')
+  const onAttract = step === 'attract'
+  // Selector de idioma ES/EN dentro del kiosko. `light` para el atractor (fondo
+  // oscuro), `dark` para el resto (fondo claro). Cambia sólo el idioma del kiosko.
+  const langPill = (variant: 'light' | 'dark') => {
+    const light = variant === 'light'
+    return (
+      <div style={{ display: 'inline-flex', background: light ? 'rgba(255,255,255,.16)' : R.surface, border: `1px solid ${light ? 'rgba(255,255,255,.5)' : R.line}`, borderRadius: 999, padding: 3 }}>
+        {(['es', 'en'] as const).map(lg => {
+          const active = kioskLang === lg
+          return (
+            <button key={lg} onClick={() => setKioskLang(lg)}
+              style={{ padding: '6px 13px', borderRadius: 999, border: 'none', cursor: 'pointer', fontFamily: R.ui, fontWeight: 800, fontSize: 12.5, letterSpacing: '.03em',
+                background: active ? (light ? '#fff' : R.ink) : 'transparent',
+                color: active ? (light ? R.ink : '#fff') : (light ? 'rgba(255,255,255,.85)' : R.inkSoft) }}>
+              {lg.toUpperCase()}
+            </button>
+          )
+        })}
+      </div>
+    )
+  }
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 200, background: R.bg, display: 'flex', flexDirection: 'column', fontFamily: R.ui }}>
+      {/* Barra superior: idioma + salir (para el dueño). Unificada para no chocar
+          con el contenido de cada paso. */}
+      <div style={{ position: 'absolute', top: 16, right: 18, zIndex: 6, display: 'flex', alignItems: 'center', gap: 10 }}>
+        {langPill(onAttract ? 'light' : 'dark')}
+        {onAttract ? (
+          <button onClick={() => setAskExit(true)} style={{ fontSize: 12, fontWeight: 700, color: 'rgba(255,255,255,.8)', background: 'rgba(0,0,0,.18)', padding: '8px 14px', borderRadius: 999, border: 'none', cursor: 'pointer', fontFamily: R.ui }}>{kt('Salir', 'Exit')}</button>
+        ) : (
+          <button onClick={() => setAskExit(true)} title={kt('Salir', 'Exit')}
+            style={{ width: 40, height: 40, borderRadius: '50%', border: `1px solid ${R.line}`, background: 'rgba(255,255,255,.7)', cursor: 'pointer', display: 'grid', placeItems: 'center' }}>
+            <Icon n="x" size={18} color={R.inkSoft} />
+          </button>
+        )}
+      </div>
+
+      {/* ATRACTOR */}
+      {step === 'attract' && (
+        <button onClick={() => setStep(cfg.askType ? 'ordertype' : 'menu')}
+          style={{ flex: 1, border: 'none', cursor: 'pointer', background: `linear-gradient(150deg, ${vert.grad[0]}, ${vert.grad[1]})`, color: '#fff', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 22, padding: 40, position: 'relative', overflow: 'hidden', fontFamily: R.ui }}>
+          <div style={{ position: 'absolute', right: -30, bottom: -60, fontFamily: R.display, fontWeight: 800, fontSize: 340, color: 'rgba(255,255,255,.10)', lineHeight: 1 }}>{vert.mono}</div>
+          <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 'clamp(30px, 6vw, 58px)', textAlign: 'center', letterSpacing: '-.02em' }}>{vert.full || vert.name}</div>
+          <div style={{ fontSize: 'clamp(17px, 2.4vw, 24px)', opacity: .92, fontWeight: 600 }}>{heroWelcome}</div>
+          <div style={{ marginTop: 10, display: 'inline-flex', alignItems: 'center', gap: 12, background: 'rgba(255,255,255,.16)', border: '1.5px solid rgba(255,255,255,.5)', padding: '16px 30px', borderRadius: 999, fontSize: 'clamp(16px, 2vw, 21px)', fontWeight: 800, animation: 'kioskPulse 2s ease-in-out infinite' }}>
+            <Icon n="arrowR" size={24} color="#fff" /> {kt('Comenzar', 'Start')}
+          </div>
+        </button>
+      )}
+
+      {/* ¿COMER AQUÍ / PARA LLEVAR? */}
+      {step === 'ordertype' && (
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 30, padding: 40 }}>
+          <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 'clamp(26px, 4vw, 40px)', color: R.ink, textAlign: 'center' }}>{kt('¿Cómo lo prefieres?', 'How would you like it?')}</div>
+          <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', justifyContent: 'center', width: '100%', maxWidth: 720 }}>
+            {([['here', '🍽️', kt('Comer aquí', 'Dine in')], ['togo', '🥡', kt('Para llevar', 'To go')]] as const).map(([id, emoji, label]) => (
+              <button key={id} onClick={() => { setOrderType(id); setStep('menu') }}
+                style={{ flex: '1 1 260px', maxWidth: 320, aspectRatio: '1 / .9', border: `2px solid ${R.line}`, borderRadius: 26, background: R.surface, cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16, fontFamily: R.ui }}>
+                <span style={{ fontSize: 76 }}>{emoji}</span>
+                <span style={{ fontFamily: R.display, fontWeight: 800, fontSize: 26, color: R.ink }}>{label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* MENÚ */}
+      {step === 'menu' && (
+        <>
+          <div style={{ padding: '18px 24px 12px', background: R.surface, borderBottom: `1px solid ${R.line}` }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ width: 42, height: 42, borderRadius: 12, background: `linear-gradient(140deg, ${vert.grad[0]}, ${vert.grad[1]})`, display: 'grid', placeItems: 'center', color: '#fff', fontFamily: R.display, fontWeight: 800, fontSize: 20, flexShrink: 0 }}>{vert.mono}</div>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 20, color: R.ink, lineHeight: 1.1 }}>{vert.full || vert.name}</div>
+                <div style={{ fontSize: 13, color: R.inkSoft }}>{orderType === 'togo' ? kt('Para llevar', 'To go') : orderType === 'here' ? kt('Comer aquí', 'Dine in') : kt('Elige tus productos', 'Pick your items')}</div>
+              </div>
+            </div>
+            {cats.length > 1 && (
+              <div style={{ display: 'flex', gap: 10, overflowX: 'auto', marginTop: 14, paddingBottom: 2 }}>
+                {cats.map(c => {
+                  const on = cat === c
+                  return (
+                    <button key={c} onClick={() => setCat(c)}
+                      style={{ flexShrink: 0, padding: '11px 20px', borderRadius: 999, border: `1.5px solid ${on ? R.coral : R.line}`, background: on ? R.coral : R.surface, color: on ? '#fff' : R.inkSoft, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 15 }}>
+                      {c === 'Todos' ? kt('Todos', 'All') : c}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+
+          <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '20px 24px 120px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))', gap: 18 }}>
+              {shown.map((c, i) => {
+                const n = priceToNumber(c.price)
+                const tracked = typeof c.stock === 'number'
+                const inCart = lines.find(l => l.key === c.name)?.qty ?? 0
+                const left = tracked ? (c.stock as number) - inCart : Infinity
+                const sold = tracked && left <= 0
+                return (
+                  <button key={i} onClick={() => addItem(c)} disabled={sold}
+                    style={{ textAlign: 'left', border: `1px solid ${sold ? R.coralTint : R.line}`, background: R.surface, borderRadius: 20, padding: 0, overflow: 'hidden', cursor: sold ? 'not-allowed' : 'pointer', opacity: sold ? .55 : 1, fontFamily: R.ui, display: 'flex', flexDirection: 'column', position: 'relative' }}>
+                    <div style={{ height: 130, background: c.img ? `center/cover no-repeat url(${c.img})` : `linear-gradient(140deg, ${c.grad[0]}, ${c.grad[1]})`, position: 'relative' }}>
+                      {!c.img && <div style={{ position: 'absolute', right: -4, bottom: -18, fontFamily: R.display, fontWeight: 800, fontSize: 90, color: 'rgba(255,255,255,.2)' }}>{vert.mono}</div>}
+                      {inCart > 0 && !sold && <span style={{ position: 'absolute', top: 10, left: 10, minWidth: 28, height: 28, padding: '0 8px', borderRadius: 999, background: R.coral, color: '#fff', display: 'grid', placeItems: 'center', fontWeight: 800, fontSize: 15 }}>{inCart}</span>}
+                      {tracked && (left <= 3) && <span style={{ position: 'absolute', top: 10, right: 10, fontSize: 11.5, fontWeight: 800, color: '#fff', background: sold ? 'rgba(181,71,47,.92)' : 'rgba(199,124,44,.92)', padding: '3px 9px', borderRadius: 999 }}>{sold ? kt('Agotado', 'Sold out') : `${left} ${kt('disp.', 'left')}`}</span>}
+                      {!sold && <span style={{ position: 'absolute', bottom: 10, right: 10, width: 34, height: 34, borderRadius: '50%', background: 'rgba(255,255,255,.95)', display: 'grid', placeItems: 'center', boxShadow: '0 2px 8px rgba(0,0,0,.15)' }}><Icon n="plus" size={20} color={R.ink} /></span>}
+                    </div>
+                    <div style={{ padding: '13px 15px 15px' }}>
+                      <div style={{ fontWeight: 700, fontSize: 16, color: R.ink, lineHeight: 1.2 }}>{c.name}</div>
+                      <div style={{ fontSize: 13, color: R.inkSoft, marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.sub}</div>
+                      <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 18, color: n > 0 ? R.ink : R.inkFaint, marginTop: 9 }}>{n > 0 ? money(n) : kt('Precio variable', 'Variable price')}</div>
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+            {shown.length === 0 && <div style={{ textAlign: 'center', color: R.inkFaint, fontSize: 15, padding: '48px 0' }}>{kt('No hay productos en esta categoría.', 'No items in this category.')}</div>}
+          </div>
+
+          {/* Toast "agregado" */}
+          {flash && (
+            <div style={{ position: 'absolute', bottom: 96, left: '50%', transform: 'translateX(-50%)', zIndex: 5, display: 'flex', alignItems: 'center', gap: 9, background: R.ink, color: '#fff', padding: '11px 20px', borderRadius: 999, fontWeight: 700, fontSize: 14.5, boxShadow: '0 10px 30px rgba(0,0,0,.25)' }}>
+              <Icon n="check" size={17} color={R.jade} /> {flash} · {kt('agregado', 'added')}
+            </div>
+          )}
+
+          {/* Barra inferior del carrito */}
+          <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '16px 24px', background: R.surface, borderTop: `1px solid ${R.line}`, boxShadow: '0 -6px 24px rgba(0,0,0,.06)' }}>
+            <button onClick={() => count > 0 && setStep('cart')} disabled={count === 0}
+              style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, padding: '16px 22px', border: 'none', borderRadius: 16, background: count > 0 ? R.coral : R.bgAlt, color: count > 0 ? '#fff' : R.inkFaint, cursor: count > 0 ? 'pointer' : 'not-allowed', fontFamily: R.ui, fontWeight: 800, fontSize: 17 }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ minWidth: 30, height: 30, padding: '0 8px', borderRadius: 999, background: count > 0 ? 'rgba(255,255,255,.25)' : R.line, display: 'grid', placeItems: 'center', fontSize: 15 }}>{count}</span>
+                {kt('Ver mi orden', 'Review my order')}
+              </span>
+              <span>{money(total)}</span>
+            </button>
+          </div>
+        </>
+      )}
+
+      {/* CARRITO */}
+      {step === 'cart' && (
+        <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', maxWidth: 640, width: '100%', margin: '0 auto' }}>
+          <div style={{ padding: '22px 24px 10px', display: 'flex', alignItems: 'center', gap: 12 }}>
+            <button onClick={() => setStep('menu')} style={{ width: 42, height: 42, borderRadius: 12, border: `1px solid ${R.line}`, background: R.surface, cursor: 'pointer', display: 'grid', placeItems: 'center' }}><Icon n="chevL" size={20} color={R.ink} /></button>
+            <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 24, color: R.ink }}>{kt('Tu orden', 'Your order')}</div>
+          </div>
+          <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '8px 24px' }}>
+            {lines.map(l => (
+              <div key={l.key} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '16px 0', borderBottom: `1px solid ${R.lineSoft}` }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: 16.5, color: R.ink }}>{l.name}</div>
+                  <div style={{ fontSize: 13.5, color: R.inkSoft, marginTop: 2 }}>{money(l.unit)} {kt('c/u', 'ea.')}</div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: R.bgAlt, borderRadius: 999, padding: '5px 7px' }}>
+                  <button onClick={() => changeQty(l.key, -1)} style={{ width: 34, height: 34, borderRadius: '50%', border: 'none', background: R.surface, cursor: 'pointer', display: 'grid', placeItems: 'center', color: R.ink, fontWeight: 800, fontSize: 22, lineHeight: 1 }}>−</button>
+                  <span style={{ minWidth: 22, textAlign: 'center', fontWeight: 800, fontSize: 17, color: R.ink }}>{l.qty}</span>
+                  <button onClick={() => changeQty(l.key, 1)} style={{ width: 34, height: 34, borderRadius: '50%', border: 'none', background: R.surface, cursor: 'pointer', display: 'grid', placeItems: 'center', color: R.ink, fontWeight: 800, fontSize: 20, lineHeight: 1 }}>+</button>
+                </div>
+                <div style={{ width: 84, textAlign: 'right', fontFamily: R.display, fontWeight: 800, fontSize: 16.5, color: R.ink }}>{money(l.unit * l.qty)}</div>
+              </div>
+            ))}
+            {lines.length === 0 && (
+              <div style={{ textAlign: 'center', color: R.inkFaint, fontSize: 15, padding: '40px 0' }}>{kt('Tu orden está vacía.', 'Your order is empty.')}</div>
+            )}
+          </div>
+          <div style={{ padding: '16px 24px 22px', borderTop: `1px solid ${R.line}`, background: R.bg }}>
+            {added && (
+              <>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, color: R.inkSoft, marginBottom: 4 }}><span>{kt('Subtotal', 'Subtotal')}</span><span>{money(base)}</span></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, color: R.inkSoft, marginBottom: 4 }}><span>{kt('IVA (16%)', 'Tax (16%)')}</span><span>+{money(iva)}</span></div>
+              </>
+            )}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 14 }}>
+              <span style={{ fontWeight: 700, fontSize: 17, color: R.ink }}>{kt('Total', 'Total')}</span>
+              <span style={{ fontFamily: R.display, fontWeight: 800, fontSize: 30, color: R.ink, letterSpacing: '-.02em' }}>{money(total)}</span>
+            </div>
+            <div style={{ display: 'flex', gap: 12 }}>
+              <button onClick={() => setStep('menu')} style={{ flex: 1, padding: '17px', border: `1px solid ${R.line}`, borderRadius: 16, background: R.surface, color: R.ink, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 16 }}>{kt('Agregar más', 'Add more')}</button>
+              <button onClick={() => setStep('pay')} disabled={total <= 0} style={{ flex: 2, padding: '17px', border: 'none', borderRadius: 16, background: total > 0 ? R.coral : R.coralTint, color: total > 0 ? '#fff' : R.coralPress, cursor: total > 0 ? 'pointer' : 'not-allowed', fontFamily: R.ui, fontWeight: 800, fontSize: 17 }}>{kt('Continuar', 'Continue')}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* PAGO */}
+      {step === 'pay' && (
+        <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', maxWidth: 560, width: '100%', margin: '0 auto', padding: '24px', justifyContent: 'center' }}>
+          <div style={{ textAlign: 'center', marginBottom: 26 }}>
+            <div style={{ fontSize: 15, color: R.inkSoft }}>{kt('Total a pagar', 'Total to pay')}</div>
+            <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 46, color: R.ink, letterSpacing: '-.02em' }}>{money(total)}</div>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {kioskPays.map(m => (
+              <button key={m.id} onClick={() => placeOrder(m.method, m.label)}
+                style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '20px 22px', background: R.surface, border: `1.5px solid ${R.line}`, borderRadius: 18, cursor: 'pointer', fontFamily: R.ui, textAlign: 'left' }}>
+                <span style={{ width: 52, height: 52, borderRadius: 14, background: R.coralTint, display: 'grid', placeItems: 'center', flexShrink: 0 }}><Icon n={m.icon} size={24} color={R.coralPress} /></span>
+                <span style={{ flex: 1 }}>
+                  <span style={{ display: 'block', fontWeight: 800, fontSize: 18, color: R.ink }}>{m.label}</span>
+                  <span style={{ display: 'block', fontSize: 13.5, color: R.inkSoft, marginTop: 2 }}>{m.sub}</span>
+                </span>
+                <Icon n="chevR" size={20} color={R.inkFaint} />
+              </button>
+            ))}
+          </div>
+          <button onClick={() => setStep('cart')} style={{ marginTop: 20, padding: '14px', background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 15, color: R.inkSoft }}>{kt('Volver', 'Back')}</button>
+        </div>
+      )}
+
+      {/* CONFIRMACIÓN */}
+      {step === 'done' && done && (
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, padding: 40, textAlign: 'center' }}>
+          <div style={{ width: 96, height: 96, borderRadius: '50%', background: R.jadeTint, display: 'grid', placeItems: 'center', marginBottom: 8 }}>
+            <Icon n="check" size={52} color={R.jade} />
+          </div>
+          <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 30, color: R.ink }}>{kt('¡Orden confirmada!', 'Order confirmed!')}</div>
+          <div style={{ fontSize: 16, color: R.inkSoft, maxWidth: 420 }}>
+            {done.method}{done.orderType ? ` · ${done.orderType === 'togo' ? kt('Para llevar', 'To go') : kt('Comer aquí', 'Dine in')}` : ''}
+          </div>
+          <div style={{ margin: '18px 0 6px', padding: '18px 40px', borderRadius: 20, background: R.surface, border: `1px solid ${R.line}` }}>
+            <div style={{ fontSize: 13, color: R.inkFaint, fontWeight: 700, letterSpacing: '.05em' }}>{kt('TU NÚMERO DE ORDEN', 'YOUR ORDER NUMBER')}</div>
+            <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 56, color: R.coral, letterSpacing: '.02em', lineHeight: 1.1 }}>#{done.folio}</div>
+            <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 22, color: R.ink }}>{money(done.total)}</div>
+          </div>
+          <div style={{ fontSize: 15, color: R.inkSoft, maxWidth: 380 }}>{kt('Pasa al mostrador cuando llamen tu número. ¡Gracias!', 'Head to the counter when your number is called. Thank you!')}</div>
+          <button onClick={newOrder} style={{ marginTop: 20, padding: '16px 32px', border: 'none', borderRadius: 16, background: R.ink, color: '#fff', cursor: 'pointer', fontFamily: R.ui, fontWeight: 800, fontSize: 16 }}>{kt('Nueva orden', 'New order')}</button>
+        </div>
+      )}
+
+      {/* Confirmar salida del modo kiosko */}
+      {askExit && (
+        <div onClick={() => setAskExit(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(34,28,25,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10, padding: 20 }}>
+          <div onClick={e => e.stopPropagation()} style={{ width: '100%', maxWidth: 360, background: R.bg, borderRadius: 20, padding: 26, textAlign: 'center' }}>
+            <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 20, color: R.ink }}>{kt('¿Salir del autoservicio?', 'Exit self-service?')}</div>
+            <div style={{ fontSize: 14, color: R.inkSoft, marginTop: 8 }}>{kt('Volverás al panel del negocio. La orden en curso se descarta.', 'You’ll return to the business panel. The current order is discarded.')}</div>
+            <div style={{ display: 'flex', gap: 12, marginTop: 20 }}>
+              <button onClick={() => setAskExit(false)} style={{ flex: 1, padding: '14px', border: `1px solid ${R.line}`, borderRadius: 14, background: R.surface, color: R.ink, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 15 }}>{kt('Seguir', 'Stay')}</button>
+              <button onClick={exitKiosk} style={{ flex: 1, padding: '14px', border: 'none', borderRadius: 14, background: R.ink, color: '#fff', cursor: 'pointer', fontFamily: R.ui, fontWeight: 800, fontSize: 15 }}>{kt('Salir', 'Exit')}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <style>{`@keyframes kioskPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.04)}}`}</style>
+    </div>
+  )
+}
+
+// Fila de interruptor reutilizada por la configuración del kiosko.
+function KioskToggle({ label, sub, on, onToggle, last }: { label: string; sub: string; on: boolean; onToggle: () => void; last?: boolean }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 16px', borderBottom: last ? 'none' : `1px solid ${R.lineSoft}` }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontWeight: 700, fontSize: 14.5, color: R.ink }}>{label}</div>
+        <div style={{ fontSize: 12.5, color: R.inkSoft, marginTop: 2 }}>{sub}</div>
+      </div>
+      <button onClick={onToggle} style={{ width: 44, height: 26, borderRadius: 999, border: 'none', cursor: 'pointer', background: on ? R.jade : R.inkFaint, position: 'relative', flexShrink: 0 }}>
+        <span style={{ position: 'absolute', top: 3, left: on ? 21 : 3, width: 20, height: 20, borderRadius: '50%', background: '#fff', transition: 'left .18s' }} />
+      </button>
     </div>
   )
 }
@@ -6319,6 +6853,12 @@ export default function BizPage() {
     const v = verts[vertIdx] ?? verts[0]
     reloadOrders(v.id); reloadCouriers(v.id)
   }, [vertIdx, verts, reloadOrders, reloadCouriers])
+  // Refresca el tablero al abrir Pedidos: una venta recién hecha en el Punto de
+  // venta o el Autoservicio aparece sin recargar la página.
+  useEffect(() => {
+    if (view !== 'orders' || !verts || verts.length === 0) return
+    reloadOrders((verts[vertIdx] ?? verts[0]).id)
+  }, [view, vertIdx, verts, reloadOrders])
   async function updateOrder(id: string, patch: { status?: string; courier_id?: string | null; confirmation_code?: string }): Promise<{ ok: boolean; codeMismatch?: boolean }> {
     const v = verts?.[vertIdx]; if (!v) return { ok: false }
     // Marcar entregado exige código y puede rechazarse: no aplicar optimista aún.
@@ -6431,6 +6971,7 @@ export default function BizPage() {
     if (view === 'catalog') return <CatalogView vert={vert} items={catalog} setItems={setCatalog} />
     if (view === 'inventory') return <InventoryView vert={vert} items={catalog} setItems={setCatalog} onGo={setView} />
     if (view === 'pos') return <PosView vert={vert} items={catalog} setItems={setCatalog} onGo={setView} taxMode={taxMode} bizInfo={bizInfo} />
+    if (view === 'kiosk') return <KioskView vert={vert} items={catalog} setItems={setCatalog} onGo={setView} taxMode={taxMode} bizInfo={bizInfo} />
     if (view === 'sales') return <SalesHistoryView vert={vert} bizInfo={bizInfo} onGo={setView} />
     if (view === 'destacado') return <DestacadoView vert={vert} />
     if (view === 'promos') return <PromosView vert={vert} metrics={bizMetrics} />
@@ -6458,7 +6999,10 @@ export default function BizPage() {
         {/* Nav */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16, overflowY: 'auto' }}>
           {NAV_GROUPS.map(group => {
-            const items = group.items.filter(it => it.id !== 'orders' || vert.caps.orders)
+            // Pedidos se muestra si el negocio acepta pedidos online O si ya hay
+            // pedidos (p. ej. ventas del Punto de venta / Autoservicio enviadas al
+            // tablero), para que el flujo de preparación/entrega siempre sea visible.
+            const items = group.items.filter(it => it.id !== 'orders' || vert.caps.orders || orders.length > 0)
             if (!items.length) return null
             const ordersActive = orders.filter(o => !['delivered', 'cancelled', 'refunded'].includes(o.status)).length
             const groupBadge = items.reduce((n, it) => n + (it.id === 'requests' ? panelRequests.length : it.id === 'orders' ? ordersActive : it.id === 'messages' ? unreadMsgs : 0), 0)
