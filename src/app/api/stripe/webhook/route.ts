@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getStripe } from '@/lib/stripe'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { finalizeKioskSession } from '@/lib/kiosk-finalize'
 
 export async function POST(req: NextRequest) {
   const body = await req.text()
@@ -19,6 +20,15 @@ export async function POST(req: NextRequest) {
   if (event.type === 'checkout.session.completed') {
     const session = event.data.object
     const { user_id, biz_id, reservation_id, type, tier, days, service_id } = session.metadata!
+
+    if (type === 'kiosk') {
+      // Pago con tarjeta por QR del Autoservicio. Respaldo del sondeo del kiosko:
+      // registra la venta de forma idempotente (si el sondeo ya la registró, es
+      // no-op). Garantiza que un pago confirmado SIEMPRE quede asentado, aunque el
+      // navegador del kiosko se haya cerrado.
+      await finalizeKioskSession(session.id)
+      return NextResponse.json({ received: true })
+    }
 
     if (type === 'order') {
       // Pedido ecommerce pagado: pasa a 'paid' para que el negocio lo prepare.

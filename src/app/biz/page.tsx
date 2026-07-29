@@ -12,6 +12,7 @@ import { fetchPromotions, createPromotion, updatePromotion, setPromotionActive, 
 import { loadAgentConfig, saveAgentConfig, parseAgentConfig, DEFAULT_AGENT_CONFIG, type BizAgentConfig } from '@/lib/biz-agent-config'
 import { loadOwnerSession, type OwnerBusiness } from '@/lib/biz-session'
 import { createClient } from '@/lib/supabase/client'
+import QRCode from 'qrcode'
 import type { Service as CatalogService } from '@/lib/data'
 import { LangContext, useT, useEn, type Lang } from '@/lib/i18n'
 
@@ -3377,7 +3378,7 @@ function printKioskComanda(o: {
 }
 
 type KioskCfg = { askType: boolean; payAtCounter: boolean; autoPrint: boolean; welcome: string }
-type KioskStep = 'attract' | 'lang' | 'ordertype' | 'menu' | 'cart' | 'pay' | 'done'
+type KioskStep = 'attract' | 'lang' | 'ordertype' | 'menu' | 'cart' | 'pay' | 'qrpay' | 'done'
 const KIOSK_DEFAULT: KioskCfg = { askType: true, payAtCounter: true, autoPrint: true, welcome: '' }
 
 // El módulo de Autoservicio vive en la sección de Ventas. Reutiliza el mismo
@@ -3387,7 +3388,7 @@ const KIOSK_DEFAULT: KioskCfg = { askType: true, payAtCounter: true, autoPrint: 
 // diferencia es la interfaz: aquí manda el cliente, en una pantalla táctil a
 // pantalla completa. `reference` se marca como "Autoservicio" para distinguir en
 // el historial de dónde vino la venta.
-function KioskView({ vert, items, setItems, onGo, taxMode, bizInfo, exitPin, onSetExitPin }: { vert: Vert; items: CatItem[]; setItems: React.Dispatch<React.SetStateAction<CatItem[]>>; onGo: (v: string) => void; taxMode: TaxMode; bizInfo: BizInfo; exitPin: string; onSetExitPin: (pin: string) => void }) {
+function KioskView({ vert, items, setItems, onGo, taxMode, bizInfo, exitPin, onSetExitPin, stripeReady }: { vert: Vert; items: CatItem[]; setItems: React.Dispatch<React.SetStateAction<CatItem[]>>; onGo: (v: string) => void; taxMode: TaxMode; bizInfo: BizInfo; exitPin: string; onSetExitPin: (pin: string) => void; stripeReady: boolean }) {
   const t = useT()
   const en = useEn()
   const bizId = SHARED_BIZ_ID[vert.id] ?? vert.id
@@ -3405,6 +3406,13 @@ function KioskView({ vert, items, setItems, onGo, taxMode, bizInfo, exitPin, onS
   const [pinTry, setPinTry] = useState('')
   const [pinErr, setPinErr] = useState(false)
   const [done, setDone] = useState<null | { folio: string; total: number; method: string; orderType: 'here' | 'togo' | null }>(null)
+  // Pago con tarjeta por QR (Stripe). `qr` guarda la sesión de Checkout y su QR;
+  // `payErr` un error al crearla; `payStarting` mientras se crea. `finalizedRef`
+  // evita registrar la venta dos veces si el sondeo dispara de más.
+  const [qr, setQr] = useState<null | { id: string; dataUrl: string; url: string; folio: string }>(null)
+  const [payErr, setPayErr] = useState<string | null>(null)
+  const [payStarting, setPayStarting] = useState(false)
+  const finalizedRef = useRef(false)
 
   // Idioma DENTRO del kiosko, elegible por el cliente e independiente del idioma
   // del panel: que un cliente ordene en inglés no cambia el idioma del dueño.
@@ -3486,10 +3494,14 @@ function KioskView({ vert, items, setItems, onGo, taxMode, bizInfo, exitPin, onS
   function changeQty(key: string, delta: number) {
     setLines(prev => prev.flatMap(l => l.key !== key ? [l] : (l.qty + delta <= 0 ? [] : [{ ...l, qty: l.qty + delta }])))
   }
+  // Quita por completo una línea del carrito (sin importar la cantidad).
+  function removeLine(key: string) { setLines(prev => prev.filter(l => l.key !== key)) }
 
+  // Limpia el estado del pago con tarjeta por QR (al reiniciar o cancelar).
+  function resetPay() { setQr(null); setPayErr(null); setPayStarting(false); finalizedRef.current = false }
   // Arranca el kiosko a pantalla completa desde el atractor (pantalla de espera).
-  function startKiosk() { setLines([]); setCat('Todos'); setOrderType(null); setDone(null); setKioskLang(en ? 'en' : 'es'); setStep('attract'); setLive(true) }
-  function exitKiosk() { setLive(false); setAskExit(false); setPinTry(''); setPinErr(false); setStep('attract'); setLines([]); setOrderType(null); setDone(null) }
+  function startKiosk() { setLines([]); setCat('Todos'); setOrderType(null); setDone(null); resetPay(); setKioskLang(en ? 'en' : 'es'); setStep('attract'); setLive(true) }
+  function exitKiosk() { setLive(false); setAskExit(false); setPinTry(''); setPinErr(false); resetPay(); setStep('attract'); setLines([]); setOrderType(null); setDone(null) }
   // Abre el diálogo de salida siempre reseteando el pad, para que un intento
   // previo fallido no quede escrito al reabrir.
   function askToExit() { setPinTry(''); setPinErr(false); setAskExit(true) }
@@ -3506,11 +3518,11 @@ function KioskView({ vert, items, setItems, onGo, taxMode, bizInfo, exitPin, onS
     }
   }
   // Vuelve al atractor para el siguiente cliente, sin salir del modo kiosko.
-  function newOrder() { setLines([]); setCat('Todos'); setOrderType(null); setDone(null); setStep('attract') }
+  function newOrder() { setLines([]); setCat('Todos'); setOrderType(null); setDone(null); resetPay(); setStep('attract') }
 
   // Registra la venta igual que el Punto de venta y muestra la confirmación con
   // el número de orden que el cliente recoge en el mostrador.
-  function placeOrder(methodId: string, methodLabel: string) {
+  function placeOrder(methodId: string, methodLabel: string, extra?: { card_last4?: string | null }) {
     if (lines.length === 0 || total <= 0) return
     decrementStock(lines)
     const at = Date.now()
@@ -3524,6 +3536,7 @@ function KioskView({ vert, items, setItems, onGo, taxMode, bizInfo, exitPin, onS
       item_count: count,
       reference: ken ? 'Self-service' : 'Autoservicio',
       folio,
+      card_last4: extra?.card_last4 ?? undefined,
       items: lines.map(l => ({ service_id: l.id, name: l.name, unit_price: l.unit, qty: l.qty })),
     })
     // Manda la orden al tablero de Pedidos para preparación/entrega. El número de
@@ -3555,12 +3568,88 @@ function KioskView({ vert, items, setItems, onGo, taxMode, bizInfo, exitPin, onS
     return () => clearTimeout(id)
   }, [step])
 
-  // Métodos de pago que ve el cliente en el kiosko: tarjeta (si paga en pantalla)
-  // y/o pagar en caja. Se registran como venta con su método real.
+  // ── Pago con tarjeta por QR (Stripe) ──────────────────────────
+  // Crea el Checkout de Stripe para la orden y muestra su QR. El cliente lo escanea
+  // y paga en su teléfono; el kiosko sondea el estado y, al confirmarse, registra la
+  // venta. Sólo se usa si el negocio tiene Stripe conectado (`stripeReady`).
+  async function startCardPayment() {
+    if (payStarting || lines.length === 0 || total <= 0) return
+    setPayErr(null); setPayStarting(true); finalizedRef.current = false
+    try {
+      const r = await fetch('/api/kiosk/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ biz_id: bizId, items: lines.map(l => ({ service_id: l.id, qty: l.qty })), order_type: orderType, lang: kioskLang }),
+      })
+      const d = await r.json()
+      if (!r.ok || !d.url || !d.id) throw new Error(d.error || 'No se pudo iniciar el pago')
+      const dataUrl = await QRCode.toDataURL(d.url as string, { margin: 1, width: 520, color: { dark: '#221C19', light: '#FFFFFF' } })
+      setQr({ id: d.id as string, url: d.url as string, dataUrl, folio: (d.folio as string) ?? String(Date.now()).slice(-4) })
+      setStep('qrpay')
+    } catch (e) {
+      setPayErr(e instanceof Error ? e.message : 'No se pudo iniciar el pago')
+    } finally {
+      setPayStarting(false)
+    }
+  }
+
+  // Confirma en el kiosko un pago con tarjeta YA registrado por el servidor. NO
+  // registra la venta ni descuenta inventario en la BD (eso lo hizo el servidor de
+  // forma idempotente): sólo refleja el descuento en el estado local, imprime la
+  // comanda y muestra la confirmación con el folio que generó el servidor.
+  function confirmCardPaid(folio: string) {
+    if (finalizedRef.current) return
+    finalizedRef.current = true
+    setItems(prev => prev.map(c => {
+      if (typeof c.stock !== 'number') return c
+      const line = lines.find(l => l.key === c.name)
+      return line ? { ...c, stock: Math.max(0, c.stock - line.qty) } : c
+    }))
+    if (cfg.autoPrint) {
+      const at = Date.now()
+      printKioskComanda({
+        bizName: vert.full || vert.name, folio,
+        when: new Date(at).toLocaleString(ken ? 'en-US' : 'es-MX', { dateStyle: 'short', timeStyle: 'short' }),
+        orderType, rows: lines.map(l => ({ name: l.name, qty: l.qty, lineTotal: l.unit * l.qty })), total, en: ken,
+      })
+    }
+    setDone({ folio, total, method: kt('Tarjeta', 'Card'), orderType })
+    setStep('done')
+  }
+
+  // Sondeo del estado del pago mientras se muestra el QR. El endpoint dispara la
+  // finalización idempotente en el servidor; al confirmarse, devuelve el folio y el
+  // kiosko muestra la confirmación (una sola vez, vía finalizedRef).
+  useEffect(() => {
+    if (step !== 'qrpay' || !qr) return
+    let alive = true
+    const tick = async () => {
+      try {
+        const r = await fetch(`/api/kiosk/checkout/status?id=${encodeURIComponent(qr.id)}&biz_id=${encodeURIComponent(bizId)}`)
+        if (!r.ok || !alive) return
+        const d = await r.json()
+        if (d.paid && !finalizedRef.current) confirmCardPaid((d.folio as string) ?? qr.folio)
+      } catch { /* reintenta en el siguiente tick */ }
+    }
+    const id = setInterval(tick, 3000)
+    void tick()
+    return () => { alive = false; clearInterval(id) }
+  }, [step, qr, bizId])
+
+  // Métodos de pago que ve el cliente en el kiosko: tarjeta (por QR si el negocio
+  // tiene Stripe conectado; si no, se registra como venta sin cobro en línea) y/o
+  // pagar en caja. Se registran como venta con su método real.
   const kioskPays = [
-    { id: 'tarjeta', label: kt('Pagar con tarjeta', 'Pay by card'), sub: kt('Inserta o acerca tu tarjeta', 'Insert or tap your card'), icon: 'card', method: 'tarjeta' },
+    { id: 'tarjeta', label: kt('Pagar con tarjeta', 'Pay by card'), sub: stripeReady ? kt('Escanea y paga con tu teléfono', 'Scan & pay with your phone') : kt('Inserta o acerca tu tarjeta', 'Insert or tap your card'), icon: 'card', method: 'tarjeta' },
     ...(cfg.payAtCounter ? [{ id: 'caja', label: kt('Pagar en caja', 'Pay at the counter'), sub: kt('Paga al recoger tu orden', 'Pay when you pick up'), icon: 'cash', method: 'efectivo' }] : []),
   ]
+
+  // Al elegir un método: tarjeta con Stripe conectado → flujo QR; el resto (o
+  // tarjeta sin Stripe) → registra la venta directo como hasta ahora.
+  function choosePay(methodId: string, methodLabel: string) {
+    if (methodId === 'tarjeta' && stripeReady) void startCardPayment()
+    else placeOrder(methodId, methodLabel)
+  }
 
   // ── Landing de configuración (dentro del panel) ──
   if (!live) {
@@ -3789,6 +3878,11 @@ function KioskView({ vert, items, setItems, onGo, taxMode, bizInfo, exitPin, onS
                     <span style={{ minWidth: 16, textAlign: 'center', fontWeight: 800, fontSize: 15, color: R.ink }}>{l.qty}</span>
                     <button onClick={() => changeQty(l.key, 1)} style={{ width: 28, height: 28, borderRadius: '50%', border: 'none', background: R.surface, cursor: 'pointer', color: R.ink, fontWeight: 800, fontSize: 16, lineHeight: 1 }}>+</button>
                   </div>
+                  {/* Eliminar la línea por completo del carrito */}
+                  <button onClick={() => removeLine(l.key)} title={kt('Quitar', 'Remove')} aria-label={`${kt('Quitar', 'Remove')} ${lineName(l)}`}
+                    style={{ width: 30, height: 30, borderRadius: 8, border: 'none', background: 'transparent', cursor: 'pointer', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+                    <Icon n="trash" size={16} color={R.inkFaint} />
+                  </button>
                 </div>
               ))}
             </div>
@@ -3851,6 +3945,11 @@ function KioskView({ vert, items, setItems, onGo, taxMode, bizInfo, exitPin, onS
                   <button onClick={() => changeQty(l.key, 1)} style={{ width: 34, height: 34, borderRadius: '50%', border: 'none', background: R.surface, cursor: 'pointer', display: 'grid', placeItems: 'center', color: R.ink, fontWeight: 800, fontSize: 20, lineHeight: 1 }}>+</button>
                 </div>
                 <div style={{ width: 84, textAlign: 'right', fontFamily: R.display, fontWeight: 800, fontSize: 16.5, color: R.ink }}>{money(l.unit * l.qty)}</div>
+                {/* Eliminar la línea por completo del carrito */}
+                <button onClick={() => removeLine(l.key)} title={kt('Quitar', 'Remove')} aria-label={`${kt('Quitar', 'Remove')} ${lineName(l)}`}
+                  style={{ width: 36, height: 36, borderRadius: 10, border: 'none', background: 'transparent', cursor: 'pointer', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+                  <Icon n="trash" size={18} color={R.inkFaint} />
+                </button>
               </div>
             ))}
             {lines.length === 0 && (
@@ -3885,18 +3984,38 @@ function KioskView({ vert, items, setItems, onGo, taxMode, bizInfo, exitPin, onS
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             {kioskPays.map(m => (
-              <button key={m.id} onClick={() => placeOrder(m.method, m.label)}
-                style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '20px 22px', background: R.surface, border: `1.5px solid ${R.line}`, borderRadius: 18, cursor: 'pointer', fontFamily: R.ui, textAlign: 'left' }}>
+              <button key={m.id} onClick={() => choosePay(m.method, m.label)} disabled={payStarting}
+                style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '20px 22px', background: R.surface, border: `1.5px solid ${R.line}`, borderRadius: 18, cursor: payStarting ? 'default' : 'pointer', opacity: payStarting ? .7 : 1, fontFamily: R.ui, textAlign: 'left' }}>
                 <span style={{ width: 52, height: 52, borderRadius: 14, background: R.coralTint, display: 'grid', placeItems: 'center', flexShrink: 0 }}><Icon n={m.icon} size={24} color={R.coralPress} /></span>
                 <span style={{ flex: 1 }}>
                   <span style={{ display: 'block', fontWeight: 800, fontSize: 18, color: R.ink }}>{m.label}</span>
-                  <span style={{ display: 'block', fontSize: 13.5, color: R.inkSoft, marginTop: 2 }}>{m.sub}</span>
+                  <span style={{ display: 'block', fontSize: 13.5, color: R.inkSoft, marginTop: 2 }}>{m.id === 'tarjeta' && payStarting ? kt('Preparando el pago…', 'Preparing payment…') : m.sub}</span>
                 </span>
                 <Icon n="chevR" size={20} color={R.inkFaint} />
               </button>
             ))}
           </div>
+          {payErr && <div style={{ marginTop: 14, textAlign: 'center', color: R.coralPress, fontSize: 13.5, fontWeight: 600 }}>{payErr}</div>}
           <button onClick={() => setStep('cart')} style={{ marginTop: 20, padding: '14px', background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 15, color: R.inkSoft }}>{kt('Volver', 'Back')}</button>
+        </div>
+      )}
+
+      {/* PAGO CON TARJETA POR QR (Stripe) */}
+      {step === 'qrpay' && qr && (
+        <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 18, padding: 32, textAlign: 'center' }}>
+          <div>
+            <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 'clamp(24px, 3.4vw, 34px)', color: R.ink }}>{kt('Escanea para pagar', 'Scan to pay')}</div>
+            <div style={{ fontSize: 15.5, color: R.inkSoft, marginTop: 6, maxWidth: 420 }}>{kt('Apunta la cámara de tu teléfono al código y completa el pago con tarjeta.', 'Point your phone camera at the code and complete the card payment.')}</div>
+          </div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={qr.dataUrl} alt={kt('Código QR de pago', 'Payment QR code')} width={260} height={260}
+            style={{ width: 260, height: 260, borderRadius: 20, border: `1px solid ${R.line}`, background: '#fff', padding: 10, boxSizing: 'content-box' }} />
+          <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 30, color: R.ink }}>{money(total)}</div>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 10, color: R.inkSoft, fontSize: 14.5, fontWeight: 600 }}>
+            <span style={{ width: 16, height: 16, borderRadius: '50%', border: `2.5px solid ${R.line}`, borderTopColor: R.coral, animation: 'kioskSpin .8s linear infinite' }} />
+            {kt('Esperando el pago…', 'Waiting for payment…')}
+          </div>
+          <button onClick={() => { resetPay(); setStep('pay') }} style={{ marginTop: 8, padding: '13px 22px', background: 'transparent', border: `1px solid ${R.line}`, borderRadius: 999, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14.5, color: R.inkSoft }}>{kt('Cancelar', 'Cancel')}</button>
         </div>
       )}
 
@@ -3965,7 +4084,7 @@ function KioskView({ vert, items, setItems, onGo, taxMode, bizInfo, exitPin, onS
         </div>
       )}
 
-      <style>{`@keyframes kioskPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.04)}}@keyframes kioskShake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-8px)}40%,80%{transform:translateX(8px)}}.kMenu{display:flex;flex:1;min-height:0}.kMenuMain{flex:1;min-width:0;display:flex;flex-direction:column;min-height:0}.kCartAside{width:340px;flex-shrink:0;display:flex;flex-direction:column;min-height:0}.kGridScroll{padding:20px 24px 24px}.kCartBar{display:none}@media(max-width:880px){.kCartAside{display:none}.kCartBar{display:block}.kGridScroll{padding-bottom:120px}}`}</style>
+      <style>{`@keyframes kioskPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.04)}}@keyframes kioskShake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-8px)}40%,80%{transform:translateX(8px)}}@keyframes kioskSpin{to{transform:rotate(360deg)}}.kMenu{display:flex;flex:1;min-height:0}.kMenuMain{flex:1;min-width:0;display:flex;flex-direction:column;min-height:0}.kCartAside{width:340px;flex-shrink:0;display:flex;flex-direction:column;min-height:0}.kGridScroll{padding:20px 24px 24px}.kCartBar{display:none}@media(max-width:880px){.kCartAside{display:none}.kCartBar{display:block}.kGridScroll{padding-bottom:120px}}`}</style>
     </div>
   )
 }
@@ -6938,6 +7057,10 @@ export default function BizPage() {
   // PIN para salir del Autoservicio, guardado a nivel negocio (recuperable/
   // editable desde cualquier terminal). '' = sin PIN.
   const [kioskExitPin, setKioskExitPin] = useState('')
+  // ¿El negocio puede cobrar con tarjeta? (Stripe Connect conectado y habilitado).
+  // Habilita el pago real por QR en el Autoservicio; si es false, la tarjeta cae al
+  // comportamiento anterior (se registra la venta sin cobro en línea).
+  const [stripeReady, setStripeReady] = useState(false)
 
   // Carga la sesión del dueño y su(s) negocio(s). Sin sesión → login.
   // Con sesión pero sin negocio configurado → onboarding.
@@ -6972,6 +7095,7 @@ export default function BizPage() {
     setAgentCfgState(raw?.agent_config ? parseAgentConfig(raw.agent_config) : loadAgentConfig(v.id))
     if (raw?.tax_mode === 'added' || raw?.tax_mode === 'included') setTaxMode(raw.tax_mode)
     setKioskExitPin(raw?.kiosk_exit_pin ?? '')
+    setStripeReady(!!(raw?.stripe_account_id && raw?.stripe_charges_enabled))
   }, [vertIdx, verts, ownerBiz])
 
   // Guardado de ajustes debounced hacia /api/biz/settings (evita un write por tecla).
@@ -7188,7 +7312,7 @@ export default function BizPage() {
     if (view === 'catalog') return <CatalogView vert={vert} items={catalog} setItems={setCatalog} />
     if (view === 'inventory') return <InventoryView vert={vert} items={catalog} setItems={setCatalog} onGo={setView} />
     if (view === 'pos') return <PosView vert={vert} items={catalog} setItems={setCatalog} onGo={setView} taxMode={taxMode} bizInfo={bizInfo} />
-    if (view === 'kiosk') return <KioskView vert={vert} items={catalog} setItems={setCatalog} onGo={setView} taxMode={taxMode} bizInfo={bizInfo} exitPin={kioskExitPin} onSetExitPin={persistKioskExitPin} />
+    if (view === 'kiosk') return <KioskView vert={vert} items={catalog} setItems={setCatalog} onGo={setView} taxMode={taxMode} bizInfo={bizInfo} exitPin={kioskExitPin} onSetExitPin={persistKioskExitPin} stripeReady={stripeReady} />
     if (view === 'sales') return <SalesHistoryView vert={vert} bizInfo={bizInfo} onGo={setView} />
     if (view === 'destacado') return <DestacadoView vert={vert} />
     if (view === 'promos') return <PromosView vert={vert} metrics={bizMetrics} />

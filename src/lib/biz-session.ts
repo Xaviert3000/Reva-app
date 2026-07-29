@@ -43,6 +43,8 @@ export interface OwnerBusiness {
   delivery_enabled: boolean | null
   delivery_fee: number | null
   kiosk_exit_pin: string | null
+  stripe_account_id: string | null
+  stripe_charges_enabled: boolean | null
   services: OwnerService[]
 }
 
@@ -74,7 +76,7 @@ export async function loadOwnerSession(): Promise<OwnerSession> {
 
   const { data: bizRows } = await supabase
     .from('businesses')
-    .select('id,name,full_name,type,kind,hood,municipio,hours,capacity,rfc,address,phone,grad_from,grad_to,mono,agent_active,onboarded,agent_config,tax_mode,does_reservations,does_orders,pickup_enabled,delivery_enabled,delivery_fee,kiosk_exit_pin')
+    .select('id,name,full_name,type,kind,hood,municipio,hours,capacity,rfc,address,phone,grad_from,grad_to,mono,agent_active,onboarded,agent_config,tax_mode,does_reservations,does_orders,pickup_enabled,delivery_enabled,delivery_fee,kiosk_exit_pin,stripe_account_id,stripe_charges_enabled')
     .in('id', bizIds)
 
   const { data: svcRows } = await supabase
