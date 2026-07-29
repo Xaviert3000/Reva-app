@@ -56,6 +56,15 @@ export async function removeServiceImage(url: string | null | undefined): Promis
   }
 }
 
+// Traducción bilingüe de un campo de texto del catálogo.
+export type Bilingual = { es: string; en: string }
+// Objeto de traducciones que se guarda en `services.i18n` (ver migración 037).
+export interface ServiceI18n {
+  name: Bilingual
+  sub: Bilingual
+  category: Bilingual
+}
+
 export interface ServiceInput {
   name: string
   description: string | null
@@ -67,6 +76,29 @@ export interface ServiceInput {
   active: boolean
   image_url: string | null
   stock: number | null
+  i18n?: ServiceI18n | null // nombre/descripción/categoría en ES y EN para el kiosko
+}
+
+// Pide al servidor (que sí tiene la API key) la versión bilingüe de los campos de
+// texto de un producto, traduciendo desde `source` al otro idioma con IA. Devuelve
+// null si falla; el guardado continúa sin traducción (el kiosko cae al texto base).
+export async function translateServiceFields(
+  fields: { name: string; description: string; category: string },
+  source: 'es' | 'en',
+): Promise<ServiceI18n | null> {
+  try {
+    const res = await fetch('/api/biz/translate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...fields, source }),
+    })
+    if (!res.ok) return null
+    const data = (await res.json()) as { i18n?: ServiceI18n }
+    return data.i18n ?? null
+  } catch (e) {
+    console.warn('[catalog] translateServiceFields falló:', e)
+    return null
+  }
 }
 
 // Crea (id undefined → insert, devuelve el nuevo id) o actualiza un servicio.
@@ -94,6 +126,22 @@ export async function saveService(
   } catch (e) {
     console.warn('[catalog] saveService falló:', e)
     return null
+  }
+}
+
+// Actualiza sólo las traducciones (`i18n`) de un servicio ya existente, sin tocar
+// el resto de las columnas. Lo usa el botón "Traducir todo" para rellenar productos
+// viejos. Devuelve true si se guardó.
+export async function updateServiceI18n(id: string, i18n: ServiceI18n): Promise<boolean> {
+  if (!supabaseEnabled || !id) return false
+  try {
+    const supabase = createClient()
+    const { error } = await supabase.from('services').update({ i18n }).eq('id', id)
+    if (error) throw error
+    return true
+  } catch (e) {
+    console.warn('[catalog] updateServiceI18n falló:', e)
+    return false
   }
 }
 

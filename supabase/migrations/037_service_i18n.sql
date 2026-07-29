@@ -1,0 +1,15 @@
+-- 037 — Traducciones del catálogo (ES/EN) por servicio.
+-- El dueño escribe el nombre, la descripción y la categoría en UN idioma. Para que
+-- el Autoservicio (kiosko) los muestre en el idioma que elige el cliente, guardamos
+-- ambas versiones aquí. Se llenan automáticamente con IA al guardar el producto
+-- (ver /api/biz/translate). Las columnas base (name/description/category) siguen
+-- siendo la fuente editable y el texto que ven el POS, los pedidos y el panel.
+--
+-- Forma del jsonb:
+--   {
+--     "name":     {"es": "...", "en": "..."},
+--     "sub":      {"es": "...", "en": "..."},
+--     "category": {"es": "...", "en": "..."}
+--   }
+-- Null = producto sin traducir aún (filas viejas): el kiosko cae al texto base.
+alter table services add column if not exists i18n jsonb;

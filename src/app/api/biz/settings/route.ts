@@ -37,6 +37,13 @@ export async function POST(req: NextRequest) {
   if (typeof body.pickup_enabled === 'boolean') patch.pickup_enabled = body.pickup_enabled
   if (typeof body.delivery_enabled === 'boolean') patch.delivery_enabled = body.delivery_enabled
   if (body.delivery_fee !== undefined) { const n = Number(body.delivery_fee); if (Number.isFinite(n) && n >= 0) patch.delivery_fee = n }
+  // PIN de salida del Autoservicio (kiosk). Se guarda a nivel negocio para que el
+  // dueño lo pueda cambiar/recuperar desde cualquier terminal. Sólo dígitos (4–6);
+  // vacío/null lo desactiva (la salida vuelve a la confirmación simple).
+  if (body.kiosk_exit_pin !== undefined) {
+    const pin = String(body.kiosk_exit_pin ?? '').replace(/\D/g, '').slice(0, 6)
+    patch.kiosk_exit_pin = pin.length >= 4 ? pin : null
+  }
   if (Object.keys(patch).length === 0) return NextResponse.json({ ok: true })
 
   const { error } = await admin.from('businesses').update(patch).eq('id', bizId)

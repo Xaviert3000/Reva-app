@@ -172,6 +172,7 @@ export interface Service {
   hours?: string // per-service "HH:MM – HH:MM" override. Absent = use the business hours.
   includes?: string[] // what the service includes (shown in its detail view).
   stock?: number // units left when inventory is tracked. Absent = unlimited (no tracking). A number (incl. 0) = tracked; 0 = agotado (out of stock).
+  i18n?: { name?: { es?: string; en?: string }; sub?: { es?: string; en?: string }; category?: { es?: string; en?: string } } | null // traducciones ES/EN para el kiosko (migración 037)
 }
 
 // Does this service track a limited inventory? A numeric `stock` (including 0)
