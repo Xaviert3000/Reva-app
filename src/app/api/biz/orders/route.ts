@@ -59,13 +59,17 @@ export async function POST(req: NextRequest) {
   const customerName: string | null = typeof body.customer_name === 'string' ? body.customer_name.trim() || null : null
   const notes: string | null = typeof body.notes === 'string' ? body.notes.trim() || null : null
 
+  // 'pending_payment' = orden de Autoservicio "pagar en caja": aún no cobrada, la
+  // cajera la cobra desde el Punto de venta (busca el folio) y ahí pasa a 'paid'.
+  // Cualquier otro valor → 'paid' directo (POS y kiosko ya cobrados).
+  const pending = body.status === 'pending_payment'
   const admin = createAdminClient()
   const { data: order, error: orderErr } = await admin
     .from('orders')
     .insert({
       user_id: null,
       biz_id: bizId,
-      status: 'paid',
+      status: pending ? 'pending_payment' : 'paid',
       channel,
       fulfillment,
       customer_name: customerName,
@@ -74,7 +78,7 @@ export async function POST(req: NextRequest) {
       delivery_fee: 0,
       total,
       confirmation_code: null, // sin código: se recoge/entrega en caja
-      paid_at: new Date().toISOString(),
+      paid_at: pending ? null : new Date().toISOString(),
     })
     .select('id')
     .single()
@@ -106,13 +110,19 @@ export async function GET(req: NextRequest) {
   if (!bizId) return NextResponse.json({ error: 'biz_id requerido' }, { status: 400 })
   if (!(await ownerOf(bizId, user.id))) return NextResponse.json({ error: 'No autorizado' }, { status: 403 })
 
+  // ?pending_counter=1 → sólo las órdenes de Autoservicio "pagar en caja" aún sin
+  // cobrar (pending_payment + canal kiosk), para que la cajera las cobre en el POS.
+  const pendingCounter = req.nextUrl.searchParams.get('pending_counter') === '1'
   const admin = createAdminClient()
-  const { data, error } = await admin
+  let query = admin
     .from('orders')
-    .select('*, order_items(id,name,qty,unit_price,line_total)')
+    .select('*, order_items(id,service_id,name,qty,unit_price,line_total)')
     .eq('biz_id', bizId)
-    .neq('status', 'pending_payment') // los no pagados no ensucian la bandeja
     .order('created_at', { ascending: false })
+  query = pendingCounter
+    ? query.eq('status', 'pending_payment').eq('channel', 'kiosk')
+    : query.neq('status', 'pending_payment') // los no pagados no ensucian la bandeja
+  const { data, error } = await query
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   // El código de confirmación NUNCA se envía al panel: el dueño debe pedírselo
@@ -141,6 +151,9 @@ export async function PATCH(req: NextRequest) {
   const patch: Record<string, unknown> = {}
   if (typeof body.status === 'string' && (STATUSES as readonly string[]).includes(body.status)) {
     patch.status = body.status as Status
+    // Al cobrar una orden "pagar en caja" (pending_payment → paid) sella la fecha
+    // de pago, para que cuente igual que cualquier pedido pagado.
+    if (body.status === 'paid') patch.paid_at = new Date().toISOString()
   }
   if ('courier_id' in body) patch.courier_id = body.courier_id || null
   if (Object.keys(patch).length === 0) return NextResponse.json({ ok: true })

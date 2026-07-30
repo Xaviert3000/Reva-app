@@ -15,12 +15,15 @@ export interface OwnerService {
   scheduled: boolean | null
   image_url: string | null
   i18n: { name?: { es?: string; en?: string }; sub?: { es?: string; en?: string }; category?: { es?: string; en?: string } } | null
+  variants: import('./variants').VariantGroup[] | null
 }
 
 export interface OwnerBusiness {
   id: string
   name: string
   full_name: string | null
+  description: string | null
+  logo_url: string | null
   type: string | null
   kind: string | null
   hood: string | null
@@ -76,12 +79,12 @@ export async function loadOwnerSession(): Promise<OwnerSession> {
 
   const { data: bizRows } = await supabase
     .from('businesses')
-    .select('id,name,full_name,type,kind,hood,municipio,hours,capacity,rfc,address,phone,grad_from,grad_to,mono,agent_active,onboarded,agent_config,tax_mode,does_reservations,does_orders,pickup_enabled,delivery_enabled,delivery_fee,kiosk_exit_pin,stripe_account_id,stripe_charges_enabled')
+    .select('id,name,full_name,description,logo_url,type,kind,hood,municipio,hours,capacity,rfc,address,phone,grad_from,grad_to,mono,agent_active,onboarded,agent_config,tax_mode,does_reservations,does_orders,pickup_enabled,delivery_enabled,delivery_fee,kiosk_exit_pin,stripe_account_id,stripe_charges_enabled')
     .in('id', bizIds)
 
   const { data: svcRows } = await supabase
     .from('services')
-    .select('id,biz_id,name,description,price,price_label,category,duration_min,active,scheduled,image_url,i18n')
+    .select('id,biz_id,name,description,price,price_label,category,duration_min,active,scheduled,image_url,i18n,variants')
     .in('biz_id', bizIds)
 
   const businesses: OwnerBusiness[] = (bizRows ?? []).map(b => ({

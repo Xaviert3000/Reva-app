@@ -21,6 +21,8 @@ interface DbBusiness {
   tier: FeaturedTier | null
   featured_until: string | null
   featured_service_id: string | null
+  featured_event: { title?: string; date?: string | null; description?: string | null; image_url?: string | null } | null
+  logo_url: string | null
   grad_from: string | null
   grad_to: string | null
   mono: string | null
@@ -43,6 +45,7 @@ interface DbService {
   stock: number | null
   scheduled: boolean | null
   image_url: string | null
+  variants: import('./variants').VariantGroup[] | null
 }
 
 interface DbReview {
@@ -93,6 +96,7 @@ function mapService(s: DbService, grad: [string, string]): Service {
     // null en la BD = disponibilidad ilimitada (sin seguimiento de inventario).
     stock: s.stock ?? undefined,
     img: s.image_url ?? undefined,
+    variants: s.variants ?? undefined,
   }
 }
 
@@ -159,6 +163,10 @@ function mapBusiness(
     // Nivel real de la BD (migración 007). Si está destacado sin nivel
     // explícito, cae en 'destacado' por compatibilidad.
     tier: isFeatured ? (b.tier ?? 'destacado') : undefined,
+    // Evento destacado (migración 039): sólo si está vigente y hay evento con título.
+    featuredEvent: isFeatured && b.featured_event?.title
+      ? { title: b.featured_event.title, date: b.featured_event.date ?? null, description: b.featured_event.description ?? null, img: b.featured_event.image_url ?? null }
+      : null,
     grad,
     img,
     mono: b.mono || b.name.charAt(0).toUpperCase(),
@@ -192,7 +200,7 @@ export async function fetchCityData(municipio: string): Promise<CityData> {
   const supabase = createClient()
   const { data: bizRows, error } = await supabase
     .from('businesses')
-    .select('id,name,type,kind,hood,municipio,hours,rating,local_fav,featured,tier,featured_until,featured_service_id,grad_from,grad_to,mono,does_orders,does_reservations,pickup_enabled,delivery_enabled,delivery_fee')
+    .select('id,name,type,kind,hood,municipio,hours,rating,local_fav,featured,tier,featured_until,featured_service_id,featured_event,logo_url,grad_from,grad_to,mono,does_orders,does_reservations,pickup_enabled,delivery_enabled,delivery_fee')
     .eq('municipio', municipio)
 
   if (error || !bizRows || bizRows.length === 0) {
@@ -204,7 +212,7 @@ export async function fetchCityData(municipio: string): Promise<CityData> {
   const [{ data: svcRows }, { data: revRows }, { data: alertRows }, { data: offerRows }] = await Promise.all([
     supabase
       .from('services')
-      .select('id,biz_id,name,description,price,price_label,category,duration_min,stock,scheduled,image_url')
+      .select('id,biz_id,name,description,price,price_label,category,duration_min,stock,scheduled,image_url,variants')
       .in('biz_id', ids)
       .eq('active', true),
     supabase
@@ -238,7 +246,11 @@ export async function fetchCityData(municipio: string): Promise<CityData> {
     const featuredImg = b.featured_service_id
       ? catalog[b.id].find(s => s.id === b.featured_service_id)?.img
       : undefined
-    const cover = featuredImg ?? catalog[b.id].find(s => s.img)?.img
+    // Si destaca un evento con imagen, esa manda como portada de la tarjeta.
+    const eventImg = b.featured_event?.image_url || undefined
+    // El logo/foto del perfil sirve de portada cuando no hay imagen destacada ni de
+    // catálogo, para que la foto que sube el dueño en Ajustes se vea en Discover.
+    const cover = eventImg ?? featuredImg ?? catalog[b.id].find(s => s.img)?.img ?? (b.logo_url || undefined)
     return mapBusiness(b, grad, reviews, alerts, offers, cover)
   })
 

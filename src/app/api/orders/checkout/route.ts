@@ -2,10 +2,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getStripe, commissionAmount } from '@/lib/stripe'
 import { getRouteUser } from '@/lib/supabase/route-auth'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { isOpenNow } from '@/lib/data'
+import { usableGroups } from '@/lib/variants'
 
 export const dynamic = 'force-dynamic'
 
-interface ItemInput { service_id: string; qty: number }
+interface ItemInput { service_id: string; qty: number; options?: string[] }
 
 // Crea un pedido (estado pending_payment) + sus líneas y abre un Checkout de
 // Stripe Connect que cobra al cliente y transfiere al negocio (comisión 2% para
@@ -36,12 +38,16 @@ export async function POST(req: NextRequest) {
 
   const { data: biz } = await admin
     .from('businesses')
-    .select('id,name,does_orders,pickup_enabled,delivery_enabled,delivery_fee,stripe_account_id,stripe_charges_enabled')
+    .select('id,name,hours,does_orders,pickup_enabled,delivery_enabled,delivery_fee,stripe_account_id,stripe_charges_enabled')
     .eq('id', bizId)
     .single()
 
   if (!biz || !biz.does_orders) {
     return NextResponse.json({ error: 'Este negocio no acepta pedidos' }, { status: 409 })
+  }
+  // Respeta el horario del negocio también para pedidos: cerrado = no se cobra.
+  if (!isOpenNow(biz.hours)) {
+    return NextResponse.json({ error: 'El negocio está cerrado ahora. Vuelve dentro de su horario para ordenar.' }, { status: 409 })
   }
   if (fulfillment === 'delivery' && !biz.delivery_enabled) {
     return NextResponse.json({ error: 'Este negocio no ofrece entrega a domicilio' }, { status: 409 })
@@ -57,7 +63,7 @@ export async function POST(req: NextRequest) {
   const ids = items.map(i => i.service_id)
   const { data: svcRows } = await admin
     .from('services')
-    .select('id,name,price')
+    .select('id,name,price,variants')
     .in('id', ids)
     .eq('biz_id', bizId)
 
@@ -67,7 +73,20 @@ export async function POST(req: NextRequest) {
       const qty = Math.max(1, Math.min(99, Math.floor(Number(i.qty) || 1)))
       const price = Number(svc?.price)
       if (!svc || !Number.isFinite(price) || price <= 0) return null
-      return { service_id: svc.id, name: svc.name as string, unit_price: price, qty, line_total: price * qty }
+      // Variante: valida las opciones enviadas contra la BD y suma sus extras. El
+      // extra NUNCA se confía al cliente: se recalcula desde services.variants.
+      const groups = usableGroups(svc.variants)
+      const picked: string[] = []
+      let delta = 0
+      if (groups.length > 0 && Array.isArray(i.options)) {
+        groups.forEach((g, gi) => {
+          const opt = g.options.find(o => o.name === i.options![gi])
+          if (opt) { picked.push(opt.name); delta += opt.price_delta || 0 }
+        })
+      }
+      const unit = price + delta
+      const name = picked.length > 0 ? `${svc.name} (${picked.join(' · ')})` : (svc.name as string)
+      return { service_id: svc.id, name, unit_price: unit, qty, line_total: unit * qty }
     })
     .filter((x): x is NonNullable<typeof x> => x !== null)
 

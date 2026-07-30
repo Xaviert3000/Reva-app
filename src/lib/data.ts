@@ -119,6 +119,9 @@ export interface Business {
   // 'premium' = ★ máx. visibilidad (spot #1); 'destacado' = ✦ franja de destacados.
   // Si featured=true y no hay tier, se asume 'destacado'.
   tier?: FeaturedTier
+  // Evento destacado (migración 039): cuando el negocio destaca un evento en vez de
+  // un producto/todo el negocio. Sólo presente si featured=true y hay evento.
+  featuredEvent?: { title: string; date?: string | null; description?: string | null; img?: string | null } | null
   grad: [string, string]
   // URL pública de una imagen de portada (Supabase Storage): normalmente la
   // primera imagen del catálogo del negocio. Absent = usa el gradiente + mono.
@@ -173,6 +176,7 @@ export interface Service {
   includes?: string[] // what the service includes (shown in its detail view).
   stock?: number // units left when inventory is tracked. Absent = unlimited (no tracking). A number (incl. 0) = tracked; 0 = agotado (out of stock).
   i18n?: { name?: { es?: string; en?: string }; sub?: { es?: string; en?: string }; category?: { es?: string; en?: string } } | null // traducciones ES/EN para el kiosko (migración 037)
+  variants?: import('./variants').VariantGroup[] | null // grupos de variantes (Tamaño, Temperatura…) (migración 041)
 }
 
 // Does this service track a limited inventory? A numeric `stock` (including 0)
@@ -196,6 +200,20 @@ export function dayOffered(s: Service | undefined, dow: number): boolean {
 // only services explicitly flagged `scheduled: false` skip the calendar.
 export function isScheduled(s?: Service): boolean {
   return !s || s.scheduled !== false
+}
+
+// ¿El negocio está abierto AHORA según su horario "HH:MM – HH:MM"? Soporta rangos
+// que cruzan medianoche (ej. "18:00 – 01:00"). Si el horario no es parseable o está
+// vacío, devuelve true (no bloquea): mejor permitir que trabar por un dato ausente.
+// Lo usan el checkout de pedidos (server) y la ficha del cliente para respetar el
+// horario tanto en pedidos como en reservas.
+export function isOpenNow(hours: string | null | undefined, now: Date = new Date()): boolean {
+  const m = (hours ?? '').match(/(\d{1,2}):(\d{2})\s*[–—-]\s*(\d{1,2}):(\d{2})/)
+  if (!m) return true
+  const start = +m[1] * 60 + +m[2]
+  const end = +m[3] * 60 + +m[4]
+  const cur = now.getHours() * 60 + now.getMinutes()
+  return start <= end ? cur >= start && cur < end : cur >= start || cur < end
 }
 
 // Parse a posted business-hours string ("09:00 – 20:00", also handles a

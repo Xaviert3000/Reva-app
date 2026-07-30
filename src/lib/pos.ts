@@ -111,6 +111,9 @@ export interface InStoreOrderInput {
   subtotal: number
   total: number
   items: { service_id?: string; name: string; unit_price: number; qty: number }[]
+  // 'pending_payment' = orden "pagar en caja" (Autoservicio) que la cajera cobra
+  // luego en el POS. Ausente/otro = 'paid' (ya cobrada).
+  status?: 'paid' | 'pending_payment'
 }
 export async function sendInStoreOrder(bizId: string, input: InStoreOrderInput): Promise<string | null> {
   if (!bizId || input.items.length === 0) return null
@@ -126,5 +129,56 @@ export async function sendInStoreOrder(bizId: string, input: InStoreOrderInput):
   } catch (e) {
     console.warn('[pos] sendInStoreOrder falló:', e)
     return null
+  }
+}
+
+// Renglón de una orden pendiente por cobrar en caja (Autoservicio).
+export interface PendingOrder {
+  id: string
+  folio: string           // el número que ve el cliente (viene de customer_name "#folio")
+  notes: string | null    // "Para llevar" / "Comer aquí"
+  subtotal: number
+  total: number
+  created_at: string
+  items: { service_id?: string; name: string; qty: number; unit_price: number }[]
+}
+
+// Lista las órdenes de Autoservicio "pagar en caja" aún sin cobrar, para que la
+// cajera las busque por folio y las cobre en el Punto de venta.
+export async function fetchPendingCounterOrders(bizId: string): Promise<PendingOrder[]> {
+  if (!bizId) return []
+  try {
+    const r = await fetch(`/api/biz/orders?biz_id=${encodeURIComponent(bizId)}&pending_counter=1`)
+    if (!r.ok) return []
+    const d = await r.json()
+    return ((d?.orders ?? []) as Array<Record<string, unknown>>).map(o => ({
+      id: o.id as string,
+      folio: String(o.customer_name ?? '').replace(/^#/, '') || String(o.id).slice(0, 4),
+      notes: (o.notes as string) ?? null,
+      subtotal: Number(o.subtotal) || 0,
+      total: Number(o.total) || 0,
+      created_at: (o.created_at as string) ?? '',
+      items: ((o.order_items ?? []) as Array<Record<string, unknown>>).map(i => ({ service_id: (i.service_id as string) ?? undefined, name: i.name as string, qty: Number(i.qty) || 1, unit_price: Number(i.unit_price) || 0 })),
+    }))
+  } catch (e) {
+    console.warn('[pos] fetchPendingCounterOrders falló:', e)
+    return []
+  }
+}
+
+// Marca una orden como pagada (la cajera cobró la orden "pagar en caja"). Devuelve
+// true si se actualizó. El pedido pasa a 'paid' y entra al tablero de Pedidos.
+export async function markOrderPaid(bizId: string, orderId: string): Promise<boolean> {
+  if (!bizId || !orderId) return false
+  try {
+    const r = await fetch('/api/biz/orders', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ biz_id: bizId, id: orderId, status: 'paid' }),
+    })
+    return r.ok
+  } catch (e) {
+    console.warn('[pos] markOrderPaid falló:', e)
+    return false
   }
 }

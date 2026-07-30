@@ -10,7 +10,8 @@ function timeGreeting(en: boolean): string {
   return h < 12 ? 'Buenos días' : h < 19 ? 'Buenas tardes' : 'Buenas noches'
 }
 import QRCode from 'qrcode'
-import { type Mode, type Business, type Service, BIZ, CATALOG, CITIES, STATES_DATA, COPY, slotsFromHours, upcomingDays, slotAvailability, isScheduled, inStock, tracksStock, dayOffered, findService, localSearch, servicesForSearch, activeAlert, findMunicipio, featuredBadge } from '@/lib/data'
+import { type Mode, type Business, type Service, BIZ, CATALOG, CITIES, STATES_DATA, COPY, slotsFromHours, upcomingDays, slotAvailability, isScheduled, isOpenNow, inStock, tracksStock, dayOffered, findService, localSearch, servicesForSearch, activeAlert, findMunicipio, featuredBadge } from '@/lib/data'
+import { type VariantOption, usableGroups, hasVariants, variantDelta, variantLabel, defaultSelection } from '@/lib/variants'
 import { fetchCityData, type CityData } from '@/lib/business-data'
 import { createClient } from '@/lib/supabase/client'
 import { promoWindowLabel } from '@/lib/promotions'
@@ -26,14 +27,21 @@ const BizDataContext = createContext<CityData & { city: string; refresh: () => v
 // Sólo aplica a negocios con doesOrders. Un carrito pertenece a UN negocio a la
 // vez; agregar de otro negocio lo reemplaza. Los productos son services con
 // scheduled=false y un precio numérico.
-export type CartItem = { service: Service; qty: number }
+// La variante elegida de un producto: etiqueta legible ("Grande · Caliente"), las
+// opciones (para validar el precio en el servidor) y el extra de precio.
+export type CartVariant = { label: string; options: string[]; delta: number }
+export type CartItem = { service: Service; qty: number; variant?: CartVariant }
+// Clave única del renglón: mismo producto con distinta variante = renglones aparte.
+export function cartKey(i: CartItem): string { return i.variant?.label ? `${i.service.id}::${i.variant.label}` : i.service.id }
+// Precio unitario del renglón = base del producto + extra de la variante.
+export function cartUnit(i: CartItem): number { return (priceNumber(i.service) ?? 0) + (i.variant?.delta ?? 0) }
 interface CartState {
   biz: Business | null
   items: CartItem[]
   count: number
   subtotal: number
-  add: (biz: Business, s: Service) => void
-  setQty: (serviceId: string, qty: number) => void
+  add: (biz: Business, s: Service, variant?: CartVariant) => void
+  setQty: (key: string, qty: number) => void
   clear: () => void
   open: () => void
 }
@@ -589,7 +597,9 @@ function ServiceChatCard({ biz, service, mode, onDetail, onBook }: { biz: Busine
   const orderable = isOrderable(biz, service)
   // Producto de pedido ya en el carrito: mostramos control de cantidad como
   // confirmación de que se agregó (mismo patrón que la ficha del negocio).
-  const inCart = orderable ? cart.items.find(i => i.service.id === service.id) : undefined
+  // Con variantes, cada agregado abre el selector (líneas distintas), así que no
+  // mostramos el control de cantidad en la tarjeta: sólo el botón "Agregar".
+  const inCart = orderable && !hasVariants(service.variants) ? cart.items.find(i => i.service.id === service.id && !i.variant) : undefined
   return (
     <div onClick={onDetail} style={{ display: 'flex', alignItems: 'center', gap: 12, background: inCart ? '#FCE9E7' : '#fff', border: inCart ? '1.5px solid #E8505B' : '1px solid #E9E0D5', borderRadius: 18, padding: 12, boxShadow: '0 2px 10px rgba(34,28,25,.06)', cursor: 'pointer' }}>
       <div style={{ width: 48, height: 48, borderRadius: 12, flexShrink: 0, background: service.img ? `center/cover no-repeat url(${service.img})` : `linear-gradient(140deg,${service.grad[0]},${service.grad[1]})`, display: 'grid', placeItems: 'center', color: 'rgba(255,255,255,.85)', fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 19 }}>{!service.img && biz.mono}</div>
@@ -620,6 +630,10 @@ function ServiceDetail({ biz, service, mode, onClose, onBook }: { biz: Business;
   const en = useContext(LangContext) === 'en'
   const scheduled = isScheduled(service)
   const available = inStock(service)
+  // Los pedidos (compra inmediata) respetan el horario del negocio: cerrado ahora =
+  // no se puede ordenar. Las reservas no se bloquean (se agendan a futuro).
+  const closedForOrders = isOrderable(biz, service) && !isOpenNow(biz.hours)
+  const canAct = available && !closedForOrders
   return (
     <div onClick={onClose} style={{ position: 'absolute', inset: 0, zIndex: 60, background: 'rgba(0,0,0,.5)', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', animation: 'fadeIn .18s ease' }}>
       <div onClick={e => e.stopPropagation()} style={{ background: '#FAF5EE', borderRadius: '30px 30px 0 0', maxHeight: '90%', overflowY: 'auto' }}>
@@ -677,9 +691,9 @@ function ServiceDetail({ biz, service, mode, onClose, onBook }: { biz: Business;
           </div>
 
           {/* CTA */}
-          <button onClick={onBook} disabled={!available} style={{ width: '100%', marginTop: 18, background: available ? '#E8505B' : '#F0D9D5', color: available ? '#fff' : '#B5472F', border: 'none', borderRadius: 999, padding: '15px 0', fontFamily: 'var(--font-ui)', fontWeight: 700, fontSize: 16, cursor: available ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-            <Icon n="spark" size={18} color={available ? '#fff' : '#B5472F'} />
-            {!available ? (en ? 'Sold out' : 'Agotado') : isOrderable(biz, service) ? (en ? 'Add to order' : 'Agregar al pedido') : scheduled ? (en ? 'Reserve with Reva' : 'Reservar con Reva') : (en ? 'Request with Reva' : 'Solicitar con Reva')}
+          <button onClick={onBook} disabled={!canAct} style={{ width: '100%', marginTop: 18, background: canAct ? '#E8505B' : '#F0D9D5', color: canAct ? '#fff' : '#B5472F', border: 'none', borderRadius: 999, padding: '15px 0', fontFamily: 'var(--font-ui)', fontWeight: 700, fontSize: 16, cursor: canAct ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+            <Icon n="spark" size={18} color={canAct ? '#fff' : '#B5472F'} />
+            {!available ? (en ? 'Sold out' : 'Agotado') : closedForOrders ? (en ? `Closed now · ${biz.hours}` : `Cerrado ahora · ${biz.hours}`) : isOrderable(biz, service) ? (en ? 'Add to order' : 'Agregar al pedido') : scheduled ? (en ? 'Reserve with Reva' : 'Reservar con Reva') : (en ? 'Request with Reva' : 'Solicitar con Reva')}
           </button>
         </div>
       </div>
@@ -904,9 +918,15 @@ function MiniCard({ biz, mode, onOpen }: { biz: Business; mode: Mode; onOpen: ()
       </div>
       <div style={{ padding: '11px 13px 13px' }}>
         <div style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 15, color: '#221C19', lineHeight: 1.15, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{biz.name}</div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 7 }}>
-          <span style={{ fontSize: 12, color: '#6B615A' }}>{biz.type} · {biz.dist} km</span>
-        </div>
+        {biz.featuredEvent ? (
+          <div style={{ marginTop: 7, whiteSpace: 'nowrap', overflow: 'hidden' }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: '#E8505B', overflow: 'hidden', textOverflow: 'ellipsis' }}>🎉 {biz.featuredEvent.title}</span>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 7 }}>
+            <span style={{ fontSize: 12, color: '#6B615A' }}>{biz.type} · {biz.dist} km</span>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -927,9 +947,15 @@ function DestacadoCard({ biz, onOpen }: { biz: Business; onOpen: () => void }) {
       </div>
       <div style={{ padding: '11px 13px 13px' }}>
         <div style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 15, color: '#221C19', lineHeight: 1.15, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{biz.name}</div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 7 }}>
-          <span style={{ fontSize: 12, color: '#6B615A' }}>{biz.type} · {biz.dist} km</span>
-        </div>
+        {biz.featuredEvent ? (
+          <div style={{ marginTop: 7, whiteSpace: 'nowrap', overflow: 'hidden' }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: '#E8505B', overflow: 'hidden', textOverflow: 'ellipsis' }}>🎉 {biz.featuredEvent.title}</span>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 7 }}>
+            <span style={{ fontSize: 12, color: '#6B615A' }}>{biz.type} · {biz.dist} km</span>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -943,13 +969,27 @@ function HeroFeatured({ biz, mode, onOpen }: { biz: Business; mode: Mode; onOpen
       {(() => { const badge = featuredBadge(biz); return badge && (
         <div style={{ position: 'absolute', top: 12, left: 12, background: 'rgba(27,36,54,.85)', color: '#fff', fontSize: 10.5, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', padding: '5px 10px', borderRadius: 999 }}>{badge.icon} {badge.label}</div>
       ) })()}
+      {biz.featuredEvent && (
+        <div style={{ position: 'absolute', top: 12, right: 12, display: 'inline-flex', alignItems: 'center', gap: 5, background: 'rgba(232,80,91,.92)', color: '#fff', fontSize: 11, fontWeight: 700, padding: '5px 10px', borderRadius: 999 }}>
+          🎉 {en ? 'Event' : 'Evento'}{biz.featuredEvent.date ? ` · ${biz.featuredEvent.date}` : ''}
+        </div>
+      )}
       <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: 18, paddingTop: 50, background: 'linear-gradient(transparent,rgba(20,14,12,.82))', color: '#fff' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
           <Stars rating={biz.rating} />
           <span style={{ fontSize: 12.5, opacity: .9 }}>{biz.type}</span>
         </div>
-        <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 25, lineHeight: 1.1 }}>{biz.name}</div>
-        <div style={{ fontSize: 13.5, opacity: .9, marginTop: 6, maxWidth: '34ch' }}>{en ? biz.en : biz.es}</div>
+        {biz.featuredEvent ? (
+          <>
+            <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 25, lineHeight: 1.1 }}>{biz.featuredEvent.title}</div>
+            <div style={{ fontSize: 13.5, opacity: .9, marginTop: 6, maxWidth: '34ch' }}>{biz.featuredEvent.description || biz.name}</div>
+          </>
+        ) : (
+          <>
+            <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 25, lineHeight: 1.1 }}>{biz.name}</div>
+            <div style={{ fontSize: 13.5, opacity: .9, marginTop: 6, maxWidth: '34ch' }}>{en ? biz.en : biz.es}</div>
+          </>
+        )}
       </div>
     </div>
   )
@@ -1229,7 +1269,8 @@ function BizDetail({ biz, mode, onClose, onBook, onOpenCart, onMessage }: { biz:
                   const on = selected?.id === s.id
                   const available = inStock(s)
                   const orderable = isOrderable(biz, s)
-                  const inCart = cart.items.find(i => i.service.id === s.id)
+                  // Con variantes, cada agregado abre el selector: sin control de cantidad en línea.
+                  const inCart = hasVariants(s.variants) ? undefined : cart.items.find(i => i.service.id === s.id && !i.variant)
                   const meta = (
                     <>
                       <div style={{ width: 46, height: 46, borderRadius: 11, flexShrink: 0, background: s.img ? `center/cover no-repeat url(${s.img})` : `linear-gradient(140deg,${s.grad[0]},${s.grad[1]})`, display: 'grid', placeItems: 'center', color: 'rgba(255,255,255,.85)', fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 19 }}>{!s.img && biz.mono}</div>
@@ -1531,6 +1572,43 @@ function Booking({ biz, mode, service, onClose, onConfirm }: { biz: Business; mo
 }
 
 // ── Carrito: hoja de pedido ────────────────────────────────
+// Selector de variantes del cliente: elige una opción de cada grupo antes de
+// agregar al pedido. El precio se actualiza en vivo con los extras elegidos.
+function ProductVariantSheet({ service, onClose, onAdd }: { service: Service; onClose: () => void; onAdd: (v: CartVariant) => void }) {
+  const en = useContext(LangContext) === 'en'
+  const groups = usableGroups(service.variants)
+  const [sel, setSel] = useState<VariantOption[]>(() => defaultSelection(service.variants))
+  const total = (priceNumber(service) ?? 0) + variantDelta(sel)
+  return (
+    <div onClick={onClose} style={{ position: 'absolute', inset: 0, zIndex: 70, background: 'rgba(0,0,0,.5)', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', animation: 'fadeIn .18s ease' }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: '#FAF5EE', borderRadius: '30px 30px 0 0', maxHeight: '88%', overflowY: 'auto', padding: '22px 20px 26px' }}>
+        <div style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 21, color: '#221C19' }}>{service.name}</div>
+        <div style={{ fontSize: 13.5, color: '#6B615A', marginTop: 2, marginBottom: 16 }}>{en ? 'Choose your options' : 'Elige tus opciones'}</div>
+        {groups.map((g, gi) => (
+          <div key={gi} style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: 13.5, fontWeight: 700, color: '#221C19', marginBottom: 8 }}>{g.name}</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {g.options.map((o, oi) => {
+                const on = sel[gi]?.name === o.name
+                return (
+                  <button key={oi} onClick={() => setSel(sel.map((s, i) => i === gi ? o : s))}
+                    style={{ padding: '10px 15px', borderRadius: 999, border: `1.5px solid ${on ? '#E8505B' : '#E9E0D5'}`, background: on ? '#FCE9E7' : '#fff', color: on ? '#D23B47' : '#221C19', cursor: 'pointer', fontFamily: 'var(--font-ui)', fontWeight: 700, fontSize: 14 }}>
+                    {o.name}{o.price_delta ? ` +$${o.price_delta}` : ''}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        ))}
+        <button onClick={() => onAdd({ label: variantLabel(sel), options: sel.map(o => o.name), delta: variantDelta(sel) })}
+          style={{ width: '100%', marginTop: 8, background: '#E8505B', color: '#fff', border: 'none', borderRadius: 999, padding: '15px 0', fontFamily: 'var(--font-ui)', fontWeight: 700, fontSize: 16, cursor: 'pointer' }}>
+          {en ? 'Add to order' : 'Agregar al pedido'} · ${total}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function CartSheet({ onClose, onCheckout, defaultName, defaultPhone }: { onClose: () => void; onCheckout: (d: { fulfillment: 'pickup' | 'delivery'; name: string; phone: string; address: string; notes: string }) => Promise<string | null>; defaultName?: string | null; defaultPhone?: string | null }) {
   const en = useContext(LangContext) === 'en'
   const cart = useContext(CartContext)
@@ -1574,20 +1652,21 @@ function CartSheet({ onClose, onCheckout, defaultName, defaultPhone }: { onClose
 
         {/* items */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
-          {cart.items.map(({ service, qty }) => (
-            <div key={service.id} style={{ display: 'flex', alignItems: 'center', gap: 12, background: '#fff', border: '1px solid #E9E0D5', borderRadius: 14, padding: '11px 12px' }}>
+          {cart.items.map(item => { const { service, qty, variant } = item; const key = cartKey(item); return (
+            <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 12, background: '#fff', border: '1px solid #E9E0D5', borderRadius: 14, padding: '11px 12px' }}>
               <div style={{ width: 42, height: 42, borderRadius: 10, flexShrink: 0, background: service.img ? `center/cover no-repeat url(${service.img})` : `linear-gradient(140deg,${service.grad[0]},${service.grad[1]})` }} />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 14.5, fontWeight: 700, color: '#221C19', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{service.name}</div>
-                <div style={{ fontSize: 12.5, color: '#6B615A' }}>${priceNumber(service)} c/u</div>
+                {variant?.label && <div style={{ fontSize: 12, color: '#D23B47', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{variant.label}</div>}
+                <div style={{ fontSize: 12.5, color: '#6B615A' }}>${cartUnit(item)} c/u</div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-                <button onClick={() => cart.setQty(service.id, qty - 1)} style={qtyBtn}>−</button>
+                <button onClick={() => cart.setQty(key, qty - 1)} style={qtyBtn}>−</button>
                 <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 16, minWidth: 18, textAlign: 'center', color: '#221C19' }}>{qty}</span>
-                <button onClick={() => cart.setQty(service.id, qty + 1)} style={qtyBtn}>+</button>
+                <button onClick={() => cart.setQty(key, qty + 1)} style={qtyBtn}>+</button>
               </div>
             </div>
-          ))}
+          ) })}
         </div>
         <button onClick={onClose} style={{ ...seeMoreBtn, marginBottom: 18 }}>
           <span style={{ fontSize: 17, lineHeight: 1, fontWeight: 700 }}>+</span> {en ? 'Add more products' : 'Agregar más productos'}
@@ -3459,27 +3538,37 @@ export default function AppPage() {
   const [cartBiz, setCartBiz] = useState<Business | null>(null)
   const [cartItems, setCartItems] = useState<CartItem[]>([])
   const [showCart, setShowCart] = useState(false)
-  const addToCart = (biz: Business, s: Service) => {
+  const addToCart = (biz: Business, s: Service, variant?: CartVariant) => {
+    const item: CartItem = { service: s, qty: 1, variant }
+    const key = cartKey(item)
     setCartItems(prev => {
       // Agregar de otro negocio reinicia el carrito.
-      if (cartBiz && cartBiz.id !== biz.id) { setCartBiz(biz); return [{ service: s, qty: 1 }] }
+      if (cartBiz && cartBiz.id !== biz.id) { setCartBiz(biz); return [item] }
       setCartBiz(biz)
-      const found = prev.find(i => i.service.id === s.id)
-      if (found) return prev.map(i => i.service.id === s.id ? { ...i, qty: Math.min(99, i.qty + 1) } : i)
-      return [...prev, { service: s, qty: 1 }]
+      const found = prev.find(i => cartKey(i) === key)
+      if (found) return prev.map(i => cartKey(i) === key ? { ...i, qty: Math.min(99, i.qty + 1) } : i)
+      return [...prev, item]
     })
   }
-  const setCartQty = (serviceId: string, qty: number) => {
+  const setCartQty = (key: string, qty: number) => {
     setCartItems(prev => {
-      const next = qty <= 0 ? prev.filter(i => i.service.id !== serviceId) : prev.map(i => i.service.id === serviceId ? { ...i, qty: Math.min(99, qty) } : i)
+      const next = qty <= 0 ? prev.filter(i => cartKey(i) !== key) : prev.map(i => cartKey(i) === key ? { ...i, qty: Math.min(99, qty) } : i)
       if (next.length === 0) setCartBiz(null)
       return next
     })
   }
   const clearCart = () => { setCartItems([]); setCartBiz(null); setShowCart(false) }
-  const cartSubtotal = cartItems.reduce((s, i) => s + (priceNumber(i.service) ?? 0) * i.qty, 0)
+  // Producto con variantes pendiente de elegir: abre el selector antes de agregar.
+  const [productVariant, setProductVariant] = useState<{ biz: Business; service: Service } | null>(null)
+  // Punto de entrada para "agregar al carrito": con variantes abre el selector; si
+  // no, agrega directo. El confirm del selector llama a addToCart con la variante.
+  const requestAdd = (biz: Business, s: Service) => {
+    if (hasVariants(s.variants)) { setProductVariant({ biz, service: s }); return }
+    addToCart(biz, s)
+  }
+  const cartSubtotal = cartItems.reduce((s, i) => s + cartUnit(i) * i.qty, 0)
   const cartCount = cartItems.reduce((s, i) => s + i.qty, 0)
-  const cartState: CartState = { biz: cartBiz, items: cartItems, count: cartCount, subtotal: cartSubtotal, add: addToCart, setQty: setCartQty, clear: clearCart, open: () => setShowCart(true) }
+  const cartState: CartState = { biz: cartBiz, items: cartItems, count: cartCount, subtotal: cartSubtotal, add: requestAdd, setQty: setCartQty, clear: clearCart, open: () => setShowCart(true) }
   const [detailService, setDetailService] = useState<{ biz: Business; service: Service } | null>(null)
   const [showMessages, setShowMessages] = useState(false)
   const [messagesBizId, setMessagesBizId] = useState<string | null>(null)
@@ -3555,7 +3644,7 @@ export default function AppPage() {
   // Elegir un producto: si el negocio hace pedidos y el producto tiene precio,
   // va al carrito (agregar y seguir comprando). Si no, es el flujo de reserva.
   const chooseService = (biz: Business, service: Service | null) => {
-    if (service && isOrderable(biz, service)) { addToCart(biz, service); return }
+    if (service && isOrderable(biz, service)) { requestAdd(biz, service); return }
     tryBook(biz, service)
   }
 
@@ -3569,7 +3658,7 @@ export default function AppPage() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           biz_id: cartBiz.id,
-          items: cartItems.map(i => ({ service_id: i.service.id, qty: i.qty })),
+          items: cartItems.map(i => ({ service_id: i.service.id, qty: i.qty, options: i.variant?.options ?? [] })),
           fulfillment: d.fulfillment, address: d.address,
           customer_name: d.name, customer_phone: d.phone, notes: d.notes,
         }),
@@ -3698,9 +3787,13 @@ export default function AppPage() {
 
       {/* Overlays */}
       {showCart && <CartSheet onClose={() => setShowCart(false)} onCheckout={checkoutCart} defaultName={userName} defaultPhone={userPhone} />}
+      {productVariant && (
+        <ProductVariantSheet service={productVariant.service} onClose={() => setProductVariant(null)}
+          onAdd={v => { addToCart(productVariant.biz, productVariant.service, v); setProductVariant(null) }} />
+      )}
       {openBiz && (
         <BizDetail biz={openBiz} mode={mode} onClose={() => setOpenBiz(null)}
-          onBook={(svc) => { if (svc && isOrderable(openBiz, svc)) { addToCart(openBiz, svc); return } setOpenBiz(null); tryBook(openBiz, svc ?? null) }}
+          onBook={(svc) => { if (svc && isOrderable(openBiz, svc)) { requestAdd(openBiz, svc); return } setOpenBiz(null); tryBook(openBiz, svc ?? null) }}
           onOpenCart={() => setShowCart(true)}
           onMessage={() => tryMessage(openBiz)} />
       )}
@@ -3710,7 +3803,7 @@ export default function AppPage() {
       {detailService && (
         <ServiceDetail biz={detailService.biz} service={detailService.service} mode={mode}
           onClose={() => setDetailService(null)}
-          onBook={() => { const { biz, service } = detailService; if (isOrderable(biz, service)) { addToCart(biz, service); setDetailService(null); return } setDetailService(null); tryBook(biz, service) }} />
+          onBook={() => { const { biz, service } = detailService; if (isOrderable(biz, service)) { requestAdd(biz, service); setDetailService(null); return } setDetailService(null); tryBook(biz, service) }} />
       )}
       {showMessages && (
         <MessagesScreen mode={mode} startBizId={messagesBizId} onClose={() => { setShowMessages(false); setMessagesBizId(null) }} />

@@ -22,6 +22,18 @@ export async function POST(req: NextRequest) {
   if (!membership) return NextResponse.json({ error: 'No autorizado' }, { status: 403 })
 
   const patch: Record<string, unknown> = {}
+  // Perfil del negocio: nombre, descripción y logo/foto. El nombre alimenta tanto
+  // `name` (Discover) como `full_name` (panel) para que se vean iguales.
+  if (typeof body.name === 'string' && body.name.trim()) {
+    patch.name = body.name.trim()
+    patch.full_name = body.name.trim()
+  }
+  if (typeof body.description === 'string') patch.description = body.description.trim() || null
+  if (typeof body.logo_url === 'string') patch.logo_url = body.logo_url.trim() || null
+  // Horarios y capacidad. `hours` es "HH:MM – HH:MM"; define cuándo el negocio
+  // acepta reservas Y pedidos (business-data / orders/checkout lo respetan).
+  if (typeof body.hours === 'string' && body.hours.trim()) patch.hours = body.hours.trim()
+  if (body.capacity !== undefined) { const n = Math.floor(Number(body.capacity)); if (Number.isFinite(n) && n >= 0) patch.capacity = n }
   if (body.agent_config !== undefined) patch.agent_config = body.agent_config
   if (typeof body.tax_mode === 'string') patch.tax_mode = body.tax_mode
   if (typeof body.rfc === 'string') patch.rfc = body.rfc

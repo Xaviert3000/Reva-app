@@ -53,13 +53,24 @@ export async function POST(req: NextRequest) {
       // 'destacado'. `featured_until` marca el vencimiento del plan comprado.
       const n = Number(days)
       const until = n > 0 ? new Date(Date.now() + n * 86_400_000).toISOString() : null
-      await supabase.from('businesses').update({
-        featured: true,
-        tier: tier || 'destacado',
-        featured_until: until,
-        // Producto destacado elegido en el panel; null = "Todo el negocio".
-        featured_service_id: service_id || null,
-      }).eq('id', biz_id)
+      // Qué se destaca (excluyente): un EVENTO (featured_event ya se guardó como
+      // draft al iniciar el pago), un PRODUCTO (featured_service_id) o TODO el
+      // negocio (ambos null). El kind decide cuál se conserva y cuál se limpia.
+      const kind = session.metadata!.featured_kind || (service_id ? 'service' : 'business')
+      const patch: Record<string, unknown> = { featured: true, tier: tier || 'destacado', featured_until: until, featured_event_pending: null }
+      if (kind === 'event') {
+        // Promueve el evento en borrador (guardado al iniciar el pago) a activo.
+        const { data: b } = await supabase.from('businesses').select('featured_event_pending').eq('id', biz_id).single()
+        patch.featured_event = b?.featured_event_pending ?? null
+        patch.featured_service_id = null
+      } else if (kind === 'service') {
+        patch.featured_service_id = service_id || null
+        patch.featured_event = null
+      } else {
+        patch.featured_service_id = null
+        patch.featured_event = null
+      }
+      await supabase.from('businesses').update(patch).eq('id', biz_id)
     }
 
     await supabase.from('payments').insert({

@@ -5,8 +5,9 @@ import { parseRoveToken, ROVE_SERIALS, type RoveProgram } from '@/lib/rove'
 import { type RoveReward, type RewardCategory } from '@/lib/rove-rewards'
 import { type Mode, type ProactiveAlert, type AlertType, CATALOG, AGENDA, BIZ, CITIES, slotsFromHours, slotAvailability, endTime, tracksStock, inStock } from '@/lib/data'
 import { saveStock, decrementStock as decrementStockDB, fetchStock } from '@/lib/inventory'
-import { recordSale, sendInStoreOrder } from '@/lib/pos'
+import { recordSale, sendInStoreOrder, fetchPendingCounterOrders, markOrderPaid, type PendingOrder } from '@/lib/pos'
 import { saveService, deleteService, uploadServiceImage, removeServiceImage, parsePrice, translateServiceFields, updateServiceI18n } from '@/lib/catalog'
+import { type VariantGroup, type VariantOption, usableGroups, hasVariants, variantDelta, variantLabel, defaultSelection } from '@/lib/variants'
 import { clearFeatured } from '@/lib/featured'
 import { fetchPromotions, createPromotion, updatePromotion, setPromotionActive, deletePromotion, promoWindowLabel, type Promo, type PromoInput, fetchAlerts, createAlert, updateAlert, setAlertActive, deleteAlert, type BizAlert, type AlertInput } from '@/lib/promotions'
 import { loadAgentConfig, saveAgentConfig, parseAgentConfig, DEFAULT_AGENT_CONFIG, type BizAgentConfig } from '@/lib/biz-agent-config'
@@ -182,6 +183,7 @@ function vertFromBusiness(b: OwnerBusiness): Vert {
       duration: s.duration_min ?? undefined,
       img: s.image_url ?? undefined,
       i18n: s.i18n ?? undefined,
+      variants: s.variants ?? undefined,
     }))
   return {
     id: b.id,
@@ -1942,7 +1944,7 @@ const CATALOG_GRADS: [string, string][] = [
 ]
 
 type CatI18n = { name?: { es?: string; en?: string }; sub?: { es?: string; en?: string }; category?: { es?: string; en?: string } } | null
-type CatItem = { id?: string; name: string; sub: string; price: string; category?: string; grad: [string, string]; active: boolean; img?: string; duration?: number; scheduled?: boolean; days?: number[]; hours?: string; stock?: number; i18n?: CatI18n }
+type CatItem = { id?: string; name: string; sub: string; price: string; category?: string; grad: [string, string]; active: boolean; img?: string; duration?: number; scheduled?: boolean; days?: number[]; hours?: string; stock?: number; i18n?: CatI18n; variants?: VariantGroup[] | null }
 
 // Maps a panel vertical id to its shared agenda/catalog key (see @/lib/data).
 const SHARED_BIZ_ID: Record<string, string> = { resto: 'lupita', spa: 'sereno' }
@@ -1976,7 +1978,7 @@ function CatalogView({ vert, items, setItems }: { vert: Vert; items: CatItem[]; 
   const en = useEn()
   const [editing, setEditing] = useState<number | 'new' | null>(null)
   const [vOpen, vClose] = splitHours(vert.hours)
-  const [form, setForm] = useState({ name: '', sub: '', price: '', category: '', active: true, img: '', duration: '', scheduled: true, days: ALL_DAYS, open: vOpen, close: vClose, trackStock: false, stock: '' })
+  const [form, setForm] = useState({ name: '', sub: '', price: '', category: '', active: true, img: '', duration: '', scheduled: true, days: ALL_DAYS, open: vOpen, close: vClose, trackStock: false, stock: '', variants: [] as VariantGroup[] })
   // Archivo de imagen recién elegido (aún sin subir). `form.img` guarda una vista
   // previa (data URL) para mostrarla al instante; el archivo real se sube a
   // Storage al guardar. null = no se cambió la imagen en esta edición.
@@ -2029,17 +2031,27 @@ function CatalogView({ vert, items, setItems }: { vert: Vert; items: CatItem[]; 
     (!q || (c.name + ' ' + c.sub + ' ' + (c.category ?? '')).toLowerCase().includes(q)))
 
   function openNew() {
-    setForm({ name: '', sub: '', price: '', category: '', active: true, img: '', duration: '', scheduled: true, days: ALL_DAYS, open: vOpen, close: vClose, trackStock: false, stock: '' })
+    setForm({ name: '', sub: '', price: '', category: '', active: true, img: '', duration: '', scheduled: true, days: ALL_DAYS, open: vOpen, close: vClose, trackStock: false, stock: '', variants: [] })
     setImgFile(null)
     setEditing('new')
   }
   function openEdit(i: number) {
     const c = items[i]
     const [o, cl] = splitHours(c.hours || vert.hours)
-    setForm({ name: c.name, sub: c.sub, price: c.price, category: c.category ?? '', active: c.active, img: c.img ?? '', duration: c.duration ? String(c.duration) : '', scheduled: c.scheduled !== false, days: c.days ?? ALL_DAYS, open: o, close: cl, trackStock: typeof c.stock === 'number', stock: typeof c.stock === 'number' ? String(c.stock) : '' })
+    // Clona las variantes para editarlas sin mutar el estado del catálogo.
+    const variants: VariantGroup[] = (c.variants ?? []).map(g => ({ name: g.name, options: g.options.map(op => ({ ...op })) }))
+    setForm({ name: c.name, sub: c.sub, price: c.price, category: c.category ?? '', active: c.active, img: c.img ?? '', duration: c.duration ? String(c.duration) : '', scheduled: c.scheduled !== false, days: c.days ?? ALL_DAYS, open: o, close: cl, trackStock: typeof c.stock === 'number', stock: typeof c.stock === 'number' ? String(c.stock) : '', variants })
     setImgFile(null)
     setEditing(i)
   }
+  // ── Edición de variantes del producto (grupos + opciones con extra de precio) ──
+  const setVariants = (next: VariantGroup[]) => setForm(f => ({ ...f, variants: next }))
+  const addGroup = () => setVariants([...form.variants, { name: '', options: [{ name: '', price_delta: 0 }] }])
+  const removeGroup = (gi: number) => setVariants(form.variants.filter((_, i) => i !== gi))
+  const setGroupName = (gi: number, name: string) => setVariants(form.variants.map((g, i) => i === gi ? { ...g, name } : g))
+  const addOption = (gi: number) => setVariants(form.variants.map((g, i) => i === gi ? { ...g, options: [...g.options, { name: '', price_delta: 0 }] } : g))
+  const removeOption = (gi: number, oi: number) => setVariants(form.variants.map((g, i) => i === gi ? { ...g, options: g.options.filter((_, j) => j !== oi) } : g))
+  const setOption = (gi: number, oi: number, patch: Partial<VariantOption>) => setVariants(form.variants.map((g, i) => i === gi ? { ...g, options: g.options.map((o, j) => j === oi ? { ...o, ...patch } : o) } : g))
   function onPickImage(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
@@ -2084,6 +2096,10 @@ function CatalogView({ vert, items, setItems }: { vert: Vert; items: CatItem[]; 
       en ? 'en' : 'es',
     )
 
+    // Variantes: sólo grupos utilizables (con nombre + opciones). [] → null.
+    const cleanVariants = usableGroups(form.variants)
+    const variants = cleanVariants.length ? cleanVariants : null
+
     const svcInput = {
       name: form.name.trim(),
       description: form.sub.trim() || null,
@@ -2096,18 +2112,19 @@ function CatalogView({ vert, items, setItems }: { vert: Vert; items: CatItem[]; 
       image_url: storedImg,
       stock: stock ?? null,
       i18n,
+      variants,
     }
 
     if (editing === 'new') {
       const grad = CATALOG_GRADS[items.length % CATALOG_GRADS.length]
       const newId = await saveService(vert.id, undefined, svcInput)
-      setItems(prev => [...prev, { id: newId ?? undefined, name: form.name.trim(), sub: form.sub.trim(), price: form.price.trim() || 'Sin precio', category: form.category.trim() || undefined, grad, active: form.active, img: localImg, duration, scheduled, days, hours, stock, i18n }])
+      setItems(prev => [...prev, { id: newId ?? undefined, name: form.name.trim(), sub: form.sub.trim(), price: form.price.trim() || 'Sin precio', category: form.category.trim() || undefined, grad, active: form.active, img: localImg, duration, scheduled, days, hours, stock, i18n, variants }])
     } else if (typeof editing === 'number') {
       const existing = items[editing]
       // Si esta imagen reemplaza a otra de Storage, borra la anterior (best-effort).
       if (existing?.img && existing.img !== storedImg && existing.img.includes('/service-images/')) void removeServiceImage(existing.img)
       await saveService(vert.id, existing?.id, svcInput)
-      setItems(prev => prev.map((c, idx) => idx === editing ? { ...c, name: form.name.trim(), sub: form.sub.trim(), price: form.price.trim() || 'Sin precio', category: form.category.trim() || undefined, active: form.active, img: localImg, duration, scheduled, days, hours, stock, i18n } : c))
+      setItems(prev => prev.map((c, idx) => idx === editing ? { ...c, name: form.name.trim(), sub: form.sub.trim(), price: form.price.trim() || 'Sin precio', category: form.category.trim() || undefined, active: form.active, img: localImg, duration, scheduled, days, hours, stock, i18n, variants } : c))
     }
     setSaving(false)
     setImgFile(null)
@@ -2303,6 +2320,35 @@ function CatalogView({ vert, items, setItems }: { vert: Vert; items: CatItem[]; 
                   })}
                 </div>
               )}
+
+              {/* Variantes: grupos (Tamaño, Temperatura…) con opciones y extra de precio */}
+              <div style={{ border: `1px solid ${R.line}`, borderRadius: 12, padding: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: R.ink }}>{t('Variantes', 'Variants')} <span style={{ fontWeight: 500, color: R.inkFaint }}>· {t('opcional', 'optional')}</span></div>
+                  <div style={{ fontSize: 12, color: R.inkSoft, marginTop: 2 }}>{t('Ej. Tamaño (Chico, Grande +$20), Temperatura (Frío, Caliente). El cliente elige una opción de cada grupo.', 'e.g. Size (Small, Large +$20), Temperature (Cold, Hot). The customer picks one option per group.')}</div>
+                </div>
+                {form.variants.map((g, gi) => (
+                  <div key={gi} style={{ border: `1px solid ${R.lineSoft}`, borderRadius: 10, padding: 10, background: R.bgAlt }}>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+                      <input value={g.name} onChange={e => setGroupName(gi, e.target.value)} placeholder={t('Nombre del grupo (ej. Tamaño)', 'Group name (e.g. Size)')} style={{ ...fieldStyle, flex: 1 }} />
+                      <button type="button" onClick={() => removeGroup(gi)} title={t('Quitar grupo', 'Remove group')} style={{ width: 34, height: 34, borderRadius: 8, border: `1px solid ${R.line}`, background: R.surface, cursor: 'pointer', display: 'grid', placeItems: 'center', flexShrink: 0 }}><Icon n="trash" size={15} color={R.inkSoft} /></button>
+                    </div>
+                    {g.options.map((op, oi) => (
+                      <div key={oi} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
+                        <input value={op.name} onChange={e => setOption(gi, oi, { name: e.target.value })} placeholder={t('Opción (ej. Grande)', 'Option (e.g. Large)')} style={{ ...fieldStyle, flex: 1 }} />
+                        <div style={{ position: 'relative', width: 96, flexShrink: 0 }}>
+                          <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: R.inkFaint, fontSize: 13 }}>+$</span>
+                          <input inputMode="numeric" value={op.price_delta ? String(op.price_delta) : ''} onChange={e => setOption(gi, oi, { price_delta: Number(e.target.value.replace(/[^0-9.]/g, '')) || 0 })} placeholder="0" style={{ ...fieldStyle, paddingLeft: 26 }} />
+                        </div>
+                        <button type="button" onClick={() => removeOption(gi, oi)} title={t('Quitar opción', 'Remove option')} style={{ width: 34, height: 34, borderRadius: 8, border: 'none', background: 'transparent', cursor: 'pointer', display: 'grid', placeItems: 'center', flexShrink: 0 }}><Icon n="x" size={16} color={R.inkFaint} /></button>
+                      </div>
+                    ))}
+                    <button type="button" onClick={() => addOption(gi)} style={{ marginTop: 2, display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 12.5, color: R.coral }}><Icon n="plus" size={13} color={R.coral} /> {t('Agregar opción', 'Add option')}</button>
+                  </div>
+                ))}
+                <button type="button" onClick={addGroup} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '10px', borderRadius: 10, border: `1px dashed ${R.line}`, background: R.surface, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13, color: R.ink }}><Icon n="plus" size={15} color={R.ink} /> {t('Agregar grupo de variantes', 'Add variant group')}</button>
+              </div>
+
               {/* Inventario: unidades disponibles que bajan con cada venta */}
               <button onClick={() => setForm({ ...form, trackStock: !form.trackStock })} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', border: `1px solid ${form.trackStock ? R.amberDeep : R.line}`, borderRadius: 10, background: form.trackStock ? R.amberTint : R.surface, cursor: 'pointer', fontFamily: R.ui, textAlign: 'left' }}>
                 <span style={{ minWidth: 0, paddingRight: 12 }}>
@@ -2751,8 +2797,45 @@ const priceToNumber = (price: string) => {
   const m = price.replace(/,/g, '').match(/\d+(\.\d+)?/)
   return m ? Number(m[0]) : 0
 }
-type PosLine = { key: string; id?: string; name: string; sub: string; unit: number; variable: boolean; qty: number }
-type Sale = { method: string; items: { name: string; qty: number; unit: number }[]; base: number; iva: number; total: number; added: boolean; at: number; folio: string; authCode?: string; cardLast4?: string; reference?: string; cashReceived?: number; change?: number }
+type PosLine = { key: string; id?: string; name: string; sub: string; unit: number; variable: boolean; qty: number; variant?: string }
+
+// Selector de variantes reutilizado por el Punto de venta y el Autoservicio: el
+// cliente/cajero elige una opción de cada grupo y ve el total en vivo. `big` lo
+// agranda para el kiosko táctil. `sel` es la selección (una opción por grupo).
+function VariantSheet({ item, sel, setSel, onConfirm, onCancel, en, big }: { item: CatItem; sel: VariantOption[]; setSel: (s: VariantOption[]) => void; onConfirm: () => void; onCancel: () => void; en: boolean; big?: boolean }) {
+  const groups = usableGroups(item.variants)
+  const total = priceToNumber(item.price) + variantDelta(sel)
+  const kt = (es: string, e: string) => en ? e : es
+  return (
+    <div onClick={onCancel} style={{ position: 'fixed', inset: 0, background: 'rgba(34,28,25,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: big ? 210 : 60, padding: 20 }}>
+      <div onClick={e => e.stopPropagation()} style={{ width: '100%', maxWidth: big ? 520 : 400, maxHeight: '88%', overflowY: 'auto', background: R.bg, borderRadius: 20, padding: big ? 28 : 22, boxShadow: '0 30px 80px rgba(0,0,0,.4)' }}>
+        <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: big ? 26 : 19, color: R.ink }}>{item.name}</div>
+        <div style={{ fontSize: 13.5, color: R.inkSoft, marginTop: 2, marginBottom: 16 }}>{kt('Elige tus opciones', 'Choose your options')}</div>
+        {groups.map((g, gi) => (
+          <div key={gi} style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: big ? 15 : 13, fontWeight: 700, color: R.ink, marginBottom: 8 }}>{g.name}</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {g.options.map((o, oi) => {
+                const on = sel[gi]?.name === o.name
+                return (
+                  <button key={oi} onClick={() => setSel(sel.map((s, i) => i === gi ? o : s))}
+                    style={{ padding: big ? '12px 18px' : '9px 14px', borderRadius: 999, border: `1.5px solid ${on ? R.coral : R.line}`, background: on ? R.coralTint : R.surface, color: on ? R.coralPress : R.ink, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: big ? 15 : 13.5 }}>
+                    {o.name}{o.price_delta ? ` +${money(o.price_delta)}` : ''}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        ))}
+        <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
+          <button onClick={onCancel} style={{ padding: big ? '15px 20px' : '12px 16px', border: `1px solid ${R.line}`, borderRadius: 14, background: 'transparent', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: big ? 16 : 14, color: R.inkSoft }}>{kt('Cancelar', 'Cancel')}</button>
+          <button onClick={onConfirm} style={{ flex: 1, padding: big ? '15px' : '12px', border: 'none', borderRadius: 14, background: R.coral, color: '#fff', cursor: 'pointer', fontFamily: R.ui, fontWeight: 800, fontSize: big ? 17 : 15 }}>{kt('Agregar', 'Add')} · {money(total)}</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+type Sale = { method: string; items: { name: string; qty: number; unit: number }[]; base: number; iva: number; total: number; added: boolean; at: number; folio: string; orderType?: 'here' | 'togo' | null; authCode?: string; cardLast4?: string; reference?: string; cashReceived?: number; change?: number }
 
 // Genera el HTML del ticket e imprime vía un iframe oculto. Compartido por el
 // Punto de venta (al cobrar) y el módulo Ventas (reimpresión), para que el
@@ -2765,6 +2848,7 @@ function printTicketHTML(o: {
   added: boolean; base: number; iva: number; total: number
   method: string; cardLast4?: string; authCode?: string; reference?: string
   cashReceived?: number; change?: number
+  orderType?: 'here' | 'togo' | null
   voidLabel?: string; en?: boolean
 }) {
   const en = !!o.en
@@ -2801,6 +2885,7 @@ function printTicketHTML(o: {
     ${o.voidLabel ? `<div class="void">${esc(o.voidLabel)}</div>` : ''}
     <div class="hr"></div>
     <div class="meta"><span>${esc(o.when)}</span><span>${en ? 'No.' : 'Folio'} ${esc(o.folio)}</span></div>
+    ${o.orderType ? `<div class="sub" style="font-weight:bold;color:#1a1a1a;margin-top:6px">${o.orderType === 'togo' ? (en ? '🥡 To go' : '🥡 Para llevar') : (en ? '🍽️ Dine in' : '🍽️ Comer aquí')}</div>` : ''}
     <table>${rows}</table>
     <div class="hr"></div>
     ${totals}
@@ -2892,8 +2977,11 @@ function PosView({ vert, items, setItems, onGo, taxMode, bizInfo }: { vert: Vert
   const [pending, setPending] = useState<null | { id: string; label: string }>(null)
   const [payFields, setPayFields] = useState({ authCode: '', cardLast4: '', reference: '', cashReceived: '' })
   const [receipt, setReceipt] = useState<Sale | null>(null)
+  // Tipo de consumo del ticket: comer aquí / para llevar (opcional). Viaja al
+  // tablero de Pedidos y al ticket impreso, igual que en el Autoservicio.
+  const [orderType, setOrderType] = useState<'here' | 'togo' | null>(null)
 
-  useEffect(() => { setLines([]); setQuery(''); setCat('Todos'); setPay(null); setPending(null); setPayFields({ authCode: '', cardLast4: '', reference: '', cashReceived: '' }); setReceipt(null) }, [vert.id])
+  useEffect(() => { setLines([]); setQuery(''); setCat('Todos'); setPay(null); setPending(null); setPayFields({ authCode: '', cardLast4: '', reference: '', cashReceived: '' }); setReceipt(null); setOrderType(null); setCollecting(null); setShowPending(false) }, [vert.id])
 
   const active = items.filter(c => c.active)
   const cats = ['Todos', ...new Set(active.map(c => c.category?.trim()).filter(Boolean) as string[])]
@@ -2902,20 +2990,59 @@ function PosView({ vert, items, setItems, onGo, taxMode, bizInfo }: { vert: Vert
     (cat === 'Todos' || c.category === cat) &&
     (!q || (c.name + ' ' + c.sub).toLowerCase().includes(q)))
 
+  // Producto con variantes pendiente de elegir (abre el selector antes de agregar).
+  const [variantPick, setVariantPick] = useState<{ item: CatItem; sel: VariantOption[] } | null>(null)
+  // Órdenes de Autoservicio "pagar en caja" pendientes por cobrar (por folio).
+  const [pendingOrders, setPendingOrders] = useState<PendingOrder[]>([])
+  const [showPending, setShowPending] = useState(false)
+  const [pendingQuery, setPendingQuery] = useState('')
+  // Orden que la cajera está cobrando ahora (para pasarla a 'paid' al confirmar, en
+  // vez de crear un pedido nuevo). null = venta normal del POS.
+  const [collecting, setCollecting] = useState<{ id: string; folio: string } | null>(null)
+
   function addItem(c: CatItem) {
+    // Con variantes: abre el selector; el renglón se agrega al confirmar.
+    if (hasVariants(c.variants)) { setVariantPick({ item: c, sel: defaultSelection(c.variants) }); return }
+    addLine(c, priceToNumber(c.price), null)
+  }
+  // Agrega (o incrementa) un renglón con un precio unitario y una variante ya
+  // resueltos. El inventario se cuenta por PRODUCTO sumando todas sus variantes.
+  function addLine(c: CatItem, unit: number, variant: string | null) {
+    const key = variant ? `${c.name}::${variant}` : c.name
     setLines(prev => {
-      const i = prev.findIndex(l => l.key === c.name)
-      // Con inventario, no dejes agregar más unidades de las que quedan.
       if (typeof c.stock === 'number') {
-        const inCart = i >= 0 ? prev[i].qty : 0
+        const inCart = prev.filter(l => (l.id && c.id ? l.id === c.id : l.name === c.name)).reduce((s, l) => s + l.qty, 0)
         if (inCart >= c.stock) return prev
       }
+      const i = prev.findIndex(l => l.key === key)
       if (i >= 0) return prev.map((l, idx) => idx === i ? { ...l, qty: l.qty + 1 } : l)
-      const unit = priceToNumber(c.price)
-      return [...prev, { key: c.name, id: c.id, name: c.name, sub: c.sub, unit, variable: unit === 0, qty: 1 }]
+      return [...prev, { key, id: c.id, name: c.name, sub: variant || c.sub, unit, variable: unit === 0 && !variant, qty: 1, variant: variant || undefined }]
     })
   }
+  function confirmVariant() {
+    if (!variantPick) return
+    const { item, sel } = variantPick
+    addLine(item, priceToNumber(item.price) + variantDelta(sel), variantLabel(sel) || null)
+    setVariantPick(null)
+  }
   const bizId = SHARED_BIZ_ID[vert.id] ?? vert.id
+
+  // Carga las órdenes de Autoservicio "pagar en caja" pendientes por cobrar. Se
+  // refresca al abrir el POS, cada 20 s y tras cobrar una.
+  const loadPending = useCallback(async () => {
+    setPendingOrders(await fetchPendingCounterOrders(bizId))
+  }, [bizId])
+  useEffect(() => { loadPending(); const id = setInterval(loadPending, 20000); return () => clearInterval(id) }, [loadPending])
+
+  // Carga una orden pendiente en el ticket para cobrarla: pone sus renglones y marca
+  // que se está cobrando esa orden (al confirmar el pago pasará a 'paid').
+  function startCollect(o: PendingOrder) {
+    setLines(o.items.map(it => ({ key: it.name, id: it.service_id, name: it.name, sub: '', unit: it.unit_price, variable: false, qty: it.qty })))
+    setCollecting({ id: o.id, folio: o.folio })
+    setOrderType(o.notes === 'Para llevar' ? 'togo' : o.notes === 'Comer aquí' ? 'here' : null)
+    setShowPending(false)
+  }
+
   // Descuenta del inventario las unidades vendidas de los productos con seguimiento.
   // Actualiza el estado local de inmediato y persiste en Supabase de forma atómica
   // (no-op en modo demo / sin credenciales), para que la app del cliente vea el
@@ -2950,7 +3077,11 @@ function PosView({ vert, items, setItems, onGo, taxMode, bizInfo }: { vert: Vert
     // en el ticket impreso y en la confirmación, para que el número que ve el
     // cliente sea el mismo por el que el dueño puede buscar la venta.
     const at = Date.now()
-    const folio = String(at).slice(-6)
+    // Al cobrar una orden pendiente del kiosko, conserva su folio; si no, genera uno.
+    const folio = collecting ? collecting.folio : String(at).slice(-6)
+    // Nombre con la variante elegida entre paréntesis, para que aparezca en el
+    // ticket, en Pedidos y en el registro de ventas ("Latte (Grande · Caliente)").
+    const nm = (l: PosLine) => l.variant ? `${l.name} (${l.variant})` : l.name
     void recordSale(bizId, {
       method: methodId,
       subtotal: total - iva,
@@ -2964,21 +3095,30 @@ function PosView({ vert, items, setItems, onGo, taxMode, bizInfo }: { vert: Vert
       cash_received: extra.cashReceived,
       change_due: extra.change,
       folio,
-      items: lines.map(l => ({ service_id: l.id, name: l.name, unit_price: l.unit, qty: l.qty })),
+      items: lines.map(l => ({ service_id: l.id, name: nm(l), unit_price: l.unit, qty: l.qty })),
     })
-    // Además de registrar la venta (ingresos), manda el pedido al tablero de
-    // Pedidos para que corra el flujo de preparación/entrega. Aditivo y
-    // best-effort: si falla, la venta ya quedó cobrada.
-    void sendInStoreOrder(bizId, {
-      channel: 'pos',
-      customer_name: `#${folio}`,
-      subtotal: total - iva,
-      total,
-      items: lines.map(l => ({ service_id: l.id, name: l.name, unit_price: l.unit, qty: l.qty })),
-    })
-    setPay({ method: methodLabel, items: lines.map(l => ({ name: l.name, qty: l.qty, unit: l.unit })), base, iva, total, added, at, folio, ...extra })
+    if (collecting) {
+      // Estás cobrando una orden de Autoservicio "pagar en caja": en vez de crear un
+      // pedido nuevo, marcamos el existente como PAGADO para que entre al flujo de
+      // preparación con su mismo folio. Refresca la lista de pendientes.
+      void markOrderPaid(bizId, collecting.id).then(() => loadPending())
+    } else {
+      // Venta normal del POS: manda el pedido al tablero de Pedidos (preparación/
+      // entrega). Aditivo y best-effort: si falla, la venta ya quedó cobrada.
+      void sendInStoreOrder(bizId, {
+        channel: 'pos',
+        customer_name: `#${folio}`,
+        notes: orderType === 'togo' ? 'Para llevar' : orderType === 'here' ? 'Comer aquí' : null,
+        subtotal: total - iva,
+        total,
+        items: lines.map(l => ({ service_id: l.id, name: nm(l), unit_price: l.unit, qty: l.qty })),
+      })
+    }
+    setPay({ method: methodLabel, items: lines.map(l => ({ name: nm(l), qty: l.qty, unit: l.unit })), base, iva, total, added, at, folio, orderType, ...extra })
     setPending(null)
+    setCollecting(null)
     setPayFields({ authCode: '', cardLast4: '', reference: '', cashReceived: '' })
+    setOrderType(null)
   }
 
   function printTicket(sale: Sale) {
@@ -2990,7 +3130,7 @@ function PosView({ vert, items, setItems, onGo, taxMode, bizInfo }: { vert: Vert
       rows: sale.items.map(it => ({ name: it.name, qty: it.qty, lineTotal: it.unit * it.qty })),
       added: sale.added, base: sale.base, iva: sale.iva, total: sale.total,
       method: sale.method, cardLast4: sale.cardLast4, authCode: sale.authCode, reference: sale.reference,
-      cashReceived: sale.cashReceived, change: sale.change, en,
+      cashReceived: sale.cashReceived, change: sale.change, orderType: sale.orderType, en,
     })
   }
 
@@ -3019,6 +3159,11 @@ function PosView({ vert, items, setItems, onGo, taxMode, bizInfo }: { vert: Vert
             <input value={query} onChange={e => setQuery(e.target.value)} placeholder={t('Buscar producto o servicio…', 'Search product or service…')}
               style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 999, padding: '11px 14px 11px 38px', fontSize: 14, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.surface }} />
           </div>
+          {/* Por cobrar: órdenes de Autoservicio "pagar en caja" pendientes */}
+          <button onClick={() => { loadPending(); setShowPending(true) }} style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 6, padding: '10px 14px', background: pendingOrders.length > 0 ? R.coralTint : R.bgAlt, border: 'none', borderRadius: 999, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13, color: pendingOrders.length > 0 ? R.coralPress : R.inkSoft, whiteSpace: 'nowrap' }}>
+            <Icon n="cash" size={15} color={pendingOrders.length > 0 ? R.coralPress : R.inkSoft} /> {t('Por cobrar', 'To collect')}
+            {pendingOrders.length > 0 && <span style={{ minWidth: 18, height: 18, padding: '0 5px', borderRadius: 999, background: R.coral, color: '#fff', fontSize: 11, fontWeight: 800, display: 'grid', placeItems: 'center' }}>{pendingOrders.length}</span>}
+          </button>
           <button onClick={() => onGo('sales')} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 14px', background: R.bgAlt, border: 'none', borderRadius: 999, cursor: 'pointer', fontFamily: R.ui, fontWeight: 600, fontSize: 13, color: R.inkSoft, whiteSpace: 'nowrap' }}>
             <Icon n="ticket" size={15} color={R.inkSoft} /> {t('Ventas', 'Sales')}
           </button>
@@ -3084,10 +3229,10 @@ function PosView({ vert, items, setItems, onGo, taxMode, bizInfo }: { vert: Vert
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 18px', borderBottom: `1px solid ${R.lineSoft}` }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
             <Icon n="card" size={18} color={R.coral} />
-            <span style={{ fontFamily: R.display, fontWeight: 800, fontSize: 16, color: R.ink }}>{t('Ticket', 'Ticket')}</span>
+            <span style={{ fontFamily: R.display, fontWeight: 800, fontSize: 16, color: R.ink }}>{collecting ? `${t('Cobrando', 'Collecting')} #${collecting.folio}` : t('Ticket', 'Ticket')}</span>
             {count > 0 && <span style={{ fontSize: 11.5, fontWeight: 700, color: '#fff', background: R.coral, borderRadius: 999, padding: '1px 8px' }}>{count}</span>}
           </div>
-          {lines.length > 0 && <button onClick={() => setLines([])} style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', cursor: 'pointer', fontFamily: R.ui, fontWeight: 600, fontSize: 12.5, color: R.inkSoft }}><Icon n="trash" size={14} color={R.inkSoft} /> {t('Vaciar', 'Clear')}</button>}
+          {lines.length > 0 && <button onClick={() => { setLines([]); setCollecting(null) }} style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', cursor: 'pointer', fontFamily: R.ui, fontWeight: 600, fontSize: 12.5, color: R.inkSoft }}><Icon n="trash" size={14} color={R.inkSoft} /> {t('Vaciar', 'Clear')}</button>}
         </div>
 
         {lines.length === 0 ? (
@@ -3101,6 +3246,7 @@ function PosView({ vert, items, setItems, onGo, taxMode, bizInfo }: { vert: Vert
               <div key={l.key} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '13px 18px', borderBottom: `1px solid ${R.lineSoft}` }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontWeight: 700, fontSize: 13.5, color: R.ink }}>{l.name}</div>
+                  {l.variant && <div style={{ fontSize: 11.5, color: R.coralPress, fontWeight: 600, marginTop: 1 }}>{l.variant}</div>}
                   {l.variable ? (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 5 }}>
                       <span style={{ fontSize: 12, color: R.inkSoft }}>{t('Precio', 'Price')}</span>
@@ -3125,6 +3271,19 @@ function PosView({ vert, items, setItems, onGo, taxMode, bizInfo }: { vert: Vert
         )}
 
         <div style={{ borderTop: `1px solid ${R.line}`, padding: '14px 18px 16px', background: R.bg }}>
+          {lines.length > 0 && (
+            <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+              {([['here', '🍽️', t('Comer aquí', 'Dine in')], ['togo', '🥡', t('Para llevar', 'To go')]] as const).map(([id, emoji, label]) => {
+                const on = orderType === id
+                return (
+                  <button key={id} onClick={() => setOrderType(on ? null : id)}
+                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '9px 6px', borderRadius: 10, border: `1.5px solid ${on ? R.coral : R.line}`, background: on ? R.coralTint : R.surface, color: on ? R.coralPress : R.inkSoft, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 12.5 }}>
+                    <span style={{ fontSize: 15 }}>{emoji}</span> {label}
+                  </button>
+                )
+              })}
+            </div>
+          )}
           {added ? (
             <>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, color: R.inkSoft, marginBottom: 4 }}>
@@ -3149,6 +3308,46 @@ function PosView({ vert, items, setItems, onGo, taxMode, bizInfo }: { vert: Vert
           </button>
         </div>
       </div>
+
+      {/* Selector de variantes al agregar un producto que las tiene */}
+      {variantPick && (
+        <VariantSheet item={variantPick.item} sel={variantPick.sel} setSel={s => setVariantPick(v => v ? { ...v, sel: s } : v)} onConfirm={confirmVariant} onCancel={() => setVariantPick(null)} en={en} />
+      )}
+
+      {/* Por cobrar: órdenes de Autoservicio "pagar en caja" — la cajera busca el folio */}
+      {showPending && (
+        <div onClick={() => setShowPending(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(34,28,25,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 55, padding: 20 }}>
+          <div onClick={e => e.stopPropagation()} style={{ width: '100%', maxWidth: 460, maxHeight: '86%', display: 'flex', flexDirection: 'column', background: R.bg, borderRadius: 20, padding: 22, boxShadow: '0 30px 80px rgba(0,0,0,.4)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+              <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 19, color: R.ink }}>{t('Por cobrar en caja', 'To collect at the counter')}</div>
+              <button onClick={() => setShowPending(false)} style={{ width: 32, height: 32, borderRadius: '50%', border: 'none', background: R.bgAlt, cursor: 'pointer', display: 'grid', placeItems: 'center' }}><Icon n="x" size={16} color={R.inkSoft} /></button>
+            </div>
+            <div style={{ fontSize: 12.5, color: R.inkSoft, marginBottom: 12 }}>{t('Órdenes hechas en el Autoservicio que eligieron pagar en caja. Busca el folio, cárgalo y cóbralo.', 'Self-service orders that chose to pay at the counter. Find the folio, load it and charge.')}</div>
+            <div style={{ position: 'relative', marginBottom: 12 }}>
+              <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)' }}><Icon n="search" size={15} color={R.inkFaint} /></span>
+              <input value={pendingQuery} onChange={e => setPendingQuery(e.target.value)} placeholder={t('Buscar folio…', 'Search folio…')} inputMode="numeric"
+                style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 999, padding: '10px 14px 10px 36px', fontSize: 14, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.surface }} />
+            </div>
+            <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {pendingOrders.filter(o => !pendingQuery.trim() || o.folio.includes(pendingQuery.trim())).map(o => (
+                <div key={o.id} style={{ border: `1px solid ${R.line}`, borderRadius: 14, padding: '12px 14px', background: R.surface }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 18, color: R.coral }}>#{o.folio}{o.notes ? <span style={{ fontSize: 12, fontWeight: 700, color: R.inkSoft, marginLeft: 8 }}>{o.notes === 'Para llevar' ? t('🥡 Para llevar', '🥡 To go') : t('🍽️ Comer aquí', '🍽️ Dine in')}</span> : null}</div>
+                      <div style={{ fontSize: 12.5, color: R.inkSoft, marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.items.map(i => `${i.qty}× ${i.name}`).join(' · ')}</div>
+                    </div>
+                    <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                      <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 16, color: R.ink }}>{money(o.total)}</div>
+                    </div>
+                  </div>
+                  <button onClick={() => startCollect(o)} style={{ width: '100%', marginTop: 10, padding: '10px', border: 'none', borderRadius: 12, background: R.coral, color: '#fff', cursor: 'pointer', fontFamily: R.ui, fontWeight: 800, fontSize: 14 }}>{t('Cargar y cobrar', 'Load & charge')}</button>
+                </div>
+              ))}
+              {pendingOrders.length === 0 && <div style={{ textAlign: 'center', color: R.inkFaint, fontSize: 14, padding: '32px 0' }}>{t('No hay órdenes por cobrar.', 'No orders to collect.')}</div>}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal de cobro */}
       {pay !== null && (
@@ -3240,7 +3439,7 @@ function PosView({ vert, items, setItems, onGo, taxMode, bizInfo }: { vert: Vert
                   <Icon n="check" size={30} color={R.jade} />
                 </div>
                 <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 22, color: R.ink }}>{t('Cobro registrado', 'Payment recorded')}</div>
-                <div style={{ fontSize: 14, color: R.inkSoft, marginTop: 4 }}>{money(pay.total)} · {pay.method}{pay.cardLast4 ? ` ····${pay.cardLast4}` : ''}</div>
+                <div style={{ fontSize: 14, color: R.inkSoft, marginTop: 4 }}>{money(pay.total)} · {pay.method}{pay.cardLast4 ? ` ····${pay.cardLast4}` : ''}{pay.orderType ? ` · ${pay.orderType === 'togo' ? t('Para llevar', 'To go') : t('Comer aquí', 'Dine in')}` : ''}</div>
                 {(pay.authCode || pay.reference) && (
                   <div style={{ fontSize: 12.5, color: R.inkFaint, marginTop: 3 }}>{pay.authCode ? `${t('Autorización', 'Authorization')} ${pay.authCode}` : `${t('Referencia', 'Reference')} ${pay.reference}`}</div>
                 )}
@@ -3285,6 +3484,11 @@ function PosView({ vert, items, setItems, onGo, taxMode, bizInfo }: { vert: Vert
                 <span>{new Date(receipt.at).toLocaleString(en ? 'en-US' : 'es-MX', { dateStyle: 'short', timeStyle: 'short' })}</span>
                 <span>{t('Folio', 'No.')} {receipt.folio || String(receipt.at).slice(-6)}</span>
               </div>
+              {receipt.orderType && (
+                <div style={{ textAlign: 'center', fontSize: 12.5, fontWeight: 700, color: '#1a1a1a', marginTop: 8 }}>
+                  {receipt.orderType === 'togo' ? t('🥡 Para llevar', '🥡 To go') : t('🍽️ Comer aquí', '🍽️ Dine in')}
+                </div>
+              )}
               <div style={{ borderTop: '1px dashed #bbb', margin: '12px 0' }} />
               {receipt.items.map((it, i) => (
                 <div key={i} style={{ display: 'flex', fontSize: 12.5, marginBottom: 5 }}>
@@ -3399,13 +3603,15 @@ function KioskView({ vert, items, setItems, onGo, taxMode, bizInfo, exitPin, onS
   const [lines, setLines] = useState<PosLine[]>([])
   const [cat, setCat] = useState('Todos')
   const [orderType, setOrderType] = useState<'here' | 'togo' | null>(null)
+  // Producto con variantes pendiente de elegir (abre el selector antes de agregar).
+  const [variantPick, setVariantPick] = useState<{ item: CatItem; sel: VariantOption[] } | null>(null)
   const [flash, setFlash] = useState<string | null>(null)   // "Agregado" toast
   const [askExit, setAskExit] = useState(false)
   // Entrada del PIN de salida. `pinTry` es lo que el cliente teclea en el pad;
   // `pinErr` marca un intento fallido para sacudir el diálogo y avisar.
   const [pinTry, setPinTry] = useState('')
   const [pinErr, setPinErr] = useState(false)
-  const [done, setDone] = useState<null | { folio: string; total: number; method: string; orderType: 'here' | 'togo' | null }>(null)
+  const [done, setDone] = useState<null | { folio: string; total: number; method: string; orderType: 'here' | 'togo' | null; pending?: boolean }>(null)
   // Pago con tarjeta por QR (Stripe). `qr` guarda la sesión de Checkout y su QR;
   // `payErr` un error al crearla; `payStarting` mientras se crea. `finalizedRef`
   // evita registrar la venta dos veces si el sondeo dispara de más.
@@ -3478,17 +3684,31 @@ function KioskView({ vert, items, setItems, onGo, taxMode, bizInfo, exitPin, onS
   }
 
   function addItem(c: CatItem) {
+    // Con variantes: abre el selector; el renglón se agrega al confirmar.
+    if (hasVariants(c.variants)) { setVariantPick({ item: c, sel: defaultSelection(c.variants) }); return }
+    addLine(c, priceToNumber(c.price), null)
+    setFlash(kf(c, 'name', c.name))
+  }
+  // Agrega/incrementa un renglón con precio y variante ya resueltos. El inventario
+  // se cuenta por PRODUCTO (sumando todas sus variantes).
+  function addLine(c: CatItem, unit: number, variant: string | null) {
+    const key = variant ? `${c.name}::${variant}` : c.name
     setLines(prev => {
-      const i = prev.findIndex(l => l.key === c.name)
       if (typeof c.stock === 'number') {
-        const inCart = i >= 0 ? prev[i].qty : 0
+        const inCart = prev.filter(l => (l.id && c.id ? l.id === c.id : l.name === c.name)).reduce((s, l) => s + l.qty, 0)
         if (inCart >= c.stock) return prev
       }
+      const i = prev.findIndex(l => l.key === key)
       if (i >= 0) return prev.map((l, idx) => idx === i ? { ...l, qty: l.qty + 1 } : l)
-      const unit = priceToNumber(c.price)
-      return [...prev, { key: c.name, id: c.id, name: c.name, sub: c.sub, unit, variable: unit === 0, qty: 1 }]
+      return [...prev, { key, id: c.id, name: c.name, sub: variant || c.sub, unit, variable: unit === 0 && !variant, qty: 1, variant: variant || undefined }]
     })
-    setFlash(kf(c, 'name', c.name))
+  }
+  function confirmVariant() {
+    if (!variantPick) return
+    const { item, sel } = variantPick
+    addLine(item, priceToNumber(item.price) + variantDelta(sel), variantLabel(sel) || null)
+    setFlash(`${kf(item, 'name', item.name)}${variantLabel(sel) ? ` · ${variantLabel(sel)}` : ''}`)
+    setVariantPick(null)
   }
   useEffect(() => { if (!flash) return; const id = setTimeout(() => setFlash(null), 1100); return () => clearTimeout(id) }, [flash])
   function changeQty(key: string, delta: number) {
@@ -3498,7 +3718,7 @@ function KioskView({ vert, items, setItems, onGo, taxMode, bizInfo, exitPin, onS
   function removeLine(key: string) { setLines(prev => prev.filter(l => l.key !== key)) }
 
   // Limpia el estado del pago con tarjeta por QR (al reiniciar o cancelar).
-  function resetPay() { setQr(null); setPayErr(null); setPayStarting(false); finalizedRef.current = false }
+  function resetPay() { setQr(null); setPayErr(null); setPayStarting(false); finalizedRef.current = false; setVariantPick(null) }
   // Arranca el kiosko a pantalla completa desde el atractor (pantalla de espera).
   function startKiosk() { setLines([]); setCat('Todos'); setOrderType(null); setDone(null); resetPay(); setKioskLang(en ? 'en' : 'es'); setStep('attract'); setLive(true) }
   function exitKiosk() { setLive(false); setAskExit(false); setPinTry(''); setPinErr(false); resetPay(); setStep('attract'); setLines([]); setOrderType(null); setDone(null) }
@@ -3527,6 +3747,8 @@ function KioskView({ vert, items, setItems, onGo, taxMode, bizInfo, exitPin, onS
     decrementStock(lines)
     const at = Date.now()
     const folio = String(at).slice(-4)
+    // Nombre con la variante elegida para el ticket / Pedidos / registro de ventas.
+    const nm = (l: PosLine) => l.variant ? `${l.name} (${l.variant})` : l.name
     void recordSale(bizId, {
       method: methodId,
       subtotal: total - iva,
@@ -3537,7 +3759,7 @@ function KioskView({ vert, items, setItems, onGo, taxMode, bizInfo, exitPin, onS
       reference: ken ? 'Self-service' : 'Autoservicio',
       folio,
       card_last4: extra?.card_last4 ?? undefined,
-      items: lines.map(l => ({ service_id: l.id, name: l.name, unit_price: l.unit, qty: l.qty })),
+      items: lines.map(l => ({ service_id: l.id, name: nm(l), unit_price: l.unit, qty: l.qty })),
     })
     // Manda la orden al tablero de Pedidos para preparación/entrega. El número de
     // orden que ve el cliente (#folio) va como nombre para llamarlo en el
@@ -3548,16 +3770,36 @@ function KioskView({ vert, items, setItems, onGo, taxMode, bizInfo, exitPin, onS
       notes: orderType === 'togo' ? 'Para llevar' : orderType === 'here' ? 'Comer aquí' : null,
       subtotal: total - iva,
       total,
-      items: lines.map(l => ({ service_id: l.id, name: l.name, unit_price: l.unit, qty: l.qty })),
+      items: lines.map(l => ({ service_id: l.id, name: nm(l), unit_price: l.unit, qty: l.qty })),
     })
     if (cfg.autoPrint) {
       printKioskComanda({
         bizName: vert.full || vert.name, folio,
         when: new Date(at).toLocaleString(ken ? 'en-US' : 'es-MX', { dateStyle: 'short', timeStyle: 'short' }),
-        orderType, rows: lines.map(l => ({ name: l.name, qty: l.qty, lineTotal: l.unit * l.qty })), total, en: ken,
+        orderType, rows: lines.map(l => ({ name: l.variant ? `${l.name} (${l.variant})` : l.name, qty: l.qty, lineTotal: l.unit * l.qty })), total, en: ken,
       })
     }
     setDone({ folio, total, method: methodLabel, orderType })
+    setStep('done')
+  }
+
+  // "Pagar en caja": NO cobra ni descuenta inventario aún. Crea una orden PENDIENTE
+  // (pending_payment, canal kiosk) con el folio; la cajera la busca en el Punto de
+  // venta, la cobra y ahí pasa a 'paid' + se registra la venta y baja el inventario.
+  function placeCounterOrder() {
+    if (lines.length === 0 || total <= 0) return
+    const folio = String(Date.now()).slice(-4)
+    const nm = (l: PosLine) => l.variant ? `${l.name} (${l.variant})` : l.name
+    void sendInStoreOrder(bizId, {
+      channel: 'kiosk',
+      status: 'pending_payment',
+      customer_name: `#${folio}`,
+      notes: orderType === 'togo' ? 'Para llevar' : orderType === 'here' ? 'Comer aquí' : null,
+      subtotal: total - iva,
+      total,
+      items: lines.map(l => ({ service_id: l.id, name: nm(l), unit_price: l.unit, qty: l.qty })),
+    })
+    setDone({ folio, total, method: kt('Pagar en caja', 'Pay at the counter'), orderType, pending: true })
     setStep('done')
   }
 
@@ -3579,7 +3821,7 @@ function KioskView({ vert, items, setItems, onGo, taxMode, bizInfo, exitPin, onS
       const r = await fetch('/api/kiosk/checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ biz_id: bizId, items: lines.map(l => ({ service_id: l.id, qty: l.qty })), order_type: orderType, lang: kioskLang }),
+        body: JSON.stringify({ biz_id: bizId, items: lines.map(l => ({ service_id: l.id, qty: l.qty, options: l.variant ? l.variant.split(' · ') : [] })), order_type: orderType, lang: kioskLang }),
       })
       const d = await r.json()
       if (!r.ok || !d.url || !d.id) throw new Error(d.error || 'No se pudo iniciar el pago')
@@ -3610,7 +3852,7 @@ function KioskView({ vert, items, setItems, onGo, taxMode, bizInfo, exitPin, onS
       printKioskComanda({
         bizName: vert.full || vert.name, folio,
         when: new Date(at).toLocaleString(ken ? 'en-US' : 'es-MX', { dateStyle: 'short', timeStyle: 'short' }),
-        orderType, rows: lines.map(l => ({ name: l.name, qty: l.qty, lineTotal: l.unit * l.qty })), total, en: ken,
+        orderType, rows: lines.map(l => ({ name: l.variant ? `${l.name} (${l.variant})` : l.name, qty: l.qty, lineTotal: l.unit * l.qty })), total, en: ken,
       })
     }
     setDone({ folio, total, method: kt('Tarjeta', 'Card'), orderType })
@@ -3648,6 +3890,7 @@ function KioskView({ vert, items, setItems, onGo, taxMode, bizInfo, exitPin, onS
   // tarjeta sin Stripe) → registra la venta directo como hasta ahora.
   function choosePay(methodId: string, methodLabel: string) {
     if (methodId === 'tarjeta' && stripeReady) void startCardPayment()
+    else if (methodId === 'efectivo') placeCounterOrder() // "Pagar en caja" → orden pendiente
     else placeOrder(methodId, methodLabel)
   }
 
@@ -3871,6 +4114,7 @@ function KioskView({ vert, items, setItems, onGo, taxMode, bizInfo, exitPin, onS
                 <div key={l.key} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 0', borderBottom: `1px solid ${R.lineSoft}` }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontWeight: 700, fontSize: 14.5, color: R.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{lineName(l)}</div>
+                    {l.variant && <div style={{ fontSize: 11.5, color: R.coralPress, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{l.variant}</div>}
                     <div style={{ fontSize: 12.5, color: R.inkSoft, marginTop: 2 }}>{money(l.unit * l.qty)}</div>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: R.bgAlt, borderRadius: 999, padding: '4px 6px', flexShrink: 0 }}>
@@ -3937,6 +4181,7 @@ function KioskView({ vert, items, setItems, onGo, taxMode, bizInfo, exitPin, onS
               <div key={l.key} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '16px 0', borderBottom: `1px solid ${R.lineSoft}` }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontWeight: 700, fontSize: 16.5, color: R.ink }}>{lineName(l)}</div>
+                  {l.variant && <div style={{ fontSize: 12.5, color: R.coralPress, fontWeight: 600, marginTop: 1 }}>{l.variant}</div>}
                   <div style={{ fontSize: 13.5, color: R.inkSoft, marginTop: 2 }}>{money(l.unit)} {kt('c/u', 'ea.')}</div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: R.bgAlt, borderRadius: 999, padding: '5px 7px' }}>
@@ -4025,18 +4270,23 @@ function KioskView({ vert, items, setItems, onGo, taxMode, bizInfo, exitPin, onS
           <div style={{ width: 96, height: 96, borderRadius: '50%', background: R.jadeTint, display: 'grid', placeItems: 'center', marginBottom: 8 }}>
             <Icon n="check" size={52} color={R.jade} />
           </div>
-          <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 30, color: R.ink }}>{kt('¡Orden confirmada!', 'Order confirmed!')}</div>
+          <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 30, color: R.ink }}>{done.pending ? kt('¡Casi listo!', 'Almost there!') : kt('¡Orden confirmada!', 'Order confirmed!')}</div>
           <div style={{ fontSize: 16, color: R.inkSoft, maxWidth: 420 }}>
             {done.method}{done.orderType ? ` · ${done.orderType === 'togo' ? kt('Para llevar', 'To go') : kt('Comer aquí', 'Dine in')}` : ''}
           </div>
           <div style={{ margin: '18px 0 6px', padding: '18px 40px', borderRadius: 20, background: R.surface, border: `1px solid ${R.line}` }}>
-            <div style={{ fontSize: 13, color: R.inkFaint, fontWeight: 700, letterSpacing: '.05em' }}>{kt('TU NÚMERO DE ORDEN', 'YOUR ORDER NUMBER')}</div>
+            <div style={{ fontSize: 13, color: R.inkFaint, fontWeight: 700, letterSpacing: '.05em' }}>{done.pending ? kt('TU FOLIO PARA CAJA', 'YOUR COUNTER FOLIO') : kt('TU NÚMERO DE ORDEN', 'YOUR ORDER NUMBER')}</div>
             <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 56, color: R.coral, letterSpacing: '.02em', lineHeight: 1.1 }}>#{done.folio}</div>
             <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 22, color: R.ink }}>{money(done.total)}</div>
           </div>
-          <div style={{ fontSize: 15, color: R.inkSoft, maxWidth: 380 }}>{kt('Pasa al mostrador cuando llamen tu número. ¡Gracias!', 'Head to the counter when your number is called. Thank you!')}</div>
+          <div style={{ fontSize: 15, color: R.inkSoft, maxWidth: 380 }}>{done.pending ? kt('Muestra este folio en caja para pagar. Tu orden se prepara una vez pagada. ¡Gracias!', 'Show this folio at the counter to pay. Your order is prepared once paid. Thank you!') : kt('Pasa al mostrador cuando llamen tu número. ¡Gracias!', 'Head to the counter when your number is called. Thank you!')}</div>
           <button onClick={newOrder} style={{ marginTop: 20, padding: '16px 32px', border: 'none', borderRadius: 16, background: R.ink, color: '#fff', cursor: 'pointer', fontFamily: R.ui, fontWeight: 800, fontSize: 16 }}>{kt('Nueva orden', 'New order')}</button>
         </div>
+      )}
+
+      {/* Selector de variantes al agregar un producto que las tiene */}
+      {variantPick && (
+        <VariantSheet item={variantPick.item} sel={variantPick.sel} setSel={s => setVariantPick(v => v ? { ...v, sel: s } : v)} onConfirm={confirmVariant} onCancel={() => setVariantPick(null)} en={ken} big />
       )}
 
       {/* Confirmar salida del modo kiosko */}
@@ -4934,7 +5184,9 @@ function OrdersSettingsCard({ vert, stripeReady, onSaved }: { vert: Vert; stripe
       if (r.ok) {
         setForm({ name: '', email: '', phone: '' })
         setCourierMsg(d.temp_password
-          ? t(`Repartidor creado. Clave temporal: ${d.temp_password} — compártela y que entre en /courier.`, `Courier created. Temp password: ${d.temp_password} — share it; they log in at /courier.`)
+          ? (d.emailed
+              ? t(`Repartidor creado. Le enviamos un correo con su acceso. Clave temporal (respaldo): ${d.temp_password}`, `Courier created. We emailed them their access. Temp password (backup): ${d.temp_password}`)
+              : t(`Repartidor creado. Clave temporal: ${d.temp_password} — compártela y que entre en /courier.`, `Courier created. Temp password: ${d.temp_password} — share it; they log in at /courier.`))
           : t('Repartidor agregado.', 'Courier added.'))
         loadCouriers()
       } else {
@@ -5047,7 +5299,7 @@ function OrdersSettingsCard({ vert, stripeReady, onSaved }: { vert: Vert; stripe
   )
 }
 
-function SettingsView({ agentCfg, setAgentCfg, taxMode, setTaxMode, bizInfo, setBizInfo, vert, onGo, lang, setLang, onReload }: { agentCfg: BizAgentConfig; setAgentCfg: (u: BizAgentConfig | ((c: BizAgentConfig) => BizAgentConfig)) => void; taxMode: TaxMode; setTaxMode: (v: TaxMode) => void; bizInfo: BizInfo; setBizInfo: (v: BizInfo) => void; vert: Vert; onGo: (v: string) => void; lang: Lang; setLang: (l: Lang) => void; onReload: () => void }) {
+function SettingsView({ agentCfg, setAgentCfg, taxMode, setTaxMode, bizInfo, setBizInfo, vert, onGo, lang, setLang, onReload, profileInit }: { agentCfg: BizAgentConfig; setAgentCfg: (u: BizAgentConfig | ((c: BizAgentConfig) => BizAgentConfig)) => void; taxMode: TaxMode; setTaxMode: (v: TaxMode) => void; bizInfo: BizInfo; setBizInfo: (v: BizInfo) => void; vert: Vert; onGo: (v: string) => void; lang: Lang; setLang: (l: Lang) => void; onReload: () => void; profileInit: { name: string; description: string; logo: string } }) {
   const t = useT()
   const en = useEn()
   const agentOn = agentCfg.on
@@ -5073,8 +5325,54 @@ function SettingsView({ agentCfg, setAgentCfg, taxMode, setTaxMode, bizInfo, set
 
   const [open, setOpen] = useState<string | null>(null)
   const [hrs] = (vert.hours || '13:00 – 23:00').split('–').map(s => s.trim())
-  const [profile, setProfile] = useState({ name: vert.full, desc: `${vert.kind} en ${vert.hood}. Reserva y paga con Reva.`, img: '' })
+  const bizId = SHARED_BIZ_ID[vert.id] ?? vert.id
+  // Perfil real del negocio (BD). `img` guarda la URL del logo o un data URL de
+  // vista previa cuando se elige un archivo nuevo; `profileImgFile` es ese archivo.
+  const [profile, setProfile] = useState({ name: profileInit.name || vert.full, desc: profileInit.description, img: profileInit.logo })
+  const [profileImgFile, setProfileImgFile] = useState<File | null>(null)
+  const [savingProfile, setSavingProfile] = useState(false)
+  // Re-sincroniza si cambia el negocio activo (o llegan datos frescos tras recargar).
+  useEffect(() => { setProfile({ name: profileInit.name || vert.full, desc: profileInit.description, img: profileInit.logo }); setProfileImgFile(null) }, [vert.id, profileInit.name, profileInit.description, profileInit.logo])
+
+  // Guarda el perfil: sube el logo si se eligió uno nuevo y persiste nombre,
+  // descripción y logo en la BD. Devuelve true si se guardó.
+  async function saveProfile(): Promise<boolean> {
+    setSavingProfile(true)
+    try {
+      let logoUrl = profile.img && !profile.img.startsWith('data:') ? profile.img : ''
+      if (profileImgFile) { const url = await uploadServiceImage(bizId, profileImgFile); if (url) logoUrl = url }
+      const r = await fetch('/api/biz/settings', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ biz_id: vert.id, name: profile.name.trim(), description: profile.desc, logo_url: logoUrl }),
+      })
+      if (!r.ok) return false
+      setProfileImgFile(null)
+      onReload()
+      return true
+    } catch { return false } finally { setSavingProfile(false) }
+  }
   const [horario, setHorario] = useState({ open: hrs || '13:00', close: (vert.hours || '').split('–')[1]?.trim() || '23:00', capacity: String(vert.capacity.total) })
+  const [savingHorario, setSavingHorario] = useState(false)
+  // Re-sincroniza horarios/capacidad al cambiar de negocio o tras recargar (guardar).
+  useEffect(() => {
+    const [o] = (vert.hours || '13:00 – 23:00').split('–').map(s => s.trim())
+    setHorario({ open: o || '13:00', close: (vert.hours || '').split('–')[1]?.trim() || '23:00', capacity: String(vert.capacity.total) })
+  }, [vert.id, vert.hours, vert.capacity.total])
+
+  // Guarda horarios y capacidad. El horario ("HH:MM – HH:MM") define cuándo el
+  // negocio acepta reservas Y pedidos. Devuelve true si se guardó.
+  async function saveHorarios(): Promise<boolean> {
+    setSavingHorario(true)
+    try {
+      const r = await fetch('/api/biz/settings', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ biz_id: vert.id, hours: `${horario.open} – ${horario.close}`, capacity: Number(horario.capacity) || 0 }),
+      })
+      if (!r.ok) return false
+      onReload()
+      return true
+    } catch { return false } finally { setSavingHorario(false) }
+  }
   const [pagos, setPagos] = useState({ deposit: false, depositAmount: '200', methods: ['Efectivo', 'Tarjeta', 'Transferencia'] })
 
   // Stripe Connect — estado de la cuenta del negocio para recibir pagos.
@@ -5369,7 +5667,7 @@ function SettingsView({ agentCfg, setAgentCfg, taxMode, setTaxMode, bizInfo, set
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 <label style={{ position: 'relative', height: 110, borderRadius: 12, border: `1px dashed ${R.line}`, background: profile.img ? `center/cover no-repeat url(${profile.img})` : R.surface, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
                   {!profile.img && <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, color: R.inkSoft }}><Icon n="plus" size={20} color={R.inkSoft} /><span style={{ fontSize: 13, fontWeight: 600 }}>{t('Subir foto / logo', 'Upload photo / logo')}</span></span>}
-                  <input type="file" accept="image/*" onChange={e => { const f = e.target.files?.[0]; if (!f) return; const r = new FileReader(); r.onload = () => setProfile(p => ({ ...p, img: r.result as string })); r.readAsDataURL(f) }} style={{ display: 'none' }} />
+                  <input type="file" accept="image/*" onChange={e => { const f = e.target.files?.[0]; if (!f) return; setProfileImgFile(f); const r = new FileReader(); r.onload = () => setProfile(p => ({ ...p, img: r.result as string })); r.readAsDataURL(f) }} style={{ display: 'none' }} />
                 </label>
                 <label><span style={lblStyle}>{t('Nombre del negocio', 'Business name')}</span><input value={profile.name} onChange={e => setProfile({ ...profile, name: e.target.value })} style={fieldStyle} /></label>
                 <label><span style={lblStyle}>{t('Descripción', 'Description')}</span><textarea value={profile.desc} onChange={e => setProfile({ ...profile, desc: e.target.value })} rows={3} style={{ ...fieldStyle, resize: 'vertical' }} /></label>
@@ -5383,7 +5681,7 @@ function SettingsView({ agentCfg, setAgentCfg, taxMode, setTaxMode, bizInfo, set
                   <label style={{ flex: 1 }}><span style={lblStyle}>{t('Cierra', 'Closes')}</span><input type="time" value={horario.close} onChange={e => setHorario({ ...horario, close: e.target.value })} style={fieldStyle} /></label>
                 </div>
                 <label><span style={lblStyle}>{t('Capacidad', 'Capacity')} ({vert.capacity.label})</span><input inputMode="numeric" value={horario.capacity} onChange={e => setHorario({ ...horario, capacity: e.target.value.replace(/\D/g, '') })} style={fieldStyle} /></label>
-                <div style={{ fontSize: 12.5, color: R.inkSoft }}>{t('Reva no aceptará reservas fuera de este horario ni por encima de la capacidad.', 'Reva won’t accept bookings outside these hours or above capacity.')}</div>
+                <div style={{ fontSize: 12.5, color: R.inkSoft }}>{t('Reva no aceptará reservas ni pedidos fuera de este horario, ni reservas por encima de la capacidad.', 'Reva won’t accept bookings or orders outside these hours, nor bookings above capacity.')}</div>
               </div>
             )}
 
@@ -5622,7 +5920,12 @@ function SettingsView({ agentCfg, setAgentCfg, taxMode, setTaxMode, bizInfo, set
             )}
 
             {open !== 'destacados' && (
-              <button onClick={() => setOpen(null)} style={{ width: '100%', marginTop: 18, padding: '13px', border: 'none', borderRadius: 14, background: R.ink, color: '#fff', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14.5 }}>{t('Guardar cambios', 'Save changes')}</button>
+              <button
+                onClick={async () => { if (open === 'perfil') { if (!(await saveProfile())) return } else if (open === 'horarios') { if (!(await saveHorarios())) return } setOpen(null) }}
+                disabled={savingProfile || savingHorario || (open === 'perfil' && !profile.name.trim())}
+                style={{ width: '100%', marginTop: 18, padding: '13px', border: 'none', borderRadius: 14, background: (savingProfile || savingHorario || (open === 'perfil' && !profile.name.trim())) ? R.inkSoft : R.ink, color: '#fff', cursor: (savingProfile || savingHorario) ? 'default' : 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14.5 }}>
+                {(savingProfile || savingHorario) ? t('Guardando…', 'Saving…') : t('Guardar cambios', 'Save changes')}
+              </button>
             )}
           </div>
         </div>
@@ -5666,7 +5969,13 @@ function DestacadoView({ vert }: { vert: Vert }) {
   const en = useEn()
   const [tier, setTier] = useState<TierId>('destacado')
   const [plan, setPlan] = useState('quincena')
-  const [content, setContent] = useState<'negocio' | number>('negocio')
+  // 'negocio' = todo el negocio · 'evento' = evento creado aquí · número = índice
+  // del producto del catálogo.
+  const [content, setContent] = useState<'negocio' | 'evento' | number>('negocio')
+  // Datos del evento a destacar (cuando content === 'evento'). `img` guarda una
+  // vista previa (data URL) hasta subir el archivo real al pagar.
+  const [event, setEvent] = useState({ title: '', date: '', description: '', img: '' })
+  const [eventImgFile, setEventImgFile] = useState<File | null>(null)
   const [featured, setFeatured] = useState<{ tier: TierId; label: string; days: number; what: string } | null>(null)
   const [confirming, setConfirming] = useState(false)
   const [waitlisted, setWaitlisted] = useState(false)
@@ -5677,12 +5986,17 @@ function DestacadoView({ vert }: { vert: Vert }) {
   const A = T.accent
   const tierName = (D: typeof T) => en ? (D.label === 'Destacado' ? 'Featured' : D.label) : D.label
   const sel = T.plans.find(p => p.id === plan) ?? T.plans[1]
-  const selContent = content === 'negocio' ? null : vert.catalog[content]
-  const whatLabel = selContent ? selContent.name : t('Todo el negocio', 'The whole business')
-  // Imagen de la vista previa: el producto destacado, o la portada del negocio
-  // (primera imagen del catálogo) cuando se destaca "Todo el negocio". Igual que
-  // la tarjeta que verá el huésped en Discover.
-  const previewImg = selContent?.img ?? vert.catalog.find(c => c.img)?.img
+  const isEvent = content === 'evento'
+  const selContent = content === 'negocio' || content === 'evento' ? null : vert.catalog[content]
+  const whatLabel = isEvent
+    ? (event.title.trim() || t('Evento', 'Event'))
+    : selContent ? selContent.name : t('Todo el negocio', 'The whole business')
+  // Imagen de la vista previa: la del evento, o la del producto destacado, o la
+  // portada del negocio (primera imagen del catálogo). Igual que la tarjeta que
+  // verá el huésped en Discover.
+  const previewImg = (isEvent ? event.img : selContent?.img) || vert.catalog.find(c => c.img)?.img
+  // Falta info para poder comprar cuando se está creando un evento sin título.
+  const eventIncomplete = isEvent && !event.title.trim()
   const heldHere = featured?.tier === tier
   const ocupados = T.otros + (heldHere ? 1 : 0)
   const disponibles = Math.max(0, T.cupos - ocupados)
@@ -5726,6 +6040,16 @@ function DestacadoView({ vert }: { vert: Vert }) {
     setPayError(null)
     setPaying(true)
     try {
+      // Qué se destaca: evento / producto / todo el negocio.
+      const kind = isEvent ? 'event' : selContent ? 'service' : 'business'
+      // Si es evento con imagen recién elegida, súbela a Storage para obtener su URL
+      // pública (el data URL sólo sirve de vista previa). Si falla, va sin imagen.
+      let eventPayload: null | { title: string; date: string; description: string; image_url: string | null } = null
+      if (kind === 'event') {
+        let imageUrl = event.img && !event.img.startsWith('data:') ? event.img : null
+        if (eventImgFile) imageUrl = await uploadServiceImage(bizId, eventImgFile)
+        eventPayload = { title: event.title.trim(), date: event.date.trim(), description: event.description.trim(), image_url: imageUrl }
+      }
       const res = await fetch('/api/stripe/checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -5739,6 +6063,9 @@ function DestacadoView({ vert }: { vert: Vert }) {
           // Producto destacado (null = "Todo el negocio"). Viaja a la metadata
           // para que el webhook lo persista y /app pinte su imagen.
           service_id: selContent?.id ?? null,
+          // Tipo de contenido destacado + datos del evento (si aplica).
+          featured_kind: kind,
+          event: eventPayload,
         }),
       })
       const data: { url?: string; error?: string } = await res.json().catch(() => ({}))
@@ -5841,6 +6168,10 @@ function DestacadoView({ vert }: { vert: Vert }) {
           <Icon n="home" size={16} color={content === 'negocio' ? A.press : R.inkSoft} />
           <span style={{ fontSize: 13.5, fontWeight: 700, color: content === 'negocio' ? A.press : R.ink }}>{t('Todo el negocio', 'The whole business')}</span>
         </button>
+        <button onClick={() => setContent('evento')} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '10px 14px', borderRadius: 12, cursor: 'pointer', border: `1.5px solid ${isEvent ? A.main : R.line}`, background: isEvent ? A.tint : R.surface, fontFamily: R.ui }}>
+          <span style={{ fontSize: 15 }}>🎉</span>
+          <span style={{ fontSize: 13.5, fontWeight: 700, color: isEvent ? A.press : R.ink }}>{t('Crear evento', 'Create event')}</span>
+        </button>
         {vert.catalog.map((c, i) => {
           const on = content === i
           return (
@@ -5851,6 +6182,35 @@ function DestacadoView({ vert }: { vert: Vert }) {
           )
         })}
       </div>
+
+      {/* Formulario del evento (cuando se elige "Crear evento") */}
+      {isEvent && (
+        <div style={{ border: `1px solid ${R.line}`, borderRadius: 16, background: R.surface, padding: 18, marginBottom: 20, display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+            <label style={{ fontSize: 12.5, fontWeight: 700, color: R.inkSoft }}>{t('Nombre del evento', 'Event name')}</label>
+            <input value={event.title} onChange={e => setEvent({ ...event, title: e.target.value })} maxLength={120} placeholder={t('Ej. Noche de mariscos', 'e.g. Seafood night')}
+              style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 10, padding: '10px 12px', fontSize: 14, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.bg }} />
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+            <label style={{ fontSize: 12.5, fontWeight: 700, color: R.inkSoft }}>{t('Fecha (opcional)', 'Date (optional)')}</label>
+            <input value={event.date} onChange={e => setEvent({ ...event, date: e.target.value })} maxLength={40} placeholder={t('Ej. Vie 15 ago · 8pm', 'e.g. Fri Aug 15 · 8pm')}
+              style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 10, padding: '10px 12px', fontSize: 14, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.bg }} />
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+            <label style={{ fontSize: 12.5, fontWeight: 700, color: R.inkSoft }}>{t('Descripción (opcional)', 'Description (optional)')}</label>
+            <textarea value={event.description} onChange={e => setEvent({ ...event, description: e.target.value })} maxLength={400} rows={2} placeholder={t('Qué incluye, quién toca, promociones…', 'What’s included, who’s playing, deals…')}
+              style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 10, padding: '10px 12px', fontSize: 14, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.bg, resize: 'vertical' }} />
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            {event.img && <span style={{ width: 54, height: 54, borderRadius: 10, background: `center/cover no-repeat url(${event.img})`, flexShrink: 0, border: `1px solid ${R.line}` }} />}
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '9px 14px', borderRadius: 10, border: `1px solid ${R.line}`, background: R.bg, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13, color: R.ink }}>
+              <Icon n="camera" size={15} color={R.inkSoft} /> {event.img ? t('Cambiar imagen', 'Change image') : t('Agregar imagen (opcional)', 'Add image (optional)')}
+              <input type="file" accept="image/*" onChange={e => { const f = e.target.files?.[0]; if (f) { setEventImgFile(f); const rd = new FileReader(); rd.onload = () => setEvent(ev => ({ ...ev, img: String(rd.result) })); rd.readAsDataURL(f) } }} style={{ display: 'none' }} />
+            </label>
+            {event.img && <button onClick={() => { setEvent({ ...event, img: '' }); setEventImgFile(null) }} style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 12.5, color: R.inkSoft }}>{t('Quitar', 'Remove')}</button>}
+          </div>
+        </div>
+      )}
 
       {/* Disponibilidad + duración */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: lleno ? R.coralPress : R.inkSoft, marginBottom: 12, flexWrap: 'wrap' }}>
@@ -5887,9 +6247,12 @@ function DestacadoView({ vert }: { vert: Vert }) {
           </button>
         )
       ) : (
-        <button onClick={() => setConfirming(true)} style={{ width: '100%', maxWidth: 320, padding: '13px', background: A.main, color: '#fff', border: 'none', borderRadius: 14, fontFamily: R.ui, fontWeight: 700, fontSize: 15, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-          <Icon n="spark" size={16} color="#fff" fill="#fff" /> {heldHere ? t('Renovar', 'Renew') : t('Comprar', 'Buy')} {tierName(T)} · {sel.price}
-        </button>
+        <div>
+          <button onClick={() => setConfirming(true)} disabled={eventIncomplete} style={{ width: '100%', maxWidth: 320, padding: '13px', background: eventIncomplete ? A.tint : A.main, color: eventIncomplete ? A.press : '#fff', border: 'none', borderRadius: 14, fontFamily: R.ui, fontWeight: 700, fontSize: 15, cursor: eventIncomplete ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+            <Icon n="spark" size={16} color={eventIncomplete ? A.press : '#fff'} fill={eventIncomplete ? A.press : '#fff'} /> {heldHere ? t('Renovar', 'Renew') : t('Comprar', 'Buy')} {tierName(T)} · {sel.price}
+          </button>
+          {eventIncomplete && <div style={{ fontSize: 12.5, color: R.inkSoft, marginTop: 8 }}>{t('Escribe el nombre del evento para continuar.', 'Enter the event name to continue.')}</div>}
+        </div>
       )}
 
       {/* Vista previa */}
@@ -5902,7 +6265,15 @@ function DestacadoView({ vert }: { vert: Vert }) {
           {!previewImg && <div style={{ position: 'absolute', right: -4, bottom: -8, fontFamily: R.display, fontWeight: 800, fontSize: 64, color: 'rgba(255,255,255,.18)' }}>{vert.mono}</div>}
         </div>
         <div style={{ padding: '14px 16px' }}>
-          {selContent ? (
+          {isEvent ? (
+            <>
+              <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 }}>
+                <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink }}>{event.title.trim() || t('Tu evento', 'Your event')}</div>
+                {event.date.trim() && <div style={{ fontSize: 12, color: A.press, fontWeight: 700, flexShrink: 0 }}>🎉 {event.date.trim()}</div>}
+              </div>
+              <div style={{ fontSize: 12.5, color: R.inkSoft, marginTop: 2 }}>{event.description.trim() || vert.name}</div>
+            </>
+          ) : selContent ? (
             <>
               <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 }}>
                 <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink }}>{selContent.name}</div>
@@ -7317,7 +7688,11 @@ export default function BizPage() {
     if (view === 'destacado') return <DestacadoView vert={vert} />
     if (view === 'promos') return <PromosView vert={vert} metrics={bizMetrics} />
     if (view === 'scanner') return <ScannerView key={vert.id} vert={vert} />
-    if (view === 'settings') return <SettingsView agentCfg={agentCfg} setAgentCfg={setAgentCfg} taxMode={taxMode} setTaxMode={persistTaxMode} bizInfo={bizInfo} setBizInfo={persistBizInfo} vert={vert} onGo={setView} lang={lang} setLang={setLangPersist} onReload={reloadOwner} />
+    if (view === 'settings') {
+      const rawBiz = ownerBiz[vertIdx] ?? ownerBiz.find(b => b.id === vert.id)
+      const profileInit = { name: rawBiz?.full_name || rawBiz?.name || vert.full, description: rawBiz?.description || '', logo: rawBiz?.logo_url || '' }
+      return <SettingsView agentCfg={agentCfg} setAgentCfg={setAgentCfg} taxMode={taxMode} setTaxMode={persistTaxMode} bizInfo={bizInfo} setBizInfo={persistBizInfo} vert={vert} onGo={setView} lang={lang} setLang={setLangPersist} onReload={reloadOwner} profileInit={profileInit} />
+    }
     return <PlaceholderView title={VIEW_TITLES[view]?.[0] ?? view} />
   }
 

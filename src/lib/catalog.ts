@@ -9,6 +9,7 @@
 // sea miembro del negocio (RLS de `services` y de `storage.objects`).
 import { createClient } from './supabase/client'
 import { supabaseEnabled } from './inventory'
+import type { VariantGroup } from './variants'
 
 const BUCKET = 'service-images'
 
@@ -77,6 +78,7 @@ export interface ServiceInput {
   image_url: string | null
   stock: number | null
   i18n?: ServiceI18n | null // nombre/descripción/categoría en ES y EN para el kiosko
+  variants?: VariantGroup[] | null // grupos de variantes (Tamaño, Temperatura…)
 }
 
 // Pide al servidor (que sí tiene la API key) la versión bilingüe de los campos de

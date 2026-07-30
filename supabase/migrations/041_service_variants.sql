@@ -1,0 +1,18 @@
+-- 041 — Variantes de producto.
+-- Un servicio del catálogo puede tener grupos de variantes (Tamaño, Temperatura,
+-- Color, Talla…). De cada grupo se elige una opción; cada opción puede sumar un
+-- extra al precio base. Lo usan el catálogo, el Punto de venta, el Autoservicio y
+-- la app del cliente.
+--
+-- Forma del jsonb (array de grupos):
+--   [
+--     { "name": "Tamaño", "options": [
+--         {"name":"Chico","price_delta":0},
+--         {"name":"Grande","price_delta":20}
+--     ]},
+--     { "name": "Temperatura", "options": [
+--         {"name":"Frío","price_delta":0}, {"name":"Caliente","price_delta":0}
+--     ]}
+--   ]
+-- NULL / [] = producto sin variantes.
+alter table services add column if not exists variants jsonb;

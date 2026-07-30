@@ -76,11 +76,36 @@ export async function POST(req: NextRequest) {
     .upsert({ user_id: courierUserId, biz_id: bizId, name: name || null, phone, active: true }, { onConflict: 'user_id' })
   if (upsertErr) return NextResponse.json({ error: upsertErr.message }, { status: 500 })
 
+  // Correo de acceso al repartidor: sólo cuando Reva generó la clave (cuenta nueva).
+  // Le llega su correo, la clave temporal y el enlace a /courier. Best-effort: si el
+  // envío falla, el dueño todavía ve la clave en pantalla para compartirla a mano.
+  let emailed = false
+  if (created?.user && generated) {
+    try {
+      const { data: biz } = await admin.from('businesses').select('name').eq('id', bizId).single()
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? ''
+      const { error: fnErr } = await admin.functions.invoke('send-courier-invite', {
+        body: {
+          email,
+          name: name || null,
+          bizName: biz?.name ?? null,
+          tempPassword: password,
+          courierUrl: `${appUrl}/courier`,
+        },
+      })
+      if (fnErr) console.error('[couriers] send-courier-invite falló:', fnErr)
+      else emailed = true
+    } catch (e) {
+      console.error('[couriers] no se pudo enviar el correo al repartidor:', e)
+    }
+  }
+
   return NextResponse.json({
     ok: true,
     courier: { user_id: courierUserId, name: name || null, phone, active: true },
     // Sólo se devuelve cuando Reva generó la clave (cuenta nueva).
     temp_password: created?.user && generated ? password : undefined,
+    emailed,
   })
 }
 

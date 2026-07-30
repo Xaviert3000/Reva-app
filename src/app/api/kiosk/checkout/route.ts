@@ -2,13 +2,14 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getStripe, commissionAmount } from '@/lib/stripe'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { usableGroups } from '@/lib/variants'
 
 export const dynamic = 'force-dynamic'
 
 // IVA. Mismo valor que usa el POS/Autoservicio en el cliente (TAX_RATE).
 const TAX_RATE = 0.16
 
-interface ItemInput { service_id: string; qty: number }
+interface ItemInput { service_id: string; qty: number; options?: string[] }
 
 async function ownerOf(bizId: string, userId: string): Promise<boolean> {
   const admin = createAdminClient()
@@ -60,7 +61,7 @@ export async function POST(req: NextRequest) {
   const ids = items.map(i => i.service_id).filter(Boolean)
   const { data: svcRows } = await admin
     .from('services')
-    .select('id,name,price')
+    .select('id,name,price,variants')
     .in('id', ids)
     .eq('biz_id', bizId)
 
@@ -70,7 +71,20 @@ export async function POST(req: NextRequest) {
       const qty = Math.max(1, Math.min(99, Math.floor(Number(i.qty) || 1)))
       const price = Number(svc?.price)
       if (!svc || !Number.isFinite(price) || price <= 0) return null
-      return { service_id: svc.id as string, name: svc.name as string, unit_price: price, qty, line_total: price * qty }
+      // Variante: valida las opciones enviadas contra la BD y suma sus extras (el
+      // extra NUNCA se confía al cliente). El nombre lleva la variante entre ().
+      const groups = usableGroups(svc.variants)
+      const picked: string[] = []
+      let delta = 0
+      if (groups.length > 0 && Array.isArray(i.options)) {
+        groups.forEach((g, gi) => {
+          const opt = g.options.find(o => o.name === i.options![gi])
+          if (opt) { picked.push(opt.name); delta += opt.price_delta || 0 }
+        })
+      }
+      const unit = price + delta
+      const name = picked.length > 0 ? `${svc.name} (${picked.join(' · ')})` : (svc.name as string)
+      return { service_id: svc.id as string, name, unit_price: unit, qty, line_total: unit * qty }
     })
     .filter((x): x is NonNullable<typeof x> => x !== null)
 
