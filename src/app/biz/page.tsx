@@ -19,7 +19,7 @@ import { LangContext, useT, useEn, type Lang } from '@/lib/i18n'
 
 // Etiquetas de navegación e inglés (el español vive en NAV/VIEW_TITLES)
 const NAV_EN: Record<string, string> = {
-  requests: 'Requests', orders: 'Orders', agenda: 'Agenda', messages: 'Messages', metrics: 'Metrics',
+  requests: 'Requests', orders: 'Orders', agenda: 'Agenda', messages: 'Messages', comunicados: 'Announcements', metrics: 'Metrics',
   reports: 'Reports', destacado: 'Featured', catalog: 'Catalog', inventory: 'Inventory',
   pos: 'Point of sale', kiosk: 'Self-service', sales: 'Sales', promos: 'Promotions', scanner: 'Scanner', settings: 'Settings',
 }
@@ -28,6 +28,7 @@ const VIEW_TITLES_EN: Record<string, [string, string]> = {
   orders: ['Orders', 'Paid orders ready to prepare and deliver'],
   agenda: ['Agenda', 'Your day, table by table'],
   messages: ['Messages', 'Conversations with your customers, via Reva'],
+  comunicados: ['Announcements', 'Updates from the Reva team'],
   metrics: ['Metrics', 'How Reva moves your business'],
   reports: ['Reports', 'Your full business pulse, module by module'],
   destacado: ['Featured', 'Appear first — always marked as such'],
@@ -73,6 +74,7 @@ function Icon({ n, size = 20, color = 'currentColor', stroke = 2, fill = 'none' 
     chevD: <path d="M6 9l6 6 6-6" />,
     chevL: <path d="M15 5l-7 7 7 7" />,
     bell: <><path d="M18 8.5a6 6 0 10-12 0c0 6-2.5 7.5-2.5 7.5h17S18 14.5 18 8.5z" /><path d="M13.7 19.5a2 2 0 01-3.4 0" /></>,
+    megaphone: <><path d="M3 11v2a1 1 0 001 1h2l4 4V6L6 10H4a1 1 0 00-1 1z" /><path d="M15 8a4 4 0 010 8M13 6l6-2v16l-6-2" /></>,
     card: <><rect x="2.5" y="5.5" width="19" height="13" rx="2.5" /><path d="M2.5 10h19M6.5 14.5h4" /></>,
     cash: <><rect x="2.5" y="6" width="19" height="12" rx="2" /><circle cx="12" cy="12" r="2.6" /><path d="M6 9.5h.01M18 14.5h.01" /></>,
     trash: <><path d="M4 7h16M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2M6 7l1 13a1 1 0 001 1h8a1 1 0 001-1l1-13" /></>,
@@ -336,6 +338,7 @@ const NAV_GROUPS: { id: string; label: string; en: string; items: { id: string; 
       { id: 'orders', icon: 'box', label: 'Pedidos' },
       { id: 'agenda', icon: 'cal', label: 'Agenda' },
       { id: 'messages', icon: 'chat', label: 'Mensajes' },
+      { id: 'comunicados', icon: 'megaphone', label: 'Comunicados' },
     ],
   },
   {
@@ -367,6 +370,7 @@ const VIEW_TITLES: Record<string, [string, string]> = {
   orders: ['Pedidos', 'Pedidos pagados listos para preparar y entregar'],
   agenda: ['Agenda', 'Tu día, mesa por mesa'],
   messages: ['Mensajes', 'Conversaciones con tus clientes, vía Reva'],
+  comunicados: ['Comunicados', 'Avisos del equipo de Reva'],
   metrics: ['Métricas', 'Cómo Reva mueve tu negocio'],
   reports: ['Informes', 'El pulso completo de tu negocio, módulo por módulo'],
   destacado: ['Destacado', 'Aparece primero — siempre marcado como tal'],
@@ -1715,6 +1719,82 @@ function MessagesView({ vert, agentCfg }: { vert: Vert; agentCfg: BizAgentConfig
           </div>
         </div>
       </div>
+    </div>
+  )
+}
+
+// ── Comunicados: avisos que el super-admin de Reva envía al negocio ──
+type BizComm = { id: string; title: string; body: string; priority: 'normal' | 'importante' | 'urgente'; sentBy: string | null; createdAt: string; read: boolean }
+function CommunicationsView({ bizId, lang, onRead }: { bizId: string; lang: Lang; onRead?: () => void }) {
+  const en = lang === 'en'
+  const t = (es: string, enTxt: string) => (en ? enTxt : es)
+  const [comms, setComms] = useState<BizComm[]>([])
+  const [loading, setLoading] = useState(true)
+
+  const load = useCallback(() => {
+    setLoading(true)
+    fetch(`/api/biz/communications?biz_id=${encodeURIComponent(bizId)}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => setComms(Array.isArray(d?.communications) ? d.communications : []))
+      .catch(() => setComms([]))
+      .finally(() => setLoading(false))
+  }, [bizId])
+  useEffect(() => { load() }, [load])
+
+  // Al abrir la vista, marca como leídos los comunicados que aún no lo estén.
+  useEffect(() => {
+    const unread = comms.filter(c => !c.read)
+    if (unread.length === 0) return
+    let cancelled = false
+    Promise.all(unread.map(c =>
+      fetch('/api/biz/communications', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ biz_id: bizId, communication_id: c.id }) }).catch(() => {})
+    )).then(() => {
+      if (cancelled) return
+      setComms(prev => prev.map(c => ({ ...c, read: true })))
+      onRead?.()
+    })
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [comms.length])
+
+  const prTint = (p: BizComm['priority']) => p === 'urgente' ? [R.coral, R.coralTint] : p === 'importante' ? [R.amberDeep, R.amberTint] : [R.jade, R.jadeTint]
+  const prLabel = (p: BizComm['priority']) => p === 'urgente' ? t('Urgente', 'Urgent') : p === 'importante' ? t('Importante', 'Important') : t('Aviso', 'Notice')
+  const fmtDate = (iso: string) => new Date(iso).toLocaleDateString(en ? 'en-US' : 'es-MX', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+
+  return (
+    <div style={{ maxWidth: 720, margin: '0 auto', padding: '4px 2px' }}>
+      {loading ? (
+        <div style={{ textAlign: 'center', padding: '60px 20px', color: R.inkSoft, fontSize: 14 }}>{t('Cargando…', 'Loading…')}</div>
+      ) : comms.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: '70px 24px', color: R.inkSoft }}>
+          <Icon n="megaphone" size={34} color={R.inkFaint} stroke={1.8} />
+          <div style={{ marginTop: 14, fontFamily: R.display, fontWeight: 700, fontSize: 17, color: R.ink }}>{t('Sin comunicados', 'No announcements')}</div>
+          <div style={{ marginTop: 6, fontSize: 14, maxWidth: 340, marginInline: 'auto' }}>{t('Aquí verás los avisos que el equipo de Reva envía a tu negocio.', 'You’ll see updates from the Reva team here.')}</div>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {comms.map(c => {
+            const [pc, pt] = prTint(c.priority)
+            return (
+              <div key={c.id} style={{ background: R.surface, border: `1px solid ${R.line}`, borderLeft: `4px solid ${pc}`, borderRadius: 14, padding: '16px 20px', boxShadow: '0 1px 3px rgba(34,28,25,.04)' }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 8 }}>
+                  <span style={{ flex: 1, minWidth: 0, fontFamily: R.display, fontWeight: 800, fontSize: 16.5, color: R.ink }}>{c.title}</span>
+                  <span style={{ fontSize: 10.5, fontWeight: 700, color: pc, background: pt, padding: '3px 10px', borderRadius: 999, flexShrink: 0 }}>{prLabel(c.priority)}</span>
+                </div>
+                <div style={{ fontSize: 14.5, color: R.inkSoft, lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>{c.body}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, fontSize: 12.5, color: R.inkFaint }}>
+                  <div style={{ width: 22, height: 22, borderRadius: 7, background: R.coralTint, display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+                    <Icon n="megaphone" size={12} color={R.coral} />
+                  </div>
+                  <span style={{ fontWeight: 600 }}>{t('Equipo Reva', 'Reva team')}</span>
+                  <span>·</span>
+                  <span>{fmtDate(c.createdAt)}</span>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }
@@ -7508,6 +7588,18 @@ export default function BizPage() {
   // Habilita el pago real por QR en el Autoservicio; si es false, la tarjeta cae al
   // comportamiento anterior (se registra la venta sin cobro en línea).
   const [stripeReady, setStripeReady] = useState(false)
+  // Comunicados del super-admin sin leer (badge de navegación).
+  const [commUnread, setCommUnread] = useState(0)
+  const reloadComms = useCallback(() => {
+    const v = verts?.[vertIdx]
+    if (!v) { setCommUnread(0); return }
+    const bizId = SHARED_BIZ_ID[v.id] ?? v.id
+    fetch(`/api/biz/communications?biz_id=${encodeURIComponent(bizId)}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => setCommUnread(Array.isArray(d?.communications) ? d.communications.filter((c: { read: boolean }) => !c.read).length : 0))
+      .catch(() => setCommUnread(0))
+  }, [verts, vertIdx])
+  useEffect(() => { reloadComms() }, [reloadComms])
 
   // Carga la sesión del dueño y su(s) negocio(s). Sin sesión → login.
   // Con sesión pero sin negocio configurado → onboarding.
@@ -7754,6 +7846,7 @@ export default function BizPage() {
     if (view === 'orders') return <OrdersView vert={vert} orders={orders} couriers={couriers} onUpdate={updateOrder} />
     if (view === 'agenda') return <AgendaView vert={vert} dayAgenda={panelAgenda} />
     if (view === 'messages') return <MessagesView key={vert.id} vert={vert} agentCfg={agentCfg} />
+    if (view === 'comunicados') return <CommunicationsView key={vert.id} bizId={SHARED_BIZ_ID[vert.id] ?? vert.id} lang={lang} onRead={reloadComms} />
     if (view === 'metrics') return <MetricsView vert={vertM} metrics={bizMetrics} />
     if (view === 'reports') return <ReportsView vert={vertM} items={catalog} onGo={setView} bizInfo={bizInfo} metrics={bizMetrics} agenda={panelAgenda} requests={panelRequests} />
     if (view === 'catalog') return <CatalogView vert={vert} items={catalog} setItems={setCatalog} />
@@ -7805,7 +7898,7 @@ export default function BizPage() {
             const items = group.items.filter(it => it.id !== 'orders' || vert.caps.orders || orders.length > 0)
             if (!items.length) return null
             const ordersActive = orders.filter(o => !['delivered', 'cancelled', 'refunded'].includes(o.status)).length
-            const groupBadge = items.reduce((n, it) => n + (it.id === 'requests' ? panelRequests.length : it.id === 'orders' ? ordersActive : it.id === 'messages' ? unreadMsgs : 0), 0)
+            const groupBadge = items.reduce((n, it) => n + (it.id === 'requests' ? panelRequests.length : it.id === 'orders' ? ordersActive : it.id === 'messages' ? unreadMsgs : it.id === 'comunicados' ? commUnread : 0), 0)
             const open = openGroups[group.id]
             return (
               <div key={group.id} style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
@@ -7816,7 +7909,7 @@ export default function BizPage() {
                 </button>
                 {open && items.map(it => {
                   const on = view === it.id
-                  const badge = it.id === 'requests' ? panelRequests.length : it.id === 'orders' ? ordersActive : it.id === 'messages' ? unreadMsgs : 0
+                  const badge = it.id === 'requests' ? panelRequests.length : it.id === 'orders' ? ordersActive : it.id === 'messages' ? unreadMsgs : it.id === 'comunicados' ? commUnread : 0
                   return (
                     <button key={it.id} onClick={() => setView(it.id)} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 14px', borderRadius: 12, cursor: 'pointer', border: 'none', width: '100%', textAlign: 'left', background: on ? R.coralTint : 'transparent', color: on ? R.coralPress : R.inkSoft, fontWeight: on ? 700 : 500, fontSize: 14.5, fontFamily: R.ui }}>
                       <Icon n={it.icon} size={20} color={on ? R.coral : R.inkFaint} stroke={on ? 2.3 : 2} />

@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef, type ReactNode, type CSSProperties } from 'react'
 import { BM_OPTIONS_DEFAULT, loadBMConfig, saveBMConfig, type BMOption } from '@/lib/boomerangme-config'
 import { STRIPE_OPTIONS_DEFAULT, loadStripeConfig, saveStripeConfig, type StripeOption } from '@/lib/stripe-config'
+import { BIZ_CATEGORIES_INIT, CATEGORY_EMOJI_CHOICES, type BizCategory } from '@/lib/bizcategories-config'
 import { OR_OPTIONS_DEFAULT, OR_DEFAULT_MODEL, loadORConfig, saveORConfig, type OROption } from '@/lib/openrouter-config'
 import { PROMPT_DEFS, DEFAULT_PROMPTS, type PromptId } from '@/lib/ai-prompts'
 import { STATES_DATA } from '@/lib/data'
@@ -12,8 +13,8 @@ import { LangContext, useT } from '@/lib/i18n'
 // Etiquetas de navegación en inglés (el español vive en NAV como default)
 const NAV_EN: Record<string, string> = {
   overview: 'Overview', destacados: 'Featured', ingresos: 'Revenue', negocios: 'Businesses',
-  reservas: 'Bookings', moderacion: 'Moderation', informes: 'Reports', rove: 'Reva+ Rewards',
-  soporte: 'Support', integraciones: 'Integrations', ajustes: 'Settings',
+  usuarios: 'Customers', reservas: 'Bookings', moderacion: 'Moderation', informes: 'Reports', rove: 'Reva+ Rewards',
+  soporte: 'Support', comunicados: 'Announcements', integraciones: 'Integrations', ajustes: 'Settings',
 }
 
 // ── Design tokens (compartidos con el panel del negocio) ───
@@ -63,6 +64,8 @@ function Icon({ n, size = 20, color = 'currentColor', stroke = 2, fill = 'none' 
     report: <><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z" /><path d="M14 3v5h5M9 13h6M9 17h6M9 9h1" /></>,
     ticket: <><path d="M4 8.5A2.5 2.5 0 016.5 6h11A2.5 2.5 0 0120 8.5v1a2 2 0 000 4v1a2.5 2.5 0 01-2.5 2.5h-11A2.5 2.5 0 014 14.5v-1a2 2 0 000-4z" /><path d="M14 6v12" /></>,
     download: <><path d="M12 3v12M7 11l5 4 5-4M5 20h14" /></>,
+    megaphone: <><path d="M3 11v2a1 1 0 001 1h2l4 4V6L6 10H4a1 1 0 00-1 1z" /><path d="M15 8a4 4 0 010 8M13 6l6-2v16l-6-2" /></>,
+    trash: <><path d="M4 7h16M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2M6 7l1 13a1 1 0 001 1h8a1 1 0 001-1l1-13" /></>,
   }
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill={fill} stroke={color}
@@ -78,11 +81,13 @@ const NAV = [
   { id: 'destacados', label: 'Destacados', icon: 'spark' },
   { id: 'ingresos', label: 'Ingresos', icon: 'coins' },
   { id: 'negocios', label: 'Negocios', icon: 'grid' },
+  { id: 'usuarios', label: 'Usuarios', icon: 'users' },
   { id: 'reservas', label: 'Reservas', icon: 'cal' },
   { id: 'moderacion', label: 'Moderación', icon: 'flag' },
   { id: 'informes', label: 'Informes', icon: 'report' },
   { id: 'rove', label: 'Reva+ Rewards', icon: 'ticket' },
   { id: 'soporte', label: 'Soporte', icon: 'chat' },
+  { id: 'comunicados', label: 'Comunicados', icon: 'megaphone' },
   { id: 'integraciones', label: 'Integraciones', icon: 'link' },
   { id: 'ajustes', label: 'Ajustes', icon: 'settings' },
 ]
@@ -97,9 +102,20 @@ const INTEGRATIONS: { id: string; name: string; tag: string; tagEn: string; desc
 
 type Niv = 'Premium' | 'Destacado'
 
+// Comunicado a los negocios (super-admin). `recipients` = negocios que caen en
+// el segmento; `reads` = cuántos lo marcaron leído.
+type CommPriority = 'normal' | 'importante' | 'urgente'
+type CommAudience = 'all' | 'municipio' | 'category' | 'tier' | 'specific'
+type Comm = {
+  id: string; title: string; body: string; priority: CommPriority
+  audience: CommAudience; audienceValue: string | null; audienceIds: string[]
+  sentBy: string | null; createdAt: string; recipients: number; reads: number
+}
+
 type Biz = { id?: string; name: string; mono: string; cat: string; mun: string; plan: string; estado: 'Activo' | 'Pausado'; dest: string; reservas: number; grad: [string, string]; email?: string; invitePending?: boolean }
 // Fila cruda de /api/admin/businesses (Fase 9).
 type AdminBizRow = { id: string; name: string; mono: string | null; kind: string | null; type: string | null; municipio: string | null; agent_active: boolean | null; tier: string | null; featured_until: string | null; grad_from: string | null; grad_to: string | null }
+type AdminCustomer = { id: string; name: string; email: string; phone: string; type: 'owner' | 'customer'; bizName: string; mode: string; lang: string; created_at: string; reservas: number; pedidos: number; resenas: number; gasto: number; tickets: number }
 const BIZES_INIT: Biz[] = [
   { name: 'La Lupita', mono: 'L', cat: 'Restaurantes', mun: 'San José del Cabo', plan: 'Reva', estado: 'Activo', dest: 'Destacado', reservas: 142, grad: ['#E27A52', '#B5472F'] },
   { name: 'Sereno Spa', mono: 'S', cat: 'Spa & Bienestar', mun: 'San José del Cabo', plan: 'Reva', estado: 'Activo', dest: 'Premium', reservas: 96, grad: ['#C9A2B4', '#6E4A63'] },
@@ -112,20 +128,8 @@ const BIZES_INIT: Biz[] = [
   { name: 'Mirador', mono: 'M', cat: 'Restaurantes', mun: 'Cabo San Lucas', plan: 'Reva', estado: 'Pausado', dest: '—', reservas: 0, grad: ['#B07A52', '#6E4A2F'] },
 ]
 
-// Categorías disponibles al dar de alta un negocio nuevo — seed editable desde Ajustes
-type BizCategory = { label: string; emoji: string }
-const BIZ_CATEGORIES_INIT: BizCategory[] = [
-  { label: 'Restaurantes', emoji: '🍽️' },
-  { label: 'Bar / Vida nocturna', emoji: '🍸' },
-  { label: 'Spa & Bienestar', emoji: '💆' },
-  { label: 'Médico / Clínica', emoji: '🏥' },
-  { label: 'Dentista', emoji: '🦷' },
-  { label: 'Despacho legal', emoji: '⚖️' },
-  { label: 'Inmobiliaria', emoji: '🏠' },
-  { label: 'Salón / Barbería', emoji: '✂️' },
-  { label: 'Tours & Experiencias', emoji: '🚣' },
-  { label: 'Gimnasio / Estudio', emoji: '💪' },
-]
+// Categorías disponibles al dar de alta un negocio nuevo — seed editable desde
+// Ajustes. El tipo, el seed y la persistencia viven en @/lib/bizcategories-config.
 
 // Paleta de gradientes para el avatar del negocio — se asigna por rotación
 const BIZ_GRADIENTS: [string, string][] = [
@@ -655,6 +659,62 @@ export default function AdminPage() {
   const [notifOpen, setNotifOpen] = useState(false)
   const [roveRewards, setRoveRewards] = useState<RoveReward[]>([])
 
+  // Comunicados a los negocios (super-admin → panel del negocio).
+  const [comms, setComms] = useState<Comm[]>([])
+  const [commTitle, setCommTitle] = useState('')
+  const [commBody, setCommBody] = useState('')
+  const [commPriority, setCommPriority] = useState<CommPriority>('normal')
+  const [commAudience, setCommAudience] = useState<CommAudience>('all')
+  const [commAudienceValue, setCommAudienceValue] = useState('')
+  const [commAudienceIds, setCommAudienceIds] = useState<string[]>([])
+  const [commError, setCommError] = useState('')
+  const [commSending, setCommSending] = useState(false)
+  const [commToast, setCommToast] = useState<string | null>(null)
+
+  function loadComms() {
+    fetch('/api/admin/communications').then(r => r.ok ? r.json() : null).then(d => {
+      if (d?.communications) setComms(d.communications)
+    }).catch(() => {})
+  }
+
+  async function sendComm() {
+    setCommError('')
+    if (!commTitle.trim()) { setCommError('Escribe un título para el comunicado.'); return }
+    if (!commBody.trim()) { setCommError('Escribe el mensaje del comunicado.'); return }
+    if ((commAudience === 'municipio' || commAudience === 'category' || commAudience === 'tier') && !commAudienceValue) {
+      setCommError('Elige el segmento destinatario.'); return
+    }
+    if (commAudience === 'specific' && commAudienceIds.length === 0) {
+      setCommError('Selecciona al menos un negocio.'); return
+    }
+    setCommSending(true)
+    try {
+      const res = await fetch('/api/admin/communications', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: commTitle.trim(), body: commBody.trim(), priority: commPriority,
+          audience: commAudience, audienceValue: commAudienceValue, audienceIds: commAudienceIds,
+        }),
+      })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) { setCommError(d?.error || 'No se pudo enviar el comunicado.'); return }
+      setCommTitle(''); setCommBody(''); setCommPriority('normal')
+      setCommAudience('all'); setCommAudienceValue(''); setCommAudienceIds([])
+      setCommToast(en ? 'Announcement sent' : 'Comunicado enviado')
+      setTimeout(() => setCommToast(null), 2600)
+      loadComms()
+    } catch {
+      setCommError('No se pudo enviar el comunicado.')
+    } finally {
+      setCommSending(false)
+    }
+  }
+
+  function deleteComm(id: string) {
+    setComms(prev => prev.filter(c => c.id !== id))
+    fetch(`/api/admin/communications?id=${encodeURIComponent(id)}`, { method: 'DELETE' }).catch(() => {})
+  }
+
   useEffect(() => {
     if (!authed) return
     fetch('/api/rove/admin').then(r => r.json()).then(d => setRoveRewards(d.rewards ?? [])).catch(() => {})
@@ -686,10 +746,17 @@ export default function AdminPage() {
     fetch('/api/admin/support').then(r => r.ok ? r.json() : null).then(d => {
       if (d?.tickets) setTickets(d.tickets)
     }).catch(() => {})
+    // Usuarios (clientes de la app) reales + agregados de actividad.
+    fetch('/api/admin/customers').then(r => r.ok ? r.json() : null).then(d => {
+      if (d?.customers) setCustomers(d.customers as AdminCustomer[])
+      if (d?.stats) setCustStats(d.stats)
+    }).catch(() => {})
     // Destacados reales: inventario de cupos + campañas vigentes.
     fetch('/api/admin/featured').then(r => r.ok ? r.json() : null).then((d: FeaturedData | null) => {
       if (d?.inventory) setFeatured(d)
     }).catch(() => {})
+    // Comunicados enviados a los negocios (con conteo de destinatarios y lecturas).
+    loadComms()
     // Cola de moderación real.
     fetch('/api/admin/moderation').then(r => r.ok ? r.json() : null).then(d => {
       if (d?.items) setModQueue(d.items.map(mapModItem))
@@ -714,6 +781,13 @@ export default function AdminPage() {
       if (!s) return
       setPlatName(s.platName); setPlatUrl(s.platUrl); setPlatLang(s.platLang); setPlatTz(s.platTz)
       setNotifEmail(s.notifEmail); setNotifs(s.notifs); setTwoFa(s.twoFa); setSessExpiry(s.sessExpiry)
+    }).catch(() => {})
+    // Categorías de negocio reales (tabla `business_categories`).
+    fetch('/api/admin/categories').then(r => r.ok ? r.json() : null).then(d => {
+      const cats = d?.categories as BizCategory[] | undefined
+      if (!Array.isArray(cats)) return
+      setBizCategories(cats)
+      setNewBizCat(prev => cats.some(c => c.label === prev) ? prev : (cats[0]?.label ?? ''))
     }).catch(() => {})
   }, [authed])
 
@@ -747,26 +821,57 @@ export default function AdminPage() {
     setNewBizMun(muns[0] ?? '')
   }
 
-  // Gestión de categorías (Ajustes → Categorías de negocio)
+  // Gestión de categorías (Ajustes → Categorías de negocio). Persisten en la
+  // tabla `business_categories` vía /api/admin/categories.
   const [catEmoji, setCatEmoji] = useState('')
   const [catLabel, setCatLabel] = useState('')
   const [catError, setCatError] = useState('')
+  const [catBusy, setCatBusy] = useState(false)
 
-  function addCategory() {
+  async function addCategory() {
+    if (catBusy) return
     const label = catLabel.trim()
     const emoji = catEmoji.trim() || '🏷️'
     if (!label) { setCatError('Ingresa el nombre de la categoría.'); return }
     if (bizCategories.some(c => c.label.toLowerCase() === label.toLowerCase())) { setCatError('Ya existe una categoría con ese nombre.'); return }
-    setBizCategories(prev => [...prev, { label, emoji }])
-    setCatEmoji('')
-    setCatLabel('')
-    setCatError('')
+    setCatBusy(true)
+    try {
+      const res = await fetch('/api/admin/categories', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ label, emoji }),
+      })
+      if (!res.ok) {
+        const d = await res.json().catch(() => null)
+        setCatError(d?.error || 'No se pudo guardar la categoría.')
+        return
+      }
+      setBizCategories(prev => [...prev, { label, emoji }])
+      setCatEmoji('')
+      setCatLabel('')
+      setCatError('')
+    } catch {
+      setCatError('No se pudo guardar. Revisa tu conexión.')
+    } finally {
+      setCatBusy(false)
+    }
   }
 
-  function removeCategory(label: string) {
+  async function removeCategory(label: string) {
+    // Optimista: quita de la UI y revierte si el servidor falla.
+    const prevList = bizCategories
     setBizCategories(prev => prev.filter(c => c.label !== label))
-    if (newBizCat === label) setNewBizCat(prev => bizCategories.find(c => c.label !== label)?.label ?? prev)
+    if (newBizCat === label) setNewBizCat(prevList.find(c => c.label !== label)?.label ?? '')
+    try {
+      const res = await fetch(`/api/admin/categories?label=${encodeURIComponent(label)}`, { method: 'DELETE' })
+      if (!res.ok) { setBizCategories(prevList); alert('No se pudo eliminar la categoría.') }
+    } catch {
+      setBizCategories(prevList)
+      alert('No se pudo eliminar. Revisa tu conexión.')
+    }
   }
+
+  // Carga las categorías reales al autenticar (ver el useEffect con [authed]).
 
   // Reservas
   const [rq, setRq] = useState('')
@@ -774,6 +879,12 @@ export default function AdminPage() {
   const [reservasList, setReservasList] = useState<ResaItem[]>(RESERVAS)
   // Agregados reales de reservas: total del mes + conteo por negocio (biz_id → n).
   const [resStats, setResStats] = useState<{ month: number; total: number; byBiz: Record<string, number> }>({ month: 0, total: 0, byBiz: {} })
+
+  // Usuarios (clientes de la app) reales, desde /api/admin/customers.
+  const [customers, setCustomers] = useState<AdminCustomer[]>([])
+  const [custStats, setCustStats] = useState<{ total: number; nuevosMes: number; activos: number; vecinos: number; duenos: number }>({ total: 0, nuevosMes: 0, activos: 0, vecinos: 0, duenos: 0 })
+  const [cq, setCq] = useState('')
+  const [cf, setCf] = useState('Todos')
 
   // Ingresos (pagos reales desde la tabla `payments` vía /api/admin/revenue)
   const [revenue, setRevenue] = useState<RevenueData | null>(null)
@@ -1020,6 +1131,21 @@ export default function AdminPage() {
   const resRows = reservasList.filter(r =>
     (rf === 'Todas' || r.estado === rf) && (r.guest + ' ' + r.biz).toLowerCase().includes(rq.trim().toLowerCase()))
 
+  // Usuarios filtrados: búsqueda por nombre/email/teléfono + filtro por segmento.
+  const custMonthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).getTime()
+  const custRows = customers.filter(c => {
+    const q = cq.trim().toLowerCase()
+    const matchQ = !q || (c.name + ' ' + c.email + ' ' + c.phone + ' ' + c.bizName).toLowerCase().includes(q)
+    const matchF =
+      cf === 'Todos' ? true :
+      cf === 'Clientes' ? c.type === 'customer' :
+      cf === 'Dueños' ? c.type === 'owner' :
+      cf === 'Activos' ? (c.reservas + c.pedidos + c.resenas > 0) :
+      cf === 'Vecinos' ? c.mode === 'vecino' :
+      cf === 'Nuevos' ? (!!c.created_at && new Date(c.created_at).getTime() >= custMonthStart) : true
+    return matchQ && matchF
+  })
+
   function moderate(id: string, ok: boolean) {
     setModQueue(q => q.filter(m => m.id !== id))
     setResolved(s => ok ? { ...s, aprobadas: s.aprobadas + 1 } : { ...s, rechazadas: s.rechazadas + 1 })
@@ -1119,9 +1245,11 @@ export default function AdminPage() {
     destacados: [t('Destacados', 'Featured'), t('Inventario, ingresos y rotación del marketplace', 'Marketplace inventory, revenue and rotation')],
     ingresos: [t('Ingresos', 'Revenue'), t('Todo lo que genera la plataforma, en tiempo real', 'Everything the platform earns, in real time')],
     negocios: [t('Negocios', 'Businesses'), t('Todos los negocios en Reva', 'Every business on Reva')],
+    usuarios: [t('Usuarios', 'Customers'), t('Los clientes que usan la app Reva', 'The customers using the Reva app')],
     reservas: [t('Reservas', 'Bookings'), t('Reservas en toda la plataforma', 'Bookings across the platform')],
     moderacion: [t('Moderación', 'Moderation'), t('Aprueba el contenido destacado', 'Approve featured content')],
     informes: [t('Informes', 'Reports'), t('Genera y descarga reportes de cada módulo', 'Generate and download reports for each module')],
+    comunicados: [t('Comunicados', 'Announcements'), t('Envía avisos a los negocios de la plataforma', 'Send announcements to businesses on the platform')],
     rove: ['Reva+ Rewards', t('Aprueba recompensas y monitorea boletos', 'Approve rewards and monitor tickets')],
     soporte: [t('Soporte', 'Support'), t('Conversaciones de usuarios con el equipo Reva', 'User conversations with the Reva team')],
     integraciones: [t('Integraciones', 'Integrations'), t('Conexiones de la plataforma', 'Platform connections')],
@@ -1145,7 +1273,7 @@ export default function AdminPage() {
           </div>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-          {NAV.filter(it => adminRole === 'super_admin' || !['integraciones', 'ajustes'].includes(it.id)).map(it => {
+          {NAV.filter(it => adminRole === 'super_admin' || !['integraciones', 'ajustes', 'comunicados'].includes(it.id)).map(it => {
             const on = view === it.id
             const badge = it.id === 'moderacion' ? modQueue.length : it.id === 'soporte' ? tickets.filter(t => t.status === 'nuevo').length : it.id === 'rove' ? roveRewards.filter(r => r.status === 'pending').length : 0
             return (
@@ -1644,6 +1772,70 @@ export default function AdminPage() {
               </Card>
             </>
           )}
+
+          {view === 'usuarios' && (() => {
+            const money = (n: number) => '$' + n.toLocaleString('es-MX', { maximumFractionDigits: 0 })
+            const dateShort = (iso: string) => { const d = new Date(iso); return isNaN(d.getTime()) ? '—' : d.toLocaleDateString(en ? 'en-US' : 'es-MX', { day: '2-digit', month: 'short', year: 'numeric' }) }
+            const grad = (s: string): [string, string] => { const G: [string, string][] = [['#5FA6B0', '#2E6E78'], ['#E9A24A', '#C25C3C'], ['#C9A2B4', '#6E4A63'], ['#7C5CFF', '#4A2FBF'], ['#E27A52', '#B5472F'], ['#4FA3E3', '#2C5EA8']]; let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; return G[h % G.length] }
+            const cols = '1.9fr 1.3fr 1.2fr 0.9fr 0.8fr'
+            // Segmentos: se guardan en español (cf); se muestran traducidos.
+            const CHIP_ES = ['Todos', 'Clientes', 'Dueños', 'Activos', 'Vecinos', 'Nuevos']
+            const CHIP_EN = ['All', 'Customers', 'Owners', 'Active', 'Locals', 'New']
+            const chipOpts = en ? CHIP_EN : CHIP_ES
+            const chipVal = en ? CHIP_EN[Math.max(0, CHIP_ES.indexOf(cf))] : cf
+            const setChip = (v: string) => setCf(en ? CHIP_ES[Math.max(0, CHIP_EN.indexOf(v))] : v)
+            return (
+            <>
+              <div style={{ display: 'flex', gap: 14, marginBottom: 22, flexWrap: 'wrap' }}>
+                <KPI label={t('Usuarios totales', 'Total users')} value={`${custStats.total}`} tint={R.coralTint} icon={<Icon n="users" size={20} color={R.coral} />} />
+                <KPI label={t('Clientes', 'Customers')} value={`${custStats.total - custStats.duenos}`} sub={t('usan la app', 'app users')} tint={R.jadeTint} icon={<Icon n="users" size={20} color={R.jade} />} />
+                <KPI label={t('Dueños de negocio', 'Business owners')} value={`${custStats.duenos}`} tint={R.amberTint} icon={<Icon n="grid" size={20} color={R.amber} />} />
+                <KPI label={t('Nuevos este mes', 'New this month')} value={`${custStats.nuevosMes}`} tint={R.jadeTint} icon={<Icon n="spark" size={20} color={R.jade} />} />
+                <KPI label={t('Activos', 'Active')} value={`${custStats.activos}`} sub={t('con reservas, pedidos o reseñas', 'with bookings, orders or reviews')} tint={R.amberTint} icon={<Icon n="check" size={20} color={R.amber} />} />
+              </div>
+              <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+                <SearchBox value={cq} onChange={setCq} placeholder={t('Buscar por nombre, correo o teléfono…', 'Search by name, email or phone…')} />
+                <Chips options={chipOpts} value={chipVal} onChange={setChip} />
+              </div>
+              <Card style={{ padding: 0, overflow: 'hidden' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: cols, gap: 14, padding: '12px 18px', borderBottom: `1px solid ${R.line}`, background: R.bgAlt, fontSize: 11.5, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.04em' }}>
+                  <span>{t('Usuario', 'User')}</span><span>{t('Contacto', 'Contact')}</span><span>{t('Actividad', 'Activity')}</span><span style={{ textAlign: 'right' }}>{t('Gasto', 'Spend')}</span><span style={{ textAlign: 'right' }}>Reva+</span>
+                </div>
+                {custRows.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '36px 0', color: R.inkSoft, fontSize: 14 }}>{customers.length === 0 ? t('Aún no hay usuarios registrados.', 'No registered customers yet.') : t('Sin resultados.', 'No results.')}</div>
+                ) : custRows.map((c, i) => {
+                  const g = grad(c.id)
+                  const initials = (c.name || c.email || '?').trim().charAt(0).toUpperCase()
+                  return (
+                    <div key={c.id} style={{ display: 'grid', gridTemplateColumns: cols, gap: 14, alignItems: 'center', padding: '13px 18px', borderTop: i ? `1px solid ${R.lineSoft}` : 'none' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 11, minWidth: 0 }}>
+                        <div style={{ width: 36, height: 36, borderRadius: 10, background: `linear-gradient(140deg, ${g[0]}, ${g[1]})`, display: 'grid', placeItems: 'center', fontFamily: R.display, fontWeight: 800, color: '#fff', fontSize: 15, flexShrink: 0 }}>{initials}</div>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                            <span style={{ fontFamily: R.display, fontWeight: 700, fontSize: 13.5, color: R.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.name || t('Sin nombre', 'No name')}</span>
+                            {c.type === 'owner'
+                              ? <span style={{ fontSize: 10, fontWeight: 700, color: R.amberDeep, background: R.amberTint, padding: '2px 7px', borderRadius: 999, flexShrink: 0 }}>{t('Dueño', 'Owner')}</span>
+                              : c.mode === 'vecino' && <span style={{ fontSize: 10, fontWeight: 700, color: R.jade, background: R.jadeTint, padding: '2px 7px', borderRadius: 999, flexShrink: 0 }}>{t('Vecino', 'Local')}</span>}
+                          </div>
+                          <div style={{ fontSize: 11.5, color: R.inkFaint, marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.type === 'owner' && c.bizName ? c.bizName : `${t('Se unió', 'Joined')} ${dateShort(c.created_at)}`}</div>
+                        </div>
+                      </div>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 13, color: R.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.email || '—'}</div>
+                        <div style={{ fontSize: 12, color: R.inkSoft, marginTop: 1 }}>{c.phone || '—'}</div>
+                      </div>
+                      <span style={{ fontSize: 12.5, color: R.inkSoft }}>
+                        <strong style={{ color: R.ink, fontWeight: 700 }}>{c.reservas}</strong> {t('res.', 'bkgs')} · <strong style={{ color: R.ink, fontWeight: 700 }}>{c.pedidos}</strong> {t('ped.', 'ord')} · <strong style={{ color: R.ink, fontWeight: 700 }}>{c.resenas}</strong> {t('reseñas', 'rev')}
+                      </span>
+                      <span style={{ textAlign: 'right', fontFamily: R.display, fontWeight: 700, fontSize: 13.5, color: c.gasto > 0 ? R.ink : R.inkFaint }}>{c.gasto > 0 ? money(c.gasto) : '—'}</span>
+                      <span style={{ textAlign: 'right', fontFamily: R.display, fontWeight: 700, fontSize: 13.5, color: c.tickets > 0 ? R.amberDeep : R.inkFaint }}>{c.tickets > 0 ? c.tickets : '—'}</span>
+                    </div>
+                  )
+                })}
+              </Card>
+            </>
+            )
+          })()}
 
           {view === 'reservas' && (
             <>
@@ -2283,6 +2475,179 @@ export default function AdminPage() {
             )
           })()}
 
+          {view === 'comunicados' && adminRole === 'super_admin' && (() => {
+            // Opciones de segmento derivadas de los negocios reales.
+            const municipiosOpts = [...new Set(bizes.map(b => b.mun).filter(v => v && v !== '—'))].sort()
+            const categoriasOpts = [...new Set(bizes.map(b => b.cat).filter(v => v && v !== '—'))].sort()
+            const prTint = (p: CommPriority) => p === 'urgente' ? [R.coral, R.coralTint] : p === 'importante' ? [R.amberDeep, R.amberTint] : [R.jade, R.jadeTint]
+            const prLabel = (p: CommPriority) => p === 'urgente' ? t('Urgente', 'Urgent') : p === 'importante' ? t('Importante', 'Important') : t('Normal', 'Normal')
+            const audLabel = (c: Comm) => {
+              if (c.audience === 'all') return t('Todos los negocios', 'All businesses')
+              if (c.audience === 'municipio') return `${t('Municipio', 'Municipality')}: ${c.audienceValue}`
+              if (c.audience === 'category') return `${t('Categoría', 'Category')}: ${c.audienceValue}`
+              if (c.audience === 'tier') return `${t('Nivel', 'Tier')}: ${c.audienceValue}`
+              return `${c.audienceIds.length} ${t('negocio(s)', 'business(es)')}`
+            }
+            const fmtDate = (iso: string) => new Date(iso).toLocaleDateString(en ? 'en-US' : 'es-MX', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+            const audiences: { id: CommAudience; label: string }[] = [
+              { id: 'all', label: t('Todos los negocios', 'All businesses') },
+              { id: 'municipio', label: t('Por municipio', 'By municipality') },
+              { id: 'category', label: t('Por categoría', 'By category') },
+              { id: 'tier', label: t('Por nivel', 'By tier') },
+              { id: 'specific', label: t('Negocios específicos', 'Specific businesses') },
+            ]
+            const inputStyle: CSSProperties = { width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 12, padding: '11px 14px', fontSize: 14, fontFamily: R.ui, color: R.ink, outline: 'none', background: R.surface }
+            return (
+              <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+
+                {/* ── Compositor ── */}
+                <div style={{ flex: '1 1 420px', minWidth: 340 }}>
+                  <Card style={{ padding: '20px 22px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+                      <div style={{ width: 38, height: 38, borderRadius: 11, background: R.coralTint, display: 'grid', placeItems: 'center' }}>
+                        <Icon n="megaphone" size={19} color={R.coral} />
+                      </div>
+                      <div>
+                        <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 16, color: R.ink }}>{t('Nuevo comunicado', 'New announcement')}</div>
+                        <div style={{ fontSize: 12.5, color: R.inkFaint }}>{t('Llega al panel de cada negocio', 'Delivered to each business panel')}</div>
+                      </div>
+                    </div>
+
+                    <label style={{ fontSize: 12, fontWeight: 700, color: R.inkSoft, display: 'block', marginBottom: 6 }}>{t('Título', 'Title')}</label>
+                    <input value={commTitle} onChange={e => setCommTitle(e.target.value)} maxLength={120}
+                      placeholder={t('Ej. Nueva función: pedidos a domicilio', 'e.g. New feature: delivery orders')} style={{ ...inputStyle, marginBottom: 14 }} />
+
+                    <label style={{ fontSize: 12, fontWeight: 700, color: R.inkSoft, display: 'block', marginBottom: 6 }}>{t('Mensaje', 'Message')}</label>
+                    <textarea value={commBody} onChange={e => setCommBody(e.target.value)} rows={5}
+                      placeholder={t('Escribe el comunicado para los negocios…', 'Write the announcement for businesses…')}
+                      style={{ ...inputStyle, marginBottom: 14, resize: 'vertical', lineHeight: 1.5 }} />
+
+                    <label style={{ fontSize: 12, fontWeight: 700, color: R.inkSoft, display: 'block', marginBottom: 8 }}>{t('Prioridad', 'Priority')}</label>
+                    <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+                      {(['normal', 'importante', 'urgente'] as CommPriority[]).map(p => {
+                        const on = commPriority === p; const [c, tint] = prTint(p)
+                        return (
+                          <button key={p} onClick={() => setCommPriority(p)}
+                            style={{ padding: '8px 14px', borderRadius: 999, border: on ? 'none' : `1px solid ${R.line}`, background: on ? tint : R.surface, color: on ? c : R.inkSoft, fontFamily: R.ui, fontWeight: on ? 700 : 500, fontSize: 13, cursor: 'pointer' }}>
+                            {prLabel(p)}
+                          </button>
+                        )
+                      })}
+                    </div>
+
+                    <label style={{ fontSize: 12, fontWeight: 700, color: R.inkSoft, display: 'block', marginBottom: 8 }}>{t('Destinatarios', 'Audience')}</label>
+                    <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+                      {audiences.map(a => {
+                        const on = commAudience === a.id
+                        return (
+                          <button key={a.id} onClick={() => { setCommAudience(a.id); setCommAudienceValue(''); setCommAudienceIds([]) }}
+                            style={{ padding: '8px 14px', borderRadius: 999, border: on ? 'none' : `1px solid ${R.line}`, background: on ? R.dusk : R.surface, color: on ? '#fff' : R.inkSoft, fontFamily: R.ui, fontWeight: on ? 700 : 500, fontSize: 13, cursor: 'pointer' }}>
+                            {a.label}
+                          </button>
+                        )
+                      })}
+                    </div>
+
+                    {commAudience === 'municipio' && (
+                      <select value={commAudienceValue} onChange={e => setCommAudienceValue(e.target.value)} style={{ ...inputStyle, marginBottom: 14, cursor: 'pointer' }}>
+                        <option value="">{t('Elige un municipio…', 'Choose a municipality…')}</option>
+                        {municipiosOpts.map(m => <option key={m} value={m}>{m}</option>)}
+                      </select>
+                    )}
+                    {commAudience === 'category' && (
+                      <select value={commAudienceValue} onChange={e => setCommAudienceValue(e.target.value)} style={{ ...inputStyle, marginBottom: 14, cursor: 'pointer' }}>
+                        <option value="">{t('Elige una categoría…', 'Choose a category…')}</option>
+                        {categoriasOpts.map(c => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                    )}
+                    {commAudience === 'tier' && (
+                      <select value={commAudienceValue} onChange={e => setCommAudienceValue(e.target.value)} style={{ ...inputStyle, marginBottom: 14, cursor: 'pointer' }}>
+                        <option value="">{t('Elige un nivel…', 'Choose a tier…')}</option>
+                        <option value="premium">Premium</option>
+                        <option value="destacado">{t('Destacado', 'Featured')}</option>
+                      </select>
+                    )}
+                    {commAudience === 'specific' && (
+                      <div style={{ maxHeight: 210, overflowY: 'auto', border: `1px solid ${R.line}`, borderRadius: 12, padding: 8, marginBottom: 14, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                        {bizes.filter(b => b.id).length === 0 && (
+                          <div style={{ fontSize: 13, color: R.inkFaint, padding: '10px 8px' }}>{t('No hay negocios registrados aún.', 'No businesses registered yet.')}</div>
+                        )}
+                        {bizes.filter(b => b.id).map(b => {
+                          const on = commAudienceIds.includes(b.id!)
+                          return (
+                            <button key={b.id} onClick={() => setCommAudienceIds(prev => on ? prev.filter(x => x !== b.id) : [...prev, b.id!])}
+                              style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 10px', borderRadius: 9, border: 'none', background: on ? R.coralTint : 'transparent', cursor: 'pointer', textAlign: 'left', fontFamily: R.ui }}>
+                              <span style={{ width: 18, height: 18, borderRadius: 5, border: `2px solid ${on ? R.coral : R.line}`, background: on ? R.coral : 'transparent', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+                                {on && <Icon n="check" size={12} color="#fff" stroke={3} />}
+                              </span>
+                              <span style={{ fontSize: 13.5, fontWeight: 600, color: R.ink }}>{b.name}</span>
+                              <span style={{ fontSize: 12, color: R.inkFaint, marginLeft: 'auto' }}>{b.mun}</span>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    )}
+
+                    {commError && <div style={{ fontSize: 13, color: R.coralPress, background: R.coralTint, borderRadius: 10, padding: '9px 12px', marginBottom: 12 }}>{commError}</div>}
+
+                    <button onClick={sendComm} disabled={commSending}
+                      style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 9, padding: '13px 18px', border: 'none', borderRadius: 13, background: commSending ? R.inkFaint : R.coral, color: '#fff', cursor: commSending ? 'default' : 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14.5 }}>
+                      <Icon n="send" size={17} color="#fff" /> {commSending ? t('Enviando…', 'Sending…') : t('Enviar comunicado', 'Send announcement')}
+                    </button>
+                    {commToast && <div style={{ marginTop: 12, textAlign: 'center', fontSize: 13, fontWeight: 700, color: R.jade, background: R.jadeTint, borderRadius: 10, padding: '9px 12px' }}>✓ {commToast}</div>}
+                  </Card>
+                </div>
+
+                {/* ── Historial de comunicados enviados ── */}
+                <div style={{ flex: '1 1 420px', minWidth: 340 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                    <span style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink }}>{t('Enviados', 'Sent')}</span>
+                    <span style={{ fontSize: 12.5, color: R.inkFaint }}>{comms.length} {t('comunicado(s)', 'announcement(s)')}</span>
+                  </div>
+                  {comms.length === 0 ? (
+                    <Card style={{ textAlign: 'center', padding: '44px 20px', color: R.inkSoft }}>
+                      <Icon n="megaphone" size={28} color={R.inkFaint} stroke={1.8} />
+                      <div style={{ marginTop: 10, fontSize: 13.5 }}>{t('Aún no has enviado comunicados.', 'You haven’t sent any announcements yet.')}</div>
+                    </Card>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      {comms.map(c => {
+                        const [pc, pt] = prTint(c.priority)
+                        const readPct = c.recipients > 0 ? Math.round((c.reads / c.recipients) * 100) : 0
+                        return (
+                          <Card key={c.id} style={{ padding: '15px 18px' }}>
+                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 6 }}>
+                              <span style={{ fontFamily: R.display, fontWeight: 800, fontSize: 15, color: R.ink, flex: 1, minWidth: 0 }}>{c.title}</span>
+                              <span style={{ fontSize: 10.5, fontWeight: 700, color: pc, background: pt, padding: '3px 9px', borderRadius: 999, flexShrink: 0 }}>{prLabel(c.priority)}</span>
+                              <button onClick={() => deleteComm(c.id)} title={t('Eliminar', 'Delete')} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, flexShrink: 0, display: 'flex' }}>
+                                <Icon n="trash" size={16} color={R.inkFaint} />
+                              </button>
+                            </div>
+                            <div style={{ fontSize: 13.5, color: R.inkSoft, lineHeight: 1.5, marginBottom: 10, whiteSpace: 'pre-wrap' }}>{c.body}</div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+                              <span style={{ fontSize: 11.5, fontWeight: 700, color: R.inkSoft, background: R.bgAlt, padding: '3px 10px', borderRadius: 999 }}>{audLabel(c)}</span>
+                              <span style={{ fontSize: 12, color: R.inkFaint }}>{fmtDate(c.createdAt)}</span>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <Icon n="grid" size={14} color={R.inkFaint} />
+                                <span style={{ fontSize: 12.5, color: R.inkSoft }}><strong style={{ color: R.ink }}>{c.recipients}</strong> {t('destinatarios', 'recipients')}</span>
+                              </div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <Icon n="check" size={14} color={R.jade} />
+                                <span style={{ fontSize: 12.5, color: R.inkSoft }}><strong style={{ color: R.ink }}>{c.reads}</strong> {t('leídos', 'read')} · {readPct}%</span>
+                              </div>
+                            </div>
+                          </Card>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )
+          })()}
+
           {view === 'rove' && (
             <RoveAdminView rewards={roveRewards} onUpdate={updateRoveReward} canWrite={canWriteUI('rove')} />
           )}
@@ -2760,12 +3125,32 @@ export default function AdminPage() {
                 {/* add new category */}
                 <div style={{ borderTop: `1px solid ${R.line}`, marginTop: 8, paddingTop: 14 }}>
                   <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', color: R.inkSoft, marginBottom: 9 }}>{t('Nueva categoría', 'New category')}</div>
+
+                  {/* selector de icono — toca uno de la lista o escribe el tuyo */}
+                  <div style={{ fontSize: 11.5, fontWeight: 600, color: R.inkSoft, marginBottom: 6 }}>{t('Elige un icono', 'Choose an icon')}</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+                    {CATEGORY_EMOJI_CHOICES.map(em => {
+                      const active = (catEmoji.trim() || '🏷️') === em
+                      return (
+                        <button
+                          key={em}
+                          type="button"
+                          onClick={() => { setCatEmoji(em); setCatError('') }}
+                          aria-label={em}
+                          aria-pressed={active}
+                          style={{ width: 38, height: 38, display: 'grid', placeItems: 'center', fontSize: 19, cursor: 'pointer', borderRadius: 10, background: active ? R.ink + '10' : R.surface, border: `1.5px solid ${active ? R.ink : R.line}`, lineHeight: 1 }}
+                        >{em}</button>
+                      )
+                    })}
+                  </div>
+
                   <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
                     <input
                       value={catEmoji}
                       onChange={e => { setCatEmoji(e.target.value); setCatError('') }}
                       placeholder="🏷️"
                       maxLength={4}
+                      aria-label={t('Icono personalizado', 'Custom icon')}
                       style={{ width: 56, boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 10, padding: '10px 0', fontSize: 18, textAlign: 'center', outline: 'none', fontFamily: R.ui, background: R.surface }}
                     />
                     <input
@@ -2777,8 +3162,8 @@ export default function AdminPage() {
                     />
                   </div>
                   {catError && <div style={{ fontSize: 12, color: R.coral, marginBottom: 6 }}>{catError}</div>}
-                  <button onClick={addCategory} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '10px 16px', border: 'none', borderRadius: 10, background: R.ink, color: '#fff', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5 }}>
-                    <Icon n="plus" size={14} color="#fff" /> {t('Agregar categoría', 'Add category')}
+                  <button onClick={addCategory} disabled={catBusy} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '10px 16px', border: 'none', borderRadius: 10, background: R.ink, color: '#fff', cursor: catBusy ? 'default' : 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5, opacity: catBusy ? 0.7 : 1 }}>
+                    <Icon n="plus" size={14} color="#fff" /> {catBusy ? t('Guardando…', 'Saving…') : t('Agregar categoría', 'Add category')}
                   </button>
                   <div style={{ fontSize: 11.5, color: R.inkFaint, marginTop: 8 }}>
                     {t('El emoji es opcional — si lo dejas vacío se usa 🏷️ por defecto.', 'The emoji is optional — if left empty, 🏷️ is used by default.')}
