@@ -166,6 +166,17 @@ type RevenueData = {
   totals: { gmv: number; platform: number; platformMonth: number; count: number; byType: Record<string, RevenueTypeAgg>; commissionRate: number }
 }
 
+// Suscripciones al Plan Reva (/api/admin/subscriptions).
+type SubItem = { biz_id: string; biz_name: string; mono: string; grad: [string, string]; status: string; trial_ends_at: string | null; current_period_end: string | null; amount: number; cancel_at_period_end: boolean; has_subscription: boolean }
+type SubInvoice = { id: string; biz_id: string | null; biz_name: string; mono: string; grad: [string, string]; amount: number; currency: string; status: string; period_end: string | null; due_date: string | null; paid_at: string | null; hosted_invoice_url: string | null }
+type SubUpcoming = { biz_id: string; biz_name: string; mono: string; grad: [string, string]; amount: number; date: string }
+type SubsData = {
+  subscriptions: SubItem[]
+  invoices: SubInvoice[]
+  upcoming: SubUpcoming[]
+  totals: { mrr: number; activeCount: number; trialCount: number; pastDueCount: number; paidTotal: number; paidMonth: number; upcomingTotal: number }
+}
+
 // Datos reales del módulo Destacados (/api/admin/featured).
 type FeatInvRow = { categoria: string; municipio: string; premiumSold: number; premiumCap: number; destacadoSold: number; destacadoCap: number; waitlist: number }
 type FeatActive = { id: string; biz: string; mono: string; cat: string; mun: string; nivel: Niv; que: string; dias: number | null; amount: number; grad: [string, string] }
@@ -687,6 +698,10 @@ export default function AdminPage() {
     fetch('/api/admin/revenue').then(r => r.ok ? r.json() : null).then((d: RevenueData | null) => {
       if (d?.totals) setRevenue(d)
     }).catch(() => {}).finally(() => setRevLoaded(true))
+    // Suscripciones al Plan Reva (estado por negocio + facturas).
+    fetch('/api/admin/subscriptions').then(r => r.ok ? r.json() : null).then((d: SubsData | null) => {
+      if (d?.totals) setSubs(d)
+    }).catch(() => {})
     // Equipo Reva real (operadores / analistas). El Super Admin se mantiene
     // desde la sesión; aquí se anexan los miembros persistidos en la BD.
     fetch('/api/admin/team').then(r => r.ok ? r.json() : null).then(d => {
@@ -762,6 +777,8 @@ export default function AdminPage() {
 
   // Ingresos (pagos reales desde la tabla `payments` vía /api/admin/revenue)
   const [revenue, setRevenue] = useState<RevenueData | null>(null)
+  // Suscripciones al Plan Reva (estado por negocio + facturas).
+  const [subs, setSubs] = useState<SubsData | null>(null)
   const [revLoaded, setRevLoaded] = useState(false)
   const [revFilter, setRevFilter] = useState<'Todos' | 'Destacados' | 'Depósitos'>('Todos')
 
@@ -1492,6 +1509,105 @@ export default function AdminPage() {
                     </div>
                   ))}
                 </Card>
+
+                {/* ── Suscripciones al Plan Reva ── */}
+                {(() => {
+                  const st = subs?.totals
+                  const fmtD = (iso: string | null) => iso ? new Date(iso).toLocaleDateString(en ? 'en-US' : 'es-MX', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'
+                  const statusPill = (s: string) => {
+                    const map: Record<string, { txt: string; bg: string; fg: string }> = {
+                      active: { txt: en ? 'Active' : 'Activo', bg: R.jadeTint, fg: R.jade },
+                      trialing: { txt: en ? 'Trial' : 'Prueba', bg: R.amberTint, fg: R.amberDeep },
+                      past_due: { txt: en ? 'Past due' : 'Vencido', bg: R.coralTint, fg: R.coralPress },
+                      canceled: { txt: en ? 'Canceled' : 'Cancelado', bg: R.bgAlt, fg: R.inkSoft },
+                    }
+                    const p = map[s] ?? { txt: s, bg: R.bgAlt, fg: R.inkSoft }
+                    return <span style={{ fontSize: 11, fontWeight: 700, color: p.fg, background: p.bg, padding: '3px 9px', borderRadius: 999 }}>{p.txt}</span>
+                  }
+                  const invStatus = (s: string) => {
+                    const map: Record<string, { txt: string; bg: string; fg: string }> = {
+                      paid: { txt: en ? 'Paid' : 'Pagada', bg: R.jadeTint, fg: R.jade },
+                      open: { txt: en ? 'Open' : 'Abierta', bg: R.amberTint, fg: R.amberDeep },
+                      uncollectible: { txt: en ? 'Failed' : 'Fallida', bg: R.coralTint, fg: R.coralPress },
+                      void: { txt: en ? 'Void' : 'Anulada', bg: R.bgAlt, fg: R.inkSoft },
+                    }
+                    const p = map[s] ?? { txt: s, bg: R.bgAlt, fg: R.inkSoft }
+                    return <span style={{ fontSize: 11, fontWeight: 700, color: p.fg, background: p.bg, padding: '3px 9px', borderRadius: 999 }}>{p.txt}</span>
+                  }
+                  return (
+                    <div style={{ marginTop: 30 }}>
+                      <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 18, color: R.ink, marginBottom: 4 }}>{en ? 'Reva Plan subscriptions' : 'Suscripciones al Plan Reva'}</div>
+                      <div style={{ fontSize: 13, color: R.inkSoft, marginBottom: 16 }}>{en ? 'Businesses on the $300/mo plan — status, applied charges and upcoming invoices.' : 'Negocios en el plan de $300/mes — estado, cobros aplicados y próximas facturas.'}</div>
+
+                      <div style={{ display: 'flex', gap: 14, marginBottom: 22, flexWrap: 'wrap' }}>
+                        <KPI label={en ? 'MRR (active plans)' : 'MRR (planes activos)'} value={fmt(Math.round(st?.mrr ?? 0))} sub={en ? `${st?.activeCount ?? 0} active · ${st?.trialCount ?? 0} on trial` : `${st?.activeCount ?? 0} activos · ${st?.trialCount ?? 0} en prueba`} tint={R.jadeTint} icon={<Icon n="coins" size={20} color={R.jade} />} />
+                        <KPI label={en ? 'Collected (this month)' : 'Cobrado (este mes)'} value={fmt(Math.round(st?.paidMonth ?? 0))} sub={en ? `${fmt(Math.round(st?.paidTotal ?? 0))} all-time` : `${fmt(Math.round(st?.paidTotal ?? 0))} histórico`} tint={R.coralTint} icon={<Icon n="chart" size={20} color={R.coral} />} />
+                        <KPI label={en ? 'Upcoming invoices' : 'Próximas facturas'} value={fmt(Math.round(st?.upcomingTotal ?? 0))} sub={en ? `${subs?.upcoming.length ?? 0} scheduled` : `${subs?.upcoming.length ?? 0} programadas`} tint={R.amberTint} icon={<Icon n="cal" size={20} color={R.amber} />} />
+                        {(st?.pastDueCount ?? 0) > 0 && (
+                          <KPI label={en ? 'Past due' : 'Con pago vencido'} value={String(st?.pastDueCount ?? 0)} sub={en ? 'need attention' : 'requieren atención'} tint={R.coralTint} icon={<Icon n="flag" size={20} color={R.coralPress} />} />
+                        )}
+                      </div>
+
+                      {/* Estado por negocio */}
+                      <Card style={{ padding: 0, overflow: 'hidden', marginBottom: 22 }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: 14, padding: '12px 18px', borderBottom: `1px solid ${R.line}`, background: R.bgAlt, fontSize: 11.5, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.04em' }}>
+                          <span>{en ? 'Business' : 'Negocio'}</span><span>{en ? 'Status' : 'Estado'}</span><span>{en ? 'Next charge' : 'Próximo cobro'}</span><span style={{ textAlign: 'right' }}>{en ? 'Monthly' : 'Mensual'}</span>
+                        </div>
+                        {(subs?.subscriptions.length ?? 0) === 0 ? (
+                          <div style={{ textAlign: 'center', padding: '36px 0', color: R.inkSoft, fontSize: 14 }}>{en ? 'No subscriptions yet.' : 'Aún no hay suscripciones.'}</div>
+                        ) : subs!.subscriptions.map((s, i) => (
+                          <div key={s.biz_id} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: 14, alignItems: 'center', padding: '13px 18px', borderTop: i ? `1px solid ${R.lineSoft}` : 'none' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                              <div style={{ width: 30, height: 30, borderRadius: 8, background: `linear-gradient(140deg, ${s.grad[0]}, ${s.grad[1]})`, display: 'grid', placeItems: 'center', fontFamily: R.display, fontWeight: 800, color: '#fff', fontSize: 13, flexShrink: 0 }}>{s.mono}</div>
+                              <span style={{ fontWeight: 600, fontSize: 13.5, color: R.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.biz_name}</span>
+                            </div>
+                            <span>{statusPill(s.status)}{s.cancel_at_period_end && <span style={{ fontSize: 10.5, color: R.inkFaint, marginLeft: 6 }}>{en ? 'ends' : 'termina'}</span>}</span>
+                            <span style={{ fontSize: 13, color: R.inkSoft }}>{s.status === 'trialing' ? (en ? `Trial ends ${fmtD(s.trial_ends_at)}` : `Prueba hasta ${fmtD(s.trial_ends_at)}`) : fmtD(s.current_period_end)}</span>
+                            <span style={{ textAlign: 'right', fontFamily: R.display, fontWeight: 700, fontSize: 13.5, color: R.ink }}>{money2(s.amount)}</span>
+                          </div>
+                        ))}
+                      </Card>
+
+                      {/* Próximas facturas */}
+                      {(subs?.upcoming.length ?? 0) > 0 && (
+                        <>
+                          <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 15, color: R.ink, marginBottom: 10 }}>{en ? 'Upcoming invoices' : 'Próximas facturas'}</div>
+                          <Card style={{ padding: 0, overflow: 'hidden', marginBottom: 22 }}>
+                            {subs!.upcoming.map((u, i) => (
+                              <div key={u.biz_id + i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '13px 18px', borderTop: i ? `1px solid ${R.lineSoft}` : 'none' }}>
+                                <div style={{ width: 30, height: 30, borderRadius: 8, background: `linear-gradient(140deg, ${u.grad[0]}, ${u.grad[1]})`, display: 'grid', placeItems: 'center', fontFamily: R.display, fontWeight: 800, color: '#fff', fontSize: 13, flexShrink: 0 }}>{u.mono}</div>
+                                <span style={{ fontWeight: 600, fontSize: 13.5, color: R.ink, flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{u.biz_name}</span>
+                                <span style={{ fontSize: 13, color: R.inkSoft }}>{fmtD(u.date)}</span>
+                                <span style={{ fontFamily: R.display, fontWeight: 700, fontSize: 13.5, color: R.ink, minWidth: 80, textAlign: 'right' }}>{money2(u.amount)}</span>
+                              </div>
+                            ))}
+                          </Card>
+                        </>
+                      )}
+
+                      {/* Facturas emitidas (cobros aplicados) */}
+                      <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 15, color: R.ink, marginBottom: 10 }}>{en ? 'Issued invoices' : 'Facturas emitidas'}</div>
+                      <Card style={{ padding: 0, overflow: 'hidden' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: 14, padding: '12px 18px', borderBottom: `1px solid ${R.line}`, background: R.bgAlt, fontSize: 11.5, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.04em' }}>
+                          <span>{en ? 'Business' : 'Negocio'}</span><span>{en ? 'Status' : 'Estado'}</span><span>{en ? 'Date' : 'Fecha'}</span><span style={{ textAlign: 'right' }}>{en ? 'Amount' : 'Monto'}</span>
+                        </div>
+                        {(subs?.invoices.length ?? 0) === 0 ? (
+                          <div style={{ textAlign: 'center', padding: '36px 0', color: R.inkSoft, fontSize: 14 }}>{en ? 'No invoices issued yet. They appear when Stripe charges a plan.' : 'Aún no hay facturas emitidas. Aparecen cuando Stripe cobra un plan.'}</div>
+                        ) : subs!.invoices.map((iv, i) => (
+                          <div key={iv.id} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: 14, alignItems: 'center', padding: '13px 18px', borderTop: i ? `1px solid ${R.lineSoft}` : 'none' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                              <div style={{ width: 30, height: 30, borderRadius: 8, background: `linear-gradient(140deg, ${iv.grad[0]}, ${iv.grad[1]})`, display: 'grid', placeItems: 'center', fontFamily: R.display, fontWeight: 800, color: '#fff', fontSize: 13, flexShrink: 0 }}>{iv.mono}</div>
+                              <span style={{ fontWeight: 600, fontSize: 13.5, color: R.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{iv.biz_name}</span>
+                            </div>
+                            <span>{invStatus(iv.status)}</span>
+                            <span style={{ fontSize: 13, color: R.inkSoft }}>{fmtD(iv.paid_at || iv.period_end || iv.due_date)}</span>
+                            <span style={{ textAlign: 'right', fontFamily: R.display, fontWeight: 700, fontSize: 13.5, color: R.ink }}>{money2(iv.amount)}</span>
+                          </div>
+                        ))}
+                      </Card>
+                    </div>
+                  )
+                })()}
               </>
             )
           })()}

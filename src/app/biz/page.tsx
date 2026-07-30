@@ -5299,7 +5299,23 @@ function OrdersSettingsCard({ vert, stripeReady, onSaved }: { vert: Vert; stripe
   )
 }
 
-function SettingsView({ agentCfg, setAgentCfg, taxMode, setTaxMode, bizInfo, setBizInfo, vert, onGo, lang, setLang, onReload, profileInit }: { agentCfg: BizAgentConfig; setAgentCfg: (u: BizAgentConfig | ((c: BizAgentConfig) => BizAgentConfig)) => void; taxMode: TaxMode; setTaxMode: (v: TaxMode) => void; bizInfo: BizInfo; setBizInfo: (v: BizInfo) => void; vert: Vert; onGo: (v: string) => void; lang: Lang; setLang: (l: Lang) => void; onReload: () => void; profileInit: { name: string; description: string; logo: string } }) {
+// Estado de la suscripción del negocio al Plan Reva (derivado de la fila real).
+type PlanInfo = {
+  status: string            // trialing | active | past_due | canceled | none
+  trialEndsAt: string | null
+  currentPeriodEnd: string | null
+  amount: number
+  cancelAtPeriodEnd: boolean
+  hasSubscription: boolean
+}
+
+// Días enteros que faltan para una fecha (>=0). null si no hay fecha.
+function daysUntil(iso: string | null): number | null {
+  if (!iso) return null
+  return Math.max(0, Math.ceil((new Date(iso).getTime() - Date.now()) / 86_400_000))
+}
+
+function SettingsView({ agentCfg, setAgentCfg, taxMode, setTaxMode, bizInfo, setBizInfo, vert, onGo, lang, setLang, onReload, profileInit, plan }: { agentCfg: BizAgentConfig; setAgentCfg: (u: BizAgentConfig | ((c: BizAgentConfig) => BizAgentConfig)) => void; taxMode: TaxMode; setTaxMode: (v: TaxMode) => void; bizInfo: BizInfo; setBizInfo: (v: BizInfo) => void; vert: Vert; onGo: (v: string) => void; lang: Lang; setLang: (l: Lang) => void; onReload: () => void; profileInit: { name: string; description: string; logo: string }; plan: PlanInfo }) {
   const t = useT()
   const en = useEn()
   const agentOn = agentCfg.on
@@ -5403,6 +5419,27 @@ function SettingsView({ agentCfg, setAgentCfg, taxMode, setTaxMode, bizInfo, set
     }
   }
   const stripeReady = !!stripeConn?.charges_enabled
+
+  // Plan Reva — activación de la suscripción mensual del negocio.
+  const [planBusy, setPlanBusy] = useState(false)
+  const [planErr, setPlanErr] = useState<string | null>(null)
+  async function startSubscription() {
+    setPlanBusy(true)
+    setPlanErr(null)
+    try {
+      const r = await fetch('/api/stripe/checkout', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'subscription', biz_id: bizConnectId, biz_name: vert.full }),
+      })
+      const d = await r.json().catch(() => ({}))
+      if (r.ok && d.url) { window.location.href = d.url; return }
+      setPlanErr(d.error || `No se pudo iniciar la suscripción (HTTP ${r.status}).`)
+    } catch (e) {
+      setPlanErr(e instanceof Error ? e.message : 'Error de red al conectar con Stripe.')
+    } finally {
+      setPlanBusy(false)
+    }
+  }
 
   // Alertas proactivas — seeded from the biz data; editable in the panel
   const [bizAlerts, setBizAlerts] = useState<ProactiveAlert[]>(
@@ -5890,17 +5927,56 @@ function SettingsView({ agentCfg, setAgentCfg, taxMode, setTaxMode, bizInfo, set
             {open === 'plan' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 <div style={{ fontSize: 13.5, color: R.inkSoft, marginBottom: 4 }}>{t('Tu negocio usa Reva con un solo plan simple.', 'Your business uses Reva on a single simple plan.')}</div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '16px', border: `1px solid ${R.coral}`, background: R.coralTint, borderRadius: 14, fontFamily: R.ui }}>
-                  <span style={{ flex: 1 }}>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span style={{ fontWeight: 700, fontSize: 14.5, color: R.coralPress }}>{t('Plan Reva', 'Reva plan')}</span>
-                      <span style={{ fontSize: 10, fontWeight: 700, background: R.jade, color: '#fff', padding: '2px 8px', borderRadius: 999 }}>{t('15 días gratis', '15 days free')}</span>
-                      <span style={{ fontFamily: R.display, fontWeight: 800, fontSize: 14, color: R.ink, marginLeft: 'auto' }}>{t('$300/mes', '$300/mo')}</span>
-                    </span>
-                    <span style={{ display: 'block', fontSize: 12, fontWeight: 600, color: R.coralPress, marginTop: 2 }}>{t('+ 2% por procesamiento de pagos', '+ 2% for payment processing')}</span>
-                    <span style={{ display: 'block', fontSize: 12, color: R.inkFaint, marginTop: 2 }}>{t('Agente de IA · agenda en tiempo real · panel · mensajes · reportes completos · soporte prioritario.', 'AI agent · real-time scheduling · dashboard · messages · full reports · priority support.')}</span>
-                  </span>
-                </div>
+                {(() => {
+                  const fmtDate = (iso: string | null) => iso ? new Date(iso).toLocaleDateString(en ? 'en-US' : 'es-MX', { day: 'numeric', month: 'long', year: 'numeric' }) : ''
+                  const trialLeft = daysUntil(plan.trialEndsAt)
+                  const active = plan.status === 'active'
+                  const trialing = plan.status === 'trialing'
+                  const pastDue = plan.status === 'past_due'
+                  // Estado (badge) y línea de detalle según la fase de la suscripción.
+                  const badge = active
+                    ? { txt: t('Activo', 'Active'), bg: R.jade }
+                    : pastDue
+                      ? { txt: t('Pago pendiente', 'Payment due'), bg: R.coral }
+                      : trialing && (trialLeft ?? 0) > 0
+                        ? { txt: t(`Prueba · ${trialLeft} días`, `Trial · ${trialLeft} days`), bg: R.jade }
+                        : { txt: t('Sin plan', 'No plan'), bg: R.inkSoft }
+                  const detail = active
+                    ? plan.cancelAtPeriodEnd
+                      ? t(`Se cancela el ${fmtDate(plan.currentPeriodEnd)}`, `Cancels on ${fmtDate(plan.currentPeriodEnd)}`)
+                      : t(`Próximo cobro: ${fmtDate(plan.currentPeriodEnd)}`, `Next charge: ${fmtDate(plan.currentPeriodEnd)}`)
+                    : pastDue
+                      ? t('No pudimos cobrar tu último recibo. Actualiza tu pago para no perder el servicio.', 'We couldn’t collect your last invoice. Update your payment to keep the service.')
+                      : plan.hasSubscription && trialing
+                        ? t(`Plan activado. Primer cobro el ${fmtDate(plan.currentPeriodEnd || plan.trialEndsAt)}.`, `Plan activated. First charge on ${fmtDate(plan.currentPeriodEnd || plan.trialEndsAt)}.`)
+                        : trialing && (trialLeft ?? 0) > 0
+                          ? t(`Tu prueba gratis termina el ${fmtDate(plan.trialEndsAt)}. Actívalo cuando quieras.`, `Your free trial ends on ${fmtDate(plan.trialEndsAt)}. Activate it whenever you want.`)
+                          : t('Tu prueba gratis terminó. Activa el plan para seguir usando Reva.', 'Your free trial ended. Activate the plan to keep using Reva.')
+                  // Muestra el botón para activar/reactivar salvo cuando ya está activo.
+                  const showCta = !active && !(plan.hasSubscription && trialing)
+                  return (
+                    <>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '16px', border: `1px solid ${R.coral}`, background: R.coralTint, borderRadius: 14, fontFamily: R.ui }}>
+                        <span style={{ flex: 1 }}>
+                          <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{ fontWeight: 700, fontSize: 14.5, color: R.coralPress }}>{t('Plan Reva', 'Reva plan')}</span>
+                            <span style={{ fontSize: 10, fontWeight: 700, background: badge.bg, color: '#fff', padding: '2px 8px', borderRadius: 999 }}>{badge.txt}</span>
+                            <span style={{ fontFamily: R.display, fontWeight: 800, fontSize: 14, color: R.ink, marginLeft: 'auto' }}>{`$${plan.amount}`}{t('/mes', '/mo')}</span>
+                          </span>
+                          <span style={{ display: 'block', fontSize: 12, fontWeight: 600, color: R.coralPress, marginTop: 2 }}>{t('+ 2% por procesamiento de pagos', '+ 2% for payment processing')}</span>
+                          <span style={{ display: 'block', fontSize: 12, color: R.inkSoft, marginTop: 4, fontWeight: 600 }}>{detail}</span>
+                          <span style={{ display: 'block', fontSize: 12, color: R.inkFaint, marginTop: 2 }}>{t('Agente de IA · agenda en tiempo real · panel · mensajes · reportes completos · soporte prioritario.', 'AI agent · real-time scheduling · dashboard · messages · full reports · priority support.')}</span>
+                        </span>
+                      </div>
+                      {planErr && <span style={{ fontSize: 12, color: R.coralPress, background: R.coralTint, borderRadius: 8, padding: '8px 10px' }}>{planErr}</span>}
+                      {showCta && (
+                        <button onClick={startSubscription} disabled={planBusy} style={{ padding: '13px', border: 'none', borderRadius: 14, background: planBusy ? R.inkSoft : R.coral, color: '#fff', cursor: planBusy ? 'wait' : 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14.5 }}>
+                          {planBusy ? t('Abriendo Stripe…', 'Opening Stripe…') : pastDue ? t('Actualizar pago', 'Update payment') : (trialLeft ?? 0) > 0 ? t('Activar plan (sin cobro durante la prueba)', 'Activate plan (no charge during trial)') : t('Activar plan · $300/mes', 'Activate plan · $300/mo')}
+                        </button>
+                      )}
+                    </>
+                  )
+                })()}
                 {/* Destacado add-on */}
                 <div style={{ border: `1px solid ${R.amberTint}`, borderRadius: 14, padding: '13px 14px', background: R.amberTint, marginTop: 2 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -5919,7 +5995,7 @@ function SettingsView({ agentCfg, setAgentCfg, taxMode, setTaxMode, bizInfo, set
               </div>
             )}
 
-            {open !== 'destacados' && (
+            {open !== 'destacados' && open !== 'plan' && (
               <button
                 onClick={async () => { if (open === 'perfil') { if (!(await saveProfile())) return } else if (open === 'horarios') { if (!(await saveHorarios())) return } setOpen(null) }}
                 disabled={savingProfile || savingHorario || (open === 'perfil' && !profile.name.trim())}
@@ -7691,7 +7767,15 @@ export default function BizPage() {
     if (view === 'settings') {
       const rawBiz = ownerBiz[vertIdx] ?? ownerBiz.find(b => b.id === vert.id)
       const profileInit = { name: rawBiz?.full_name || rawBiz?.name || vert.full, description: rawBiz?.description || '', logo: rawBiz?.logo_url || '' }
-      return <SettingsView agentCfg={agentCfg} setAgentCfg={setAgentCfg} taxMode={taxMode} setTaxMode={persistTaxMode} bizInfo={bizInfo} setBizInfo={persistBizInfo} vert={vert} onGo={setView} lang={lang} setLang={setLangPersist} onReload={reloadOwner} profileInit={profileInit} />
+      const plan: PlanInfo = {
+        status: rawBiz?.plan_status ?? 'trialing',
+        trialEndsAt: rawBiz?.trial_ends_at ?? null,
+        currentPeriodEnd: rawBiz?.current_period_end ?? null,
+        amount: rawBiz?.plan_amount ?? 300,
+        cancelAtPeriodEnd: rawBiz?.plan_cancel_at_period_end ?? false,
+        hasSubscription: !!rawBiz?.stripe_subscription_id,
+      }
+      return <SettingsView agentCfg={agentCfg} setAgentCfg={setAgentCfg} taxMode={taxMode} setTaxMode={persistTaxMode} bizInfo={bizInfo} setBizInfo={persistBizInfo} vert={vert} onGo={setView} lang={lang} setLang={setLangPersist} onReload={reloadOwner} profileInit={profileInit} plan={plan} />
     }
     return <PlaceholderView title={VIEW_TITLES[view]?.[0] ?? view} />
   }

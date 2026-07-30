@@ -17,6 +17,12 @@ export function getStripe(): Stripe {
 // vía Stripe Connect. 0.02 = 2%. La toma Reva; el resto va al negocio.
 export const PLATFORM_COMMISSION = 0.02
 
+// Plan Reva: suscripción mensual del negocio a la plataforma, en la moneda base
+// (MXN). Los primeros 15 días son de prueba gratis. Es el precio de referencia;
+// el valor real por negocio vive en businesses.plan_amount.
+export const PLAN_MONTHLY_AMOUNT = 300
+export const PLAN_TRIAL_DAYS = 15
+
 // Comisión de la plataforma en centavos, a partir de un monto en la moneda base.
 export function commissionAmount(amount: number): number {
   return Math.round(amount * 100 * PLATFORM_COMMISSION)
