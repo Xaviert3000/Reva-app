@@ -11,7 +11,7 @@
 create table if not exists kiosk_checkouts (
   id                 uuid primary key default gen_random_uuid(),
   stripe_session_id  text unique not null,
-  biz_id             uuid not null references businesses(id) on delete cascade,
+  biz_id             text not null references businesses(id) on delete cascade,
   items              jsonb not null,          -- [{service_id,name,unit_price,qty}]
   subtotal           numeric not null,
   tax_amount         numeric not null default 0,

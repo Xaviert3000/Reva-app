@@ -112,22 +112,39 @@ export async function POST(req: NextRequest) {
   }
 
   const itemCount = priced.reduce((s, p) => s + p.qty, 0)
+  // Stripe exige URLs absolutas para success/cancel. Si falta la env, fallar con
+  // un mensaje claro en vez de mandar una URL relativa que Stripe rechaza.
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? ''
-  const session = await getStripe().checkout.sessions.create({
-    payment_method_types: ['card'],
-    mode: 'payment',
-    line_items: lineItems,
-    payment_intent_data: {
-      application_fee_amount: commissionAmount(total), // 2% para Reva
-      transfer_data: { destination: biz.stripe_account_id },
-    },
-    metadata: {
-      type: 'kiosk',
-      biz_id: bizId,
-    },
-    success_url: `${appUrl}/pay/done?status=ok`,
-    cancel_url: `${appUrl}/pay/done?status=cancel`,
-  })
+  if (!/^https?:\/\//.test(appUrl)) {
+    console.error('[kiosk/checkout] NEXT_PUBLIC_APP_URL no está configurada o no es absoluta:', JSON.stringify(appUrl))
+    return NextResponse.json({ error: 'Configuración de pago incompleta (NEXT_PUBLIC_APP_URL).' }, { status: 500 })
+  }
+
+  // Crea el Checkout de Stripe. Si Stripe rechaza (cuenta Connect sin capacidad de
+  // cobros/transferencias, clave inválida, etc.) se devuelve el mensaje real para
+  // que el kiosko lo muestre en vez de un genérico opaco.
+  let session: Awaited<ReturnType<ReturnType<typeof getStripe>['checkout']['sessions']['create']>>
+  try {
+    session = await getStripe().checkout.sessions.create({
+      payment_method_types: ['card'],
+      mode: 'payment',
+      line_items: lineItems,
+      payment_intent_data: {
+        application_fee_amount: commissionAmount(total), // 2% para Reva
+        transfer_data: { destination: biz.stripe_account_id },
+      },
+      metadata: {
+        type: 'kiosk',
+        biz_id: bizId,
+      },
+      success_url: `${appUrl}/pay/done?status=ok`,
+      cancel_url: `${appUrl}/pay/done?status=cancel`,
+    })
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Error de Stripe'
+    console.error('[kiosk/checkout] Stripe rechazó la sesión:', msg)
+    return NextResponse.json({ error: `No se pudo iniciar el pago con Stripe: ${msg}` }, { status: 502 })
+  }
 
   // Fila de staging: guarda la orden para poder registrar la venta cuando Stripe
   // confirme el pago (vía sondeo o webhook), sin depender del navegador del kiosko.
@@ -148,8 +165,10 @@ export async function POST(req: NextRequest) {
     lang,
   })
   if (stageErr) {
+    // El mensaje real (p. ej. "relation kiosk_checkouts does not exist" cuando la
+    // migración 038 no está aplicada) sube al kiosko para diagnóstico.
     console.error('[kiosk/checkout] no se pudo crear el staging:', stageErr.message)
-    return NextResponse.json({ error: 'No se pudo iniciar el pago' }, { status: 500 })
+    return NextResponse.json({ error: `No se pudo registrar el pago: ${stageErr.message}` }, { status: 500 })
   }
 
   return NextResponse.json({ url: session.url, id: session.id, total, folio })
