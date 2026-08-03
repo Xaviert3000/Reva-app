@@ -75,33 +75,60 @@ export async function POST(req: NextRequest) {
   // Al destacar un EVENTO guardamos sus datos ya (draft): sólo se vuelven visibles
   // cuando el webhook ponga featured=true al confirmarse el pago. Verificamos que
   // quien paga sea miembro del negocio antes de escribir en su fila.
-  if (type === 'featured' && featured_kind === 'event' && event && typeof event === 'object') {
+  // Destacado: materializa una fila PENDING en featured_items (migración 045). El
+  // webhook la activa al confirmarse el pago. Permite varios destacados a la vez
+  // (evento + producto + todo el negocio), cada uno con su propio vencimiento.
+  let featuredItemId: string | null = null
+  if (type === 'featured') {
     const admin = createAdminClient()
     const { data: member } = await admin.from('biz_members').select('biz_id').eq('user_id', user.id).eq('biz_id', biz_id).maybeSingle()
     if (!member) return NextResponse.json({ error: 'No autorizado' }, { status: 403 })
-    // Días (0=Dom..6=Sáb), horario (HH:MM) y términos del evento. Todos opcionales.
-    const rawDays: unknown = (event as { days?: unknown }).days
-    const days = Array.isArray(rawDays)
-      ? [...new Set(rawDays.map(d => Number(d)).filter(d => Number.isInteger(d) && d >= 0 && d <= 6))].sort((a, b) => a - b)
-      : []
-    const cleanTime = (v: unknown) => {
-      const s = String(v ?? '').trim()
-      return /^\d{1,2}:\d{2}$/.test(s) ? s : null
+
+    const kind: 'event' | 'service' | 'business' =
+      featured_kind === 'event' ? 'event' : (featured_kind === 'service' || service_id) ? 'service' : 'business'
+
+    let eventData: Record<string, unknown> | null = null
+    if (kind === 'event') {
+      if (!event || typeof event !== 'object') return NextResponse.json({ error: 'Faltan datos del evento' }, { status: 400 })
+      // Días (0=Dom..6=Sáb), horario (HH:MM) y términos del evento. Todos opcionales.
+      const rawDays: unknown = (event as { days?: unknown }).days
+      const eventDays = Array.isArray(rawDays)
+        ? [...new Set(rawDays.map(d => Number(d)).filter(d => Number.isInteger(d) && d >= 0 && d <= 6))].sort((a, b) => a - b)
+        : []
+      const cleanTime = (v: unknown) => {
+        const s = String(v ?? '').trim()
+        return /^\d{1,2}:\d{2}$/.test(s) ? s : null
+      }
+      eventData = {
+        title: String(event.title ?? '').trim().slice(0, 120),
+        date: String(event.date ?? '').trim().slice(0, 40) || null,
+        description: String(event.description ?? '').trim().slice(0, 400) || null,
+        image_url: String(event.image_url ?? '').trim() || null,
+        days: eventDays,
+        start_time: cleanTime(event.start_time),
+        end_time: cleanTime(event.end_time),
+        terms: String(event.terms ?? '').trim().slice(0, 1000) || null,
+      }
+      if (!eventData.title) return NextResponse.json({ error: 'El evento necesita un título' }, { status: 400 })
     }
-    const ev = {
-      title: String(event.title ?? '').trim().slice(0, 120),
-      date: String(event.date ?? '').trim().slice(0, 40) || null,
-      description: String(event.description ?? '').trim().slice(0, 400) || null,
-      image_url: String(event.image_url ?? '').trim() || null,
-      days,
-      start_time: cleanTime(event.start_time),
-      end_time: cleanTime(event.end_time),
-      terms: String(event.terms ?? '').trim().slice(0, 1000) || null,
+
+    const { data: inserted, error: insErr } = await admin
+      .from('featured_items')
+      .insert({
+        biz_id,
+        kind,
+        tier: tier === 'premium' ? 'premium' : 'destacado',
+        service_id: kind === 'service' ? (service_id ?? null) : null,
+        event: eventData,
+        status: 'pending',
+      })
+      .select('id')
+      .single()
+    if (insErr || !inserted) {
+      console.error('[stripe/checkout] no se pudo preparar el destacado:', insErr?.message)
+      return NextResponse.json({ error: 'No se pudo preparar el destacado. Intenta de nuevo.' }, { status: 500 })
     }
-    if (!ev.title) return NextResponse.json({ error: 'El evento necesita un título' }, { status: 400 })
-    // A staging (pending): el webhook lo promueve a featured_event al confirmar el
-    // pago. No tocamos el destacado activo por si el dueño cancela.
-    await admin.from('businesses').update({ featured_event_pending: ev }).eq('id', biz_id)
+    featuredItemId = inserted.id
   }
 
   // Un depósito lo paga el cliente y va al NEGOCIO; Reva se queda la comisión.
@@ -158,9 +185,11 @@ export async function POST(req: NextRequest) {
       ...(tier ? { tier } : {}),
       ...(days != null ? { days: String(days) } : {}),
       ...(service_id ? { service_id: String(service_id) } : {}),
-      // Qué se destaca: 'event' | 'service' | 'business'. El webhook lo usa para
-      // dejar featured_event / featured_service_id de forma excluyente.
+      // Qué se destaca: 'event' | 'service' | 'business'. El webhook lo usa como
+      // respaldo si no hay fila pending que activar.
       ...(featured_kind ? { featured_kind: String(featured_kind) } : {}),
+      // Fila pending de featured_items a activar al confirmarse el pago.
+      ...(featuredItemId ? { featured_item_id: featuredItemId } : {}),
     },
     // Un depósito lo paga el cliente desde /app; un Destacado lo paga el negocio
     // desde /biz, así que cada uno regresa a su propio panel.
@@ -171,6 +200,11 @@ export async function POST(req: NextRequest) {
       ? `${process.env.NEXT_PUBLIC_APP_URL}/biz?featured=cancelled`
       : `${process.env.NEXT_PUBLIC_APP_URL}/app?payment=cancelled`,
   })
+
+  // Enlaza la fila pending con la sesión de Stripe (idempotencia/trazabilidad).
+  if (featuredItemId) {
+    await createAdminClient().from('featured_items').update({ stripe_session_id: session.id }).eq('id', featuredItemId)
+  }
 
   return NextResponse.json({ url: session.url })
 }

@@ -123,29 +123,48 @@ export async function POST(req: NextRequest) {
     if (type === 'deposit') {
       await supabase.from('reservations').update({ deposit_paid: true, status: 'confirmed' }).eq('id', reservation_id)
     } else if (type === 'featured') {
-      // Recién ahora que Stripe confirmó el pago activamos la visibilidad. El
-      // constraint de la BD exige tier junto a featured=true; el default es
-      // 'destacado'. `featured_until` marca el vencimiento del plan comprado.
+      // Recién ahora que Stripe confirmó el pago activamos la visibilidad.
+      // `featured_until` marca el vencimiento del plan comprado. La fila pending de
+      // featured_items (creada en checkout) se activa; el trigger recompone las
+      // columnas de resumen en `businesses`. Permite varios destacados a la vez.
       const n = Number(days)
       const until = n > 0 ? new Date(Date.now() + n * 86_400_000).toISOString() : null
-      // Qué se destaca (excluyente): un EVENTO (featured_event ya se guardó como
-      // draft al iniciar el pago), un PRODUCTO (featured_service_id) o TODO el
-      // negocio (ambos null). El kind decide cuál se conserva y cuál se limpia.
-      const kind = session.metadata!.featured_kind || (service_id ? 'service' : 'business')
-      const patch: Record<string, unknown> = { featured: true, tier: tier || 'destacado', featured_until: until, featured_event_pending: null }
-      if (kind === 'event') {
-        // Promueve el evento en borrador (guardado al iniciar el pago) a activo.
-        const { data: b } = await supabase.from('businesses').select('featured_event_pending').eq('id', biz_id).single()
-        patch.featured_event = b?.featured_event_pending ?? null
-        patch.featured_service_id = null
-      } else if (kind === 'service') {
-        patch.featured_service_id = service_id || null
-        patch.featured_event = null
-      } else {
-        patch.featured_service_id = null
-        patch.featured_event = null
+
+      // 1) Activa por session_id (la fila pending ya lo trae). `neq('active')`
+      //    hace el reintento del webhook idempotente.
+      let { data: rows } = await supabase.from('featured_items')
+        .update({ status: 'active', featured_until: until })
+        .eq('stripe_session_id', session.id)
+        .neq('status', 'active')
+        .select('id')
+
+      // 2) Respaldo: si no matcheó por session_id (no se guardó al crear la
+      //    sesión), actívala por el id de la metadata.
+      if (!rows || rows.length === 0) {
+        const fid = session.metadata!.featured_item_id
+        if (fid) {
+          const r = await supabase.from('featured_items')
+            .update({ status: 'active', featured_until: until, stripe_session_id: session.id })
+            .eq('id', fid).eq('status', 'pending').select('id')
+          rows = r.data ?? null
+        }
       }
-      await supabase.from('businesses').update(patch).eq('id', biz_id)
+
+      // 3) Respaldo total (flujo viejo sin fila pending): inserta desde la
+      //    metadata, ignorando duplicados por session_id (idempotente).
+      if (!rows || rows.length === 0) {
+        const kind = session.metadata!.featured_kind || (service_id ? 'service' : 'business')
+        await supabase.from('featured_items').upsert({
+          biz_id,
+          kind,
+          tier: tier || 'destacado',
+          featured_until: until,
+          service_id: kind === 'service' ? (service_id || null) : null,
+          event: null,
+          stripe_session_id: session.id,
+          status: 'active',
+        }, { onConflict: 'stripe_session_id', ignoreDuplicates: true })
+      }
     }
 
     await supabase.from('payments').insert({

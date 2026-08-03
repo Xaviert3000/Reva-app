@@ -8,7 +8,7 @@ import { saveStock, decrementStock as decrementStockDB, fetchStock } from '@/lib
 import { recordSale, sendInStoreOrder, fetchPendingCounterOrders, markOrderPaid, type PendingOrder } from '@/lib/pos'
 import { saveService, deleteService, uploadServiceImage, removeServiceImage, parsePrice, translateServiceFields, updateServiceI18n } from '@/lib/catalog'
 import { type VariantGroup, type VariantOption, usableGroups, hasVariants, variantDelta, variantLabel, defaultSelection } from '@/lib/variants'
-import { clearFeatured } from '@/lib/featured'
+import { clearFeatured, fetchFeaturedItems, pauseFeaturedItem, type FeaturedItem } from '@/lib/featured'
 import { fetchPromotions, createPromotion, updatePromotion, setPromotionActive, deletePromotion, promoWindowLabel, type Promo, type PromoInput, fetchAlerts, createAlert, updateAlert, setAlertActive, deleteAlert, type BizAlert, type AlertInput } from '@/lib/promotions'
 import { loadAgentConfig, saveAgentConfig, parseAgentConfig, DEFAULT_AGENT_CONFIG, type BizAgentConfig } from '@/lib/biz-agent-config'
 import { loadOwnerSession, type OwnerBusiness } from '@/lib/biz-session'
@@ -6182,6 +6182,8 @@ function DestacadoView({ vert, active }: { vert: Vert; active: { tier: TierId; u
   const [event, setEvent] = useState<{ title: string; date: string; description: string; img: string; days: number[]; startTime: string; endTime: string; terms: string }>({ title: '', date: '', description: '', img: '', days: [], startTime: '', endTime: '', terms: '' })
   const [eventImgFile, setEventImgFile] = useState<File | null>(null)
   const [featured, setFeatured] = useState<{ tier: TierId; label: string; days: number; what: string; until?: string | null; isEvent?: boolean } | null>(null)
+  // Todos los destacados activos del negocio (varios a la vez, migración 045).
+  const [items, setItems] = useState<FeaturedItem[]>([])
   const [confirming, setConfirming] = useState(false)
   const [waitlisted, setWaitlisted] = useState(false)
   const [paying, setPaying] = useState(false)
@@ -6228,6 +6230,9 @@ function DestacadoView({ vert, active }: { vert: Vert; active: { tier: TierId; u
         const raw = sessionStorage.getItem('reva_featured_pending')
         if (raw) setFeatured(JSON.parse(raw))
       } catch { /* ignore */ }
+      // El webhook puede tardar unos segundos en activar la fila: reintenta la carga.
+      window.setTimeout(() => { void fetchFeaturedItems(bizId).then(setItems) }, 1500)
+      window.setTimeout(() => { void fetchFeaturedItems(bizId).then(setItems) }, 4000)
     } else if (outcome === 'cancelled') {
       setPayError(t('Pago cancelado. No se te cobró nada.', 'Payment cancelled. You were not charged.'))
     }
@@ -6251,6 +6256,13 @@ function DestacadoView({ vert, active }: { vert: Vert; active: { tier: TierId; u
     // Deps primitivas: solo re-aplica cuando cambia el destacado real, no en cada render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active?.tier, active?.until, active?.what, active?.isEvent])
+
+  // Lista de destacados activos (varios a la vez). Se recarga al montar.
+  useEffect(() => {
+    let alive = true
+    void fetchFeaturedItems(bizId).then(list => { if (alive) setItems(list) })
+    return () => { alive = false }
+  }, [bizId])
 
   // "Pagar y activar" → abre Stripe Checkout. NO activamos nada localmente: el
   // negocio queda Destacado solo cuando el webhook recibe checkout.session.completed.
@@ -6321,10 +6333,61 @@ function DestacadoView({ vert, active }: { vert: Vert; active: { tier: TierId; u
     void clearFeatured(bizId)
   }
 
+  // Descripción de un destacado de la lista (qué destaca + icono).
+  const itemWhat = (it: FeaturedItem): string =>
+    it.kind === 'event' ? (it.event?.title || t('Evento', 'Event'))
+      : it.kind === 'service' ? (vert.catalog.find(c => c.id === it.serviceId)?.name || t('Producto destacado', 'Featured product'))
+        : t('Todo el negocio', 'The whole business')
+  const itemIcon = (it: FeaturedItem): string => it.kind === 'event' ? '🎉' : it.kind === 'service' ? '🏷️' : '🏪'
+  const daysLeft = (until: string | null): number | null =>
+    until ? Math.max(0, Math.ceil((new Date(until).getTime() - Date.now()) / 86_400_000)) : null
+
+  // Pausa un destacado individual y refresca la lista + el resumen local.
+  async function pauseItem(id: string) {
+    setItems(prev => prev.filter(i => i.id !== id))
+    await pauseFeaturedItem(id)
+    const list = await fetchFeaturedItems(bizId)
+    setItems(list)
+    if (list.length === 0) setFeatured(null)
+  }
+
   return (
     <div style={{ padding: '24px 28px', maxWidth: 940 }}>
       {/* Estado actual */}
-      {featured ? (
+      {items.length > 0 ? (
+        <div style={{ borderRadius: 18, background: `linear-gradient(120deg, ${R.jade}, #16614c)`, color: '#fff', padding: '20px 22px', marginBottom: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+            <div style={{ width: 44, height: 44, borderRadius: 12, background: 'rgba(255,255,255,.16)', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+              <Icon n="spark" size={22} color="#fff" fill="#fff" />
+            </div>
+            <div>
+              <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 19 }}>{en ? `You have ${items.length} active feature${items.length > 1 ? 's' : ''}` : `Tienes ${items.length} destacado${items.length > 1 ? 's' : ''} activo${items.length > 1 ? 's' : ''}`} ✦</div>
+              <div style={{ fontSize: 12.5, opacity: .82 }}>{en ? 'Each runs on its own plan · fair rotation' : 'Cada uno con su propio plan · rotación equitativa'}</div>
+            </div>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {items.map(it => {
+              const dl = daysLeft(it.featuredUntil)
+              return (
+                <div key={it.id} style={{ display: 'flex', alignItems: 'center', gap: 12, background: 'rgba(255,255,255,.12)', borderRadius: 12, padding: '10px 14px' }}>
+                  <span style={{ fontSize: 18, flexShrink: 0 }}>{itemIcon(it)}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, fontSize: 14, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{itemWhat(it)}</div>
+                    <div style={{ fontSize: 12, opacity: .82 }}>
+                      {it.tier === 'premium' ? 'Premium' : t('Destacado', 'Featured')}
+                      {' · '}
+                      {dl != null
+                        ? (en ? `${dl} days left · until ${saleWhen(it.featuredUntil!, en).split(',')[0]}` : `${dl} días · hasta ${saleWhen(it.featuredUntil!, en).split(',')[0]}`)
+                        : (en ? 'no expiry' : 'sin expiración')}
+                    </div>
+                  </div>
+                  <button onClick={() => void pauseItem(it.id)} style={{ background: 'rgba(255,255,255,.18)', color: '#fff', border: 'none', borderRadius: 999, padding: '7px 14px', fontFamily: R.ui, fontWeight: 700, fontSize: 12.5, cursor: 'pointer', flexShrink: 0 }}>{t('Pausar', 'Pause')}</button>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      ) : featured ? (
         <div style={{ borderRadius: 18, background: `linear-gradient(120deg, ${R.jade}, #16614c)`, color: '#fff', padding: '22px 24px', display: 'flex', alignItems: 'center', gap: 20, marginBottom: 16 }}>
           <div style={{ width: 52, height: 52, borderRadius: 14, background: 'rgba(255,255,255,.16)', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
             <Icon n="spark" size={26} color="#fff" fill="#fff" />
