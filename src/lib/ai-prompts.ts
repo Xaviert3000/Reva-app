@@ -14,7 +14,7 @@
 //   B. USUARIO NEGOCIO  → agente que decide reservas y agente conversacional.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { type Mode, type Business, type Service, BIZ, CATALOG, isScheduled } from './data'
+import { type Mode, type Business, type Service, type BizOffer, BIZ, CATALOG, isScheduled } from './data'
 
 // ¿Este servicio es un PRODUCTO que se pide con carrito + pago (no una reserva)?
 // Espeja isOrderable() de la app: negocio con pedidos + sin calendario + precio
@@ -25,12 +25,44 @@ function isProduct(biz: Business, s: Service): boolean {
   return Number.isFinite(n) && n > 0
 }
 
+// "Ahora" en la zona de los negocios (BCS = America/Mazatlan, sin horario de
+// verano). Devuelve el día de la semana (0=Dom..6=Sáb) y la fecha 'YYYY-MM-DD'
+// locales, para saber qué ofertas están vigentes HOY. Todos los negocios de la
+// plataforma están en BCS; si más adelante hay otros estados, pasar su tz aquí.
+function localToday(now: Date = new Date()): { dow: number; ymd: string } {
+  const ymd = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Mazatlan', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(now)
+  // Mediodía UTC de esa fecha calendario da el día de la semana correcto.
+  const dow = new Date(`${ymd}T12:00:00Z`).getUTCDay()
+  return { dow, ymd }
+}
+
+// ¿La oferta está vigente HOY? (rango de fechas + día de la semana). No filtra por
+// hora del día: el itinerario planea todo el día, así que el horario se conserva
+// en la etiqueta para que la IA acomode cada parada a su hora.
+function offerValidToday(o: BizOffer, dow: number, ymd: string): boolean {
+  if (o.startDate && ymd < o.startDate) return false
+  if (o.endDate && ymd > o.endDate) return false
+  if (o.days && o.days.length > 0 && !o.days.includes(dow)) return false
+  return true
+}
+
+// Etiqueta corta de una oferta para el contexto de la IA: tipo, título, horario
+// (si aplica) y descripción breve. Ej: "[2x1] Tacos al pastor (18:00–21:00)".
+function offerLabel(o: BizOffer): string {
+  const time = o.startTime && o.endTime ? ` (${o.startTime}–${o.endTime})` : ''
+  const detail = o.detail ? ` — ${o.detail}` : ''
+  return `[${o.type}] ${o.title}${time}${detail}`
+}
+
 // Catálogo que la IA puede recomendar. SE GENERA desde los negocios reales de
 // la ciudad activa del huésped (no un set fijo) para que nunca se desfase e
 // incluya servicios con precios e ids. Marca la capacidad de cada negocio
 // (reservas y/o pedidos) y etiqueta cada ítem como [producto] o [reserva] para
 // que el concierge sepa si debe llevar a un PEDIDO (carrito) o a una RESERVA.
 export function buildBizContext(businesses: Business[] = BIZ, catalog: Record<string, Service[]> = CATALOG): string {
+  const { dow, ymd } = localToday()
   const lines = businesses.map(b => {
     const svcs = (catalog[b.id] ?? [])
       .map(s => {
@@ -42,7 +74,18 @@ export function buildBizContext(businesses: Business[] = BIZ, catalog: Record<st
     if (b.doesReservations !== false) caps.push('reservas')
     if (b.doesOrders) caps.push('pedidos')
     const capLabel = caps.length ? caps.join(' + ') : 'reservas'
-    return `- ${b.name} (id: ${b.id}) · ${b.type} · ${b.hood} · ${b.hours} · acepta: ${capLabel}\n  Servicios: ${svcs || '—'}`
+    // Marca de destacado pagado (para priorizarlo en recomendaciones/itinerarios).
+    const featured = b.featured ? ` · ★ ${b.tier === 'premium' ? 'PREMIUM' : 'DESTACADO'}` : ''
+    let extra = ''
+    // Promos vigentes HOY del negocio — la IA solo puede ofrecer estas, nunca inventar.
+    const promos = (b.offers ?? []).filter(o => offerValidToday(o, dow, ymd)).map(offerLabel)
+    if (promos.length) extra += `\n  Promos hoy: ${promos.join(' | ')}`
+    // Evento destacado (si el negocio pagó por destacar un evento con fecha).
+    if (b.featured && b.featuredEvent?.title) {
+      const when = b.featuredEvent.date ? ` (${b.featuredEvent.date})` : ''
+      extra += `\n  Evento: ${b.featuredEvent.title}${when}`
+    }
+    return `- ${b.name} (id: ${b.id}) · ${b.type} · ${b.hood} · ${b.hours} · acepta: ${capLabel}${featured}\n  Servicios: ${svcs || '—'}${extra}`
   })
   return '\nLos negocios y sus servicios:\n' + lines.join('\n')
 }
@@ -252,7 +295,33 @@ export function conciergeSystemPrompt(
 ): string {
   const tpl = template || DEFAULT_PROMPTS[mode === 'explorer' ? 'concierge-explorer' : 'concierge-vecino']
   const bizContext = businesses ? buildBizContext(businesses, catalog) : BIZ_CONTEXT
-  return renderTemplate(tpl, { BIZ_CONTEXT: bizContext, CITY: city })
+  const base = renderTemplate(tpl, { BIZ_CONTEXT: bizContext, CITY: city })
+  // Se anexa dinámicamente (no en la plantilla editable) para que el contexto de
+  // fecha esté siempre fresco y la función de "plan del día" aplique aunque el
+  // super admin haya personalizado el prompt.
+  return base + dayPlanAddon(mode)
+}
+
+// Nombres de día por idioma (0=Dom..6=Sáb).
+const DOW_ES = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado']
+const DOW_EN = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+
+// Bloque que se anexa al prompt del concierge: contexto de HOY + cómo armar un
+// itinerario del día ("¿qué hay hoy?" / "sorpréndeme") usando destacados y las
+// "Promos hoy" de LA LISTA. Idioma según el modo (explorer=EN, vecino=ES); igual
+// se responde en el idioma del huésped.
+function dayPlanAddon(mode: Mode): string {
+  const { dow } = localToday()
+  if (mode === 'explorer') {
+    return `\n\nTODAY IS ${DOW_EN[dow]}.
+- In THE LIST, each business may be tagged "★ DESTACADO/PREMIUM" (paid feature) and list "Promos hoy:" (deals valid today, with their time window). Use these to prioritize.
+- If the guest says "what's on today?", "surprise me", "plan my day" or similar: build a DAY ITINERARY of 3–4 stops at DIFFERENT businesses, prioritizing ones with a deal valid today or that are featured. Order the stops by time of day (morning → afternoon → evening), respecting each deal's time window. For each stop give one line: business, the activity, and the deal/hook. End by offering to book or start the order for the first stop.
+- ONLY for this kind of day plan you may exceed the 3-sentence limit (use a short numbered list). Never invent deals: use only the "Promos hoy" from THE LIST. Still end with the <!-- bizIds: --> and <!-- serviceIds: --> comments covering every place you named.`
+  }
+  return `\n\nHOY ES ${DOW_ES[dow]}.
+- En LA LISTA, cada negocio puede venir marcado "★ DESTACADO/PREMIUM" (destacado pagado) y listar "Promos hoy:" (ofertas vigentes hoy, con su horario). Úsalos para priorizar.
+- Si el vecino dice "¿qué hay hoy?", "sorpréndeme", "arma mi día" o algo así: crea un ITINERARIO del día con 3–4 paradas en NEGOCIOS DISTINTOS, priorizando los que tienen promo vigente hoy o son destacados. Ordena las paradas por momento del día (mañana → tarde → noche), respetando el horario de cada promo. En cada parada da una línea: negocio, la actividad y la promo/gancho. Cierra ofreciendo reservar o armar el pedido de la primera parada.
+- SOLO para este plan del día puedes exceder el límite de 3 oraciones (usa una lista corta numerada). Nunca inventes promos: usa solo las "Promos hoy" de LA LISTA. Termina igual con los comentarios <!-- bizIds: --> y <!-- serviceIds: --> que cubran cada lugar que nombraste.`
 }
 
 // A.2 — Agente de reservas de Reva (/api/negotiate).
