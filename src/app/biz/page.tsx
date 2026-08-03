@@ -6169,7 +6169,7 @@ const DEST_TIERS: Record<TierId, {
   },
 }
 
-function DestacadoView({ vert }: { vert: Vert }) {
+function DestacadoView({ vert, active }: { vert: Vert; active: { tier: TierId; until: string | null; what: string; isEvent: boolean } | null }) {
   const t = useT()
   const en = useEn()
   const [tier, setTier] = useState<TierId>('destacado')
@@ -6181,7 +6181,7 @@ function DestacadoView({ vert }: { vert: Vert }) {
   // vista previa (data URL) hasta subir el archivo real al pagar.
   const [event, setEvent] = useState<{ title: string; date: string; description: string; img: string; days: number[]; startTime: string; endTime: string; terms: string }>({ title: '', date: '', description: '', img: '', days: [], startTime: '', endTime: '', terms: '' })
   const [eventImgFile, setEventImgFile] = useState<File | null>(null)
-  const [featured, setFeatured] = useState<{ tier: TierId; label: string; days: number; what: string } | null>(null)
+  const [featured, setFeatured] = useState<{ tier: TierId; label: string; days: number; what: string; until?: string | null; isEvent?: boolean } | null>(null)
   const [confirming, setConfirming] = useState(false)
   const [waitlisted, setWaitlisted] = useState(false)
   const [paying, setPaying] = useState(false)
@@ -6238,6 +6238,19 @@ function DestacadoView({ vert }: { vert: Vert }) {
       window.history.replaceState(null, '', window.location.pathname + (qs ? `?${qs}` : ''))
     }
   }, [])
+
+  // Estado REAL del destacado desde la BD (persistente entre recargas). Solo se
+  // aplica cuando el destacado está vigente; si aún no llega (webhook lento tras
+  // pagar), no pisa el feedback inmediato de sessionStorage.
+  useEffect(() => {
+    if (!active) return
+    const days = active.until
+      ? Math.max(0, Math.ceil((new Date(active.until).getTime() - Date.now()) / 86_400_000))
+      : 0
+    setFeatured({ tier: active.tier, label: DEST_TIERS[active.tier].label, days, what: active.what, until: active.until, isEvent: active.isEvent })
+    // Deps primitivas: solo re-aplica cuando cambia el destacado real, no en cada render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active?.tier, active?.until, active?.what, active?.isEvent])
 
   // "Pagar y activar" → abre Stripe Checkout. NO activamos nada localmente: el
   // negocio queda Destacado solo cuando el webhook recibe checkout.session.completed.
@@ -6318,7 +6331,15 @@ function DestacadoView({ vert }: { vert: Vert }) {
           </div>
           <div style={{ flex: 1 }}>
             <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 20 }}>{en ? `You're on ${tierName(DEST_TIERS[featured.tier])}` : `Estás en ${DEST_TIERS[featured.tier].label}`} ✦</div>
-            <div style={{ fontSize: 13.5, opacity: .85, marginTop: 4 }}>{en ? <>Featuring <strong style={{ fontWeight: 700 }}>{featured.what}</strong> · {featured.days} days left ({featured.label}) · fair rotation</> : <>Destacando <strong style={{ fontWeight: 700 }}>{featured.what}</strong> · {featured.days} días restantes ({featured.label}) · rotación equitativa</>}</div>
+            <div style={{ fontSize: 13.5, opacity: .85, marginTop: 4 }}>
+              {featured.isEvent
+                ? (en ? <>Featured event: <strong style={{ fontWeight: 700 }}>{featured.what}</strong></> : <>Evento destacado: <strong style={{ fontWeight: 700 }}>{featured.what}</strong></>)
+                : (en ? <>Featuring <strong style={{ fontWeight: 700 }}>{featured.what}</strong></> : <>Destacando <strong style={{ fontWeight: 700 }}>{featured.what}</strong></>)}
+              {' · '}
+              {featured.until
+                ? (en ? `${featured.days} days left · until ${saleWhen(featured.until, en).split(',')[0]}` : `${featured.days} días restantes · hasta ${saleWhen(featured.until, en).split(',')[0]}`)
+                : (en ? `${featured.days} days left (${featured.label})` : `${featured.days} días restantes (${featured.label})`)}
+            </div>
           </div>
           <button onClick={pause} style={{ background: 'rgba(255,255,255,.16)', color: '#fff', border: 'none', borderRadius: 999, padding: '10px 18px', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5, cursor: 'pointer', flexShrink: 0 }}>{t('Pausar', 'Pause')}</button>
         </div>
@@ -7946,7 +7967,21 @@ export default function BizPage() {
     if (view === 'pos') return <PosView vert={vert} items={catalog} setItems={setCatalog} onGo={setView} taxMode={taxMode} bizInfo={bizInfo} />
     if (view === 'kiosk') return <KioskView vert={vert} items={catalog} setItems={setCatalog} onGo={setView} taxMode={taxMode} bizInfo={bizInfo} exitPin={kioskExitPin} onSetExitPin={persistKioskExitPin} stripeReady={stripeReady} />
     if (view === 'sales') return <SalesHistoryView vert={vert} bizInfo={bizInfo} onGo={setView} />
-    if (view === 'destacado') return <DestacadoView vert={vert} />
+    if (view === 'destacado') {
+      const rawBiz = ownerBiz[vertIdx] ?? ownerBiz.find(b => b.id === vert.id)
+      const isActive = !!rawBiz?.featured && (!rawBiz.featured_until || new Date(rawBiz.featured_until).getTime() > Date.now())
+      const activeFeatured = isActive && rawBiz ? {
+        tier: (rawBiz.tier === 'premium' ? 'premium' : 'destacado') as TierId,
+        until: rawBiz.featured_until ?? null,
+        what: rawBiz.featured_event?.title
+          ? rawBiz.featured_event.title
+          : rawBiz.featured_service_id
+            ? (catalog.find(c => c.id === rawBiz.featured_service_id)?.name ?? (lang === 'en' ? 'Featured product' : 'Producto destacado'))
+            : (lang === 'en' ? 'The whole business' : 'Todo el negocio'),
+        isEvent: !!rawBiz.featured_event?.title,
+      } : null
+      return <DestacadoView vert={vert} active={activeFeatured} />
+    }
     if (view === 'promos') return <PromosView vert={vert} metrics={bizMetrics} />
     if (view === 'scanner') return <ScannerView key={vert.id} vert={vert} />
     if (view === 'settings') {
