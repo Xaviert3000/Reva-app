@@ -1096,9 +1096,24 @@ function OrdersView({ vert, orders, couriers, onUpdate }: { vert: Vert; orders: 
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
               <span style={{ fontFamily: R.display, fontWeight: 700, fontSize: 14.5, color: R.ink }}>{o.customer_name || t('Cliente', 'Customer')}</span>
-              <span style={{ fontSize: 11, fontWeight: 700, color: R.inkSoft, background: R.bgAlt, padding: '2px 8px', borderRadius: 999 }}>
-                {o.fulfillment === 'delivery' ? `🛵 ${t('Entrega', 'Delivery')}` : `🏪 ${t('Recoger', 'Pickup')}`}
-              </span>
+              {(() => {
+                // Pedidos hechos en el local (Autoservicio/Punto de venta) no son
+                // "Recoger/Entrega" (eso es de ecommerce): su eje es Comer aquí /
+                // Para llevar, guardado en `notes`. Mostrar eso evita la
+                // contradicción "Recoger" + "Comer aquí" en la misma tarjeta.
+                const inStore = o.channel === 'pos' || o.channel === 'kiosk'
+                const badge = { fontSize: 11, fontWeight: 700, color: R.inkSoft, background: R.bgAlt, padding: '2px 8px', borderRadius: 999 } as const
+                if (inStore) {
+                  if (o.notes === 'Para llevar') return <span style={badge}>🥡 {t('Para llevar', 'To go')}</span>
+                  if (o.notes === 'Comer aquí') return <span style={badge}>🍽️ {t('Comer aquí', 'Dine in')}</span>
+                  return null // sin tipo capturado: no mostrar badge de entrega
+                }
+                return (
+                  <span style={badge}>
+                    {o.fulfillment === 'delivery' ? `🛵 ${t('Entrega', 'Delivery')}` : `🏪 ${t('Recoger', 'Pickup')}`}
+                  </span>
+                )
+              })()}
               {(o.channel === 'pos' || o.channel === 'kiosk') && (
                 <span style={{ fontSize: 11, fontWeight: 700, color: R.coralPress, background: R.coralTint, padding: '2px 8px', borderRadius: 999 }}>
                   {o.channel === 'kiosk' ? `🖥️ ${t('Autoservicio', 'Self-service')}` : `🧾 ${t('Punto de venta', 'Point of sale')}`}
@@ -1112,7 +1127,10 @@ function OrdersView({ vert, orders, couriers, onUpdate }: { vert: Vert; orders: 
               <div style={{ fontSize: 12, color: R.inkSoft, marginTop: 4 }}>📍 {o.address}</div>
             )}
             {o.customer_phone && <div style={{ fontSize: 12, color: R.inkSoft, marginTop: 2 }}>📞 {o.customer_phone}</div>}
-            {o.notes && <div style={{ fontSize: 12, color: R.ink, marginTop: 4, fontStyle: 'italic' }}>“{o.notes}”</div>}
+            {o.notes && !((o.channel === 'pos' || o.channel === 'kiosk') && (o.notes === 'Comer aquí' || o.notes === 'Para llevar')) && (
+              // No repetir la nota cuando ya se muestra como badge (Comer aquí / Para llevar en local).
+              <div style={{ fontSize: 12, color: R.ink, marginTop: 4, fontStyle: 'italic' }}>“{o.notes}”</div>
+            )}
           </div>
           <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 16, color: R.ink, flexShrink: 0 }}>${o.total}</div>
         </div>
@@ -3019,7 +3037,12 @@ function printOrderTicket(o: PanelOrder, bizName: string, en = false) {
   const esc = (s: string) => (s || '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c] as string))
   const folio = '#' + o.id.slice(0, 8).toUpperCase()
   const isDelivery = o.fulfillment === 'delivery'
-  const typeLabel = isDelivery ? (en ? '🛵 Delivery' : '🛵 Entrega') : (en ? '🏪 Pickup' : '🏪 Recoger')
+  // En local (Autoservicio/Punto de venta) el tipo es Comer aquí / Para llevar,
+  // no Recoger/Entrega (que es de pedidos a domicilio/ecommerce).
+  const inStore = o.channel === 'pos' || o.channel === 'kiosk'
+  const typeLabel = inStore
+    ? (o.notes === 'Para llevar' ? (en ? '🥡 To go' : '🥡 Para llevar') : (en ? '🍽️ Dine in' : '🍽️ Comer aquí'))
+    : (isDelivery ? (en ? '🛵 Delivery' : '🛵 Entrega') : (en ? '🏪 Pickup' : '🏪 Recoger'))
   const rows = o.order_items.map(it =>
     `<tr><td class="q">${it.qty}×</td><td>${esc(it.name)}</td><td class="r">${money(it.line_total ?? it.unit_price * it.qty)}</td></tr>`).join('')
   const html = `<!doctype html><html><head><meta charset="utf-8"><title>${en ? 'Order' : 'Pedido'} ${esc(folio)}</title>
@@ -3051,7 +3074,7 @@ function printOrderTicket(o: PanelOrder, bizName: string, en = false) {
     ${isDelivery && o.address ? `<div class="cust">📍 ${esc(o.address)}</div>` : ''}
     <div class="hr"></div>
     <table>${rows}</table>
-    ${o.notes ? `<div class="notes">${en ? 'Notes' : 'Notas'}: ${esc(o.notes)}</div>` : ''}
+    ${o.notes && !(inStore && (o.notes === 'Comer aquí' || o.notes === 'Para llevar')) ? `<div class="notes">${en ? 'Notes' : 'Notas'}: ${esc(o.notes)}</div>` : ''}
     <div class="hr"></div>
     <div class="row"><span>${en ? 'Subtotal' : 'Subtotal'}</span><span>${money(o.subtotal)}</span></div>
     ${o.delivery_fee > 0 ? `<div class="row"><span>${en ? 'Delivery' : 'Envío'}</span><span>${money(o.delivery_fee)}</span></div>` : ''}
