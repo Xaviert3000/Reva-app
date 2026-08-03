@@ -257,9 +257,10 @@ export async function fetchCityData(municipio: string): Promise<CityData> {
       : undefined
     // Si destaca un evento con imagen, esa manda como portada de la tarjeta.
     const eventImg = b.featured_event?.image_url || undefined
-    // El logo/foto del perfil sirve de portada cuando no hay imagen destacada ni de
-    // catálogo, para que la foto que sube el dueño en Ajustes se vea en Discover.
-    const cover = eventImg ?? featuredImg ?? catalog[b.id].find(s => s.img)?.img ?? (b.logo_url || undefined)
+    // La foto de perfil que sube el dueño en Ajustes es su portada elegida: gana a
+    // una imagen genérica del catálogo, pero cede ante un evento/producto que el
+    // dueño destacó explícitamente (ésos traen su propia imagen promocional).
+    const cover = eventImg ?? featuredImg ?? (b.logo_url || undefined) ?? catalog[b.id].find(s => s.img)?.img
     return mapBusiness(b, grad, reviews, alerts, offers, cover)
   })
 
