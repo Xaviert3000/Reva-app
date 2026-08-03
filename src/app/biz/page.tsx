@@ -2426,6 +2426,32 @@ function CatalogView({ vert, items, setItems }: { vert: Vert; items: CatItem[]; 
                     <button type="button" onClick={() => addOption(gi)} style={{ marginTop: 2, display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 12.5, color: R.coral }}><Icon n="plus" size={13} color={R.coral} /> {t('Agregar opción', 'Add option')}</button>
                   </div>
                 ))}
+                {/* Aviso: una misma opción en varios grupos suele indicar que se modeló
+                    mal (p. ej. grupos "Caliente" y "Frío" con tamaños repetidos, en vez
+                    de un grupo Temperatura y otro Tamaño). El cliente elige una opción de
+                    CADA grupo, así que opciones repetidas dan combinaciones sin sentido. */}
+                {(() => {
+                  const groups = usableGroups(form.variants)
+                  const nameToGroups = new Map<string, Set<number>>()
+                  groups.forEach((g, gi) => g.options.forEach(o => {
+                    const k = o.name.trim().toLowerCase()
+                    if (!k) return
+                    if (!nameToGroups.has(k)) nameToGroups.set(k, new Set())
+                    nameToGroups.get(k)!.add(gi)
+                  }))
+                  const dups = [...nameToGroups.entries()].filter(([, gs]) => gs.size > 1).map(([k]) => k)
+                  if (dups.length === 0) return null
+                  const list = dups.map(d => `"${d}"`).join(', ')
+                  return (
+                    <div style={{ display: 'flex', gap: 9, alignItems: 'flex-start', background: R.amberTint, border: `1px solid ${R.amberDeep}`, borderRadius: 10, padding: '10px 12px' }}>
+                      <span style={{ fontSize: 15, lineHeight: 1.2, flexShrink: 0 }}>⚠️</span>
+                      <span style={{ fontSize: 12.5, color: R.ink, lineHeight: 1.45 }}>
+                        {t(`La opción ${list} está en más de un grupo. Normalmente cada grupo es una característica distinta (Tamaño, Temperatura) y sus opciones no se repiten. Revisa que no hayas puesto la misma característica dos veces — el cliente elige una opción de cada grupo.`,
+                           `The option ${list} is in more than one group. Usually each group is a different attribute (Size, Temperature) and options don't repeat. Check you didn't add the same attribute twice — the customer picks one option per group.`)}
+                      </span>
+                    </div>
+                  )
+                })()}
                 <button type="button" onClick={addGroup} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '10px', borderRadius: 10, border: `1px dashed ${R.line}`, background: R.surface, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13, color: R.ink }}><Icon n="plus" size={15} color={R.ink} /> {t('Agregar grupo de variantes', 'Add variant group')}</button>
               </div>
 
