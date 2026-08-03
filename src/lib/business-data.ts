@@ -21,7 +21,7 @@ interface DbBusiness {
   tier: FeaturedTier | null
   featured_until: string | null
   featured_service_id: string | null
-  featured_event: { title?: string; date?: string | null; description?: string | null; image_url?: string | null } | null
+  featured_event: { title?: string; date?: string | null; description?: string | null; image_url?: string | null; days?: number[] | null; start_time?: string | null; end_time?: string | null; terms?: string | null } | null
   logo_url: string | null
   grad_from: string | null
   grad_to: string | null
@@ -165,7 +165,16 @@ function mapBusiness(
     tier: isFeatured ? (b.tier ?? 'destacado') : undefined,
     // Evento destacado (migración 039): sólo si está vigente y hay evento con título.
     featuredEvent: isFeatured && b.featured_event?.title
-      ? { title: b.featured_event.title, date: b.featured_event.date ?? null, description: b.featured_event.description ?? null, img: b.featured_event.image_url ?? null }
+      ? {
+          title: b.featured_event.title,
+          date: b.featured_event.date ?? null,
+          description: b.featured_event.description ?? null,
+          img: b.featured_event.image_url ?? null,
+          days: b.featured_event.days ?? [],
+          startTime: b.featured_event.start_time ?? null,
+          endTime: b.featured_event.end_time ?? null,
+          terms: b.featured_event.terms ?? null,
+        }
       : null,
     grad,
     img,

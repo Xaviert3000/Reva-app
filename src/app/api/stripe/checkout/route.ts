@@ -79,11 +79,24 @@ export async function POST(req: NextRequest) {
     const admin = createAdminClient()
     const { data: member } = await admin.from('biz_members').select('biz_id').eq('user_id', user.id).eq('biz_id', biz_id).maybeSingle()
     if (!member) return NextResponse.json({ error: 'No autorizado' }, { status: 403 })
+    // Días (0=Dom..6=Sáb), horario (HH:MM) y términos del evento. Todos opcionales.
+    const rawDays: unknown = (event as { days?: unknown }).days
+    const days = Array.isArray(rawDays)
+      ? [...new Set(rawDays.map(d => Number(d)).filter(d => Number.isInteger(d) && d >= 0 && d <= 6))].sort((a, b) => a - b)
+      : []
+    const cleanTime = (v: unknown) => {
+      const s = String(v ?? '').trim()
+      return /^\d{1,2}:\d{2}$/.test(s) ? s : null
+    }
     const ev = {
       title: String(event.title ?? '').trim().slice(0, 120),
       date: String(event.date ?? '').trim().slice(0, 40) || null,
       description: String(event.description ?? '').trim().slice(0, 400) || null,
       image_url: String(event.image_url ?? '').trim() || null,
+      days,
+      start_time: cleanTime(event.start_time),
+      end_time: cleanTime(event.end_time),
+      terms: String(event.terms ?? '').trim().slice(0, 1000) || null,
     }
     if (!ev.title) return NextResponse.json({ error: 'El evento necesita un título' }, { status: 400 })
     // A staging (pending): el webhook lo promueve a featured_event al confirmar el

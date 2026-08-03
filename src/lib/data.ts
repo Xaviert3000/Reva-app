@@ -121,7 +121,7 @@ export interface Business {
   tier?: FeaturedTier
   // Evento destacado (migración 039): cuando el negocio destaca un evento en vez de
   // un producto/todo el negocio. Sólo presente si featured=true y hay evento.
-  featuredEvent?: { title: string; date?: string | null; description?: string | null; img?: string | null } | null
+  featuredEvent?: { title: string; date?: string | null; description?: string | null; img?: string | null; days?: number[]; startTime?: string | null; endTime?: string | null; terms?: string | null } | null
   grad: [string, string]
   // URL pública de una imagen de portada (Supabase Storage): normalmente la
   // primera imagen del catálogo del negocio. Absent = usa el gradiente + mono.

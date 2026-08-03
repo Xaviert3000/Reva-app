@@ -6179,7 +6179,7 @@ function DestacadoView({ vert }: { vert: Vert }) {
   const [content, setContent] = useState<'negocio' | 'evento' | number>('negocio')
   // Datos del evento a destacar (cuando content === 'evento'). `img` guarda una
   // vista previa (data URL) hasta subir el archivo real al pagar.
-  const [event, setEvent] = useState({ title: '', date: '', description: '', img: '' })
+  const [event, setEvent] = useState<{ title: string; date: string; description: string; img: string; days: number[]; startTime: string; endTime: string; terms: string }>({ title: '', date: '', description: '', img: '', days: [], startTime: '', endTime: '', terms: '' })
   const [eventImgFile, setEventImgFile] = useState<File | null>(null)
   const [featured, setFeatured] = useState<{ tier: TierId; label: string; days: number; what: string } | null>(null)
   const [confirming, setConfirming] = useState(false)
@@ -6249,11 +6249,20 @@ function DestacadoView({ vert }: { vert: Vert }) {
       const kind = isEvent ? 'event' : selContent ? 'service' : 'business'
       // Si es evento con imagen recién elegida, súbela a Storage para obtener su URL
       // pública (el data URL sólo sirve de vista previa). Si falla, va sin imagen.
-      let eventPayload: null | { title: string; date: string; description: string; image_url: string | null } = null
+      let eventPayload: null | { title: string; date: string; description: string; image_url: string | null; days: number[]; start_time: string | null; end_time: string | null; terms: string | null } = null
       if (kind === 'event') {
         let imageUrl = event.img && !event.img.startsWith('data:') ? event.img : null
         if (eventImgFile) imageUrl = await uploadServiceImage(bizId, eventImgFile)
-        eventPayload = { title: event.title.trim(), date: event.date.trim(), description: event.description.trim(), image_url: imageUrl }
+        eventPayload = {
+          title: event.title.trim(),
+          date: event.date.trim(),
+          description: event.description.trim(),
+          image_url: imageUrl,
+          days: [...event.days].sort((a, b) => a - b),
+          start_time: event.startTime.trim() || null,
+          end_time: event.endTime.trim() || null,
+          terms: event.terms.trim() || null,
+        }
       }
       const res = await fetch('/api/stripe/checkout', {
         method: 'POST',
@@ -6401,9 +6410,43 @@ function DestacadoView({ vert }: { vert: Vert }) {
             <input value={event.date} onChange={e => setEvent({ ...event, date: e.target.value })} maxLength={40} placeholder={t('Ej. Vie 15 ago · 8pm', 'e.g. Fri Aug 15 · 8pm')}
               style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 10, padding: '10px 12px', fontSize: 14, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.bg }} />
           </div>
+          {/* Días de la semana en que ocurre el evento (vacío = cualquier día) */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <label style={{ fontSize: 12.5, fontWeight: 700, color: R.inkSoft }}>{t('Días del evento (opcional)', 'Event days (optional)')}</label>
+            <div style={{ display: 'flex', gap: 6 }}>
+              {WEEKDAYS.map(({ i, l }, di) => {
+                const on = event.days.includes(i)
+                return (
+                  <button key={i} type="button" aria-pressed={on}
+                    onClick={() => setEvent({ ...event, days: on ? event.days.filter(d => d !== i) : [...event.days, i] })}
+                    style={{ flex: 1, height: 34, borderRadius: 8, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13, border: on ? `1px solid ${A.main}` : `1px solid ${R.line}`, background: on ? A.main : R.bg, color: on ? '#fff' : R.inkFaint }}>
+                    {en ? ['M', 'T', 'W', 'T', 'F', 'S', 'S'][di] : l}
+                  </button>
+                )
+              })}
+            </div>
+            <div style={{ fontSize: 11, color: R.inkFaint }}>{t('Sin selección = cualquier día.', 'None selected = any day.')}</div>
+          </div>
+          {/* Horario del evento (inicia / termina) */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+            <label style={{ fontSize: 12.5, fontWeight: 700, color: R.inkSoft }}>{t('Horario (opcional)', 'Hours (optional)')}</label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <input value={event.startTime} onChange={e => setEvent({ ...event, startTime: e.target.value })} maxLength={5} placeholder={t('Inicia 20:00', 'Starts 20:00')}
+                style={{ flex: 1, boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 10, padding: '10px 12px', fontSize: 14, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.bg, textAlign: 'center' }} />
+              <span style={{ color: R.inkFaint }}>–</span>
+              <input value={event.endTime} onChange={e => setEvent({ ...event, endTime: e.target.value })} maxLength={5} placeholder={t('Termina 23:00', 'Ends 23:00')}
+                style={{ flex: 1, boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 10, padding: '10px 12px', fontSize: 14, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.bg, textAlign: 'center' }} />
+            </div>
+          </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
             <label style={{ fontSize: 12.5, fontWeight: 700, color: R.inkSoft }}>{t('Descripción (opcional)', 'Description (optional)')}</label>
             <textarea value={event.description} onChange={e => setEvent({ ...event, description: e.target.value })} maxLength={400} rows={2} placeholder={t('Qué incluye, quién toca, promociones…', 'What’s included, who’s playing, deals…')}
+              style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 10, padding: '10px 12px', fontSize: 14, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.bg, resize: 'vertical' }} />
+          </div>
+          {/* Términos y condiciones del evento (opcional) */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+            <label style={{ fontSize: 12.5, fontWeight: 700, color: R.inkSoft }}>{t('Términos y condiciones (opcional)', 'Terms & conditions (optional)')}</label>
+            <textarea value={event.terms} onChange={e => setEvent({ ...event, terms: e.target.value })} maxLength={1000} rows={3} placeholder={t('Restricciones, edad mínima, cupo, no reembolsable…', 'Restrictions, minimum age, capacity, non-refundable…')}
               style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 10, padding: '10px 12px', fontSize: 14, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.bg, resize: 'vertical' }} />
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>

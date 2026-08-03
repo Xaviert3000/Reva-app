@@ -1207,6 +1207,38 @@ function BizDetail({ biz, mode, onClose, onBook, onOpenCart, onMessage }: { biz:
             {biz.tags.map(t => <span key={t} style={{ fontSize: 13, fontWeight: 600, color: '#6B615A', background: '#F3EADD', padding: '7px 13px', borderRadius: 999 }}>{t}</span>)}
           </div>
 
+          {/* Evento destacado: fecha, días/horario y términos y condiciones */}
+          {biz.featuredEvent && (() => {
+            const ev = biz.featuredEvent
+            const sched = promoWindowLabel({ startDate: null, endDate: null, days: ev.days ?? [], startTime: ev.startTime ?? null, endTime: ev.endTime ?? null }, en)
+            const showSched = (!!ev.days && ev.days.length > 0) || (!!ev.startTime && !!ev.endTime)
+            return (
+              <div style={{ marginTop: 24, background: '#fff', border: '1px solid #F2D6D2', borderRadius: 16, padding: 16 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: '#B5472F', background: '#FCE9E7', padding: '3px 9px', borderRadius: 999 }}>🎉 {en ? 'Event' : 'Evento'}</span>
+                  <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 16, color: '#221C19' }}>{ev.title}</span>
+                </div>
+                {ev.description && <div style={{ fontSize: 13.5, color: '#6B615A', marginBottom: 10, lineHeight: 1.5 }}>{ev.description}</div>}
+                {ev.date && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: showSched ? 6 : 0 }}>
+                    <Icon n="clock" size={14} color="#A89E94" /><span style={{ fontSize: 12.5, color: '#6B615A' }}>{ev.date}</span>
+                  </div>
+                )}
+                {showSched && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                    <Icon n="clock" size={14} color="#A89E94" /><span style={{ fontSize: 12.5, color: '#6B615A' }}>{sched}</span>
+                  </div>
+                )}
+                {ev.terms && (
+                  <details style={{ marginTop: 12 }}>
+                    <summary style={{ cursor: 'pointer', fontSize: 12.5, fontWeight: 700, color: '#6B615A' }}>{en ? 'Terms & conditions' : 'Términos y condiciones'}</summary>
+                    <div style={{ fontSize: 12.5, color: '#6B615A', marginTop: 6, whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>{ev.terms}</div>
+                  </details>
+                )}
+              </div>
+            )
+          })()}
+
           {/* promociones/ofertas del negocio */}
           {biz.offers && biz.offers.length > 0 && (
             <div style={{ marginTop: 24 }}>
