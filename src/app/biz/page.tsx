@@ -5549,6 +5549,27 @@ function SettingsView({ agentCfg, setAgentCfg, taxMode, setTaxMode, bizInfo, set
   }
   const stripeReady = !!stripeConn?.charges_enabled
 
+  // Abre el Stripe Express Dashboard del negocio (saldo, depósitos, banco) vía
+  // un login link de un solo uso generado en el servidor.
+  const [stripeDashBusy, setStripeDashBusy] = useState(false)
+  async function openStripeDashboard() {
+    setStripeDashBusy(true)
+    setStripeErr(null)
+    try {
+      const r = await fetch('/api/stripe/connect/login', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ biz_id: bizConnectId }),
+      })
+      const d = await r.json().catch(() => ({}))
+      if (r.ok && d.url) { window.open(d.url, '_blank', 'noopener'); return }
+      setStripeErr(d.error || `No se pudo abrir tu panel de Stripe (HTTP ${r.status}).`)
+    } catch (e) {
+      setStripeErr(e instanceof Error ? e.message : 'Error de red al abrir Stripe.')
+    } finally {
+      setStripeDashBusy(false)
+    }
+  }
+
   // Plan Reva — activación de la suscripción mensual del negocio.
   const [planBusy, setPlanBusy] = useState(false)
   const [planErr, setPlanErr] = useState<string | null>(null)
@@ -6013,6 +6034,11 @@ function SettingsView({ agentCfg, setAgentCfg, taxMode, setTaxMode, bizInfo, set
                   )}
                   {stripeReady && !stripeConn?.payouts_enabled && (
                     <span style={{ fontSize: 12, color: R.amber ?? R.inkSoft }}>{t('Cobros activos. Falta habilitar los depósitos a tu banco — completa tus datos en Stripe.', 'Charges active. Bank payouts still need enabling — complete your details in Stripe.')}</span>
+                  )}
+                  {stripeConn?.connected && (
+                    <button onClick={openStripeDashboard} disabled={stripeDashBusy} style={{ alignSelf: 'flex-start', padding: '9px 16px', borderRadius: 999, border: `1px solid ${R.line}`, background: R.surface, color: R.ink, cursor: stripeDashBusy ? 'wait' : 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13, opacity: stripeDashBusy ? 0.7 : 1 }}>
+                      {stripeDashBusy ? t('Abriendo…', 'Opening…') : t('Ver mi panel de Stripe →', 'View my Stripe dashboard →')}
+                    </button>
                   )}
                   {stripeErr && (
                     <span style={{ fontSize: 12, color: R.coralPress ?? R.coral, background: R.coralTint ?? R.bgAlt, borderRadius: 8, padding: '8px 10px' }}>{stripeErr}</span>
