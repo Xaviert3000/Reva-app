@@ -918,15 +918,9 @@ function MiniCard({ biz, mode, onOpen }: { biz: Business; mode: Mode; onOpen: ()
       </div>
       <div style={{ padding: '11px 13px 13px' }}>
         <div style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 15, color: '#221C19', lineHeight: 1.15, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{biz.name}</div>
-        {biz.featuredEvent ? (
-          <div style={{ marginTop: 7, whiteSpace: 'nowrap', overflow: 'hidden' }}>
-            <span style={{ fontSize: 12, fontWeight: 700, color: '#E8505B', overflow: 'hidden', textOverflow: 'ellipsis' }}>🎉 {biz.featuredEvent.title}</span>
-          </div>
-        ) : (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 7 }}>
-            <span style={{ fontSize: 12, color: '#6B615A' }}>{biz.type} · {biz.dist} km</span>
-          </div>
-        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 7 }}>
+          <span style={{ fontSize: 12, color: '#6B615A' }}>{biz.type} · {biz.dist} km</span>
+        </div>
       </div>
     </div>
   )
@@ -947,15 +941,30 @@ function DestacadoCard({ biz, onOpen }: { biz: Business; onOpen: () => void }) {
       </div>
       <div style={{ padding: '11px 13px 13px' }}>
         <div style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 15, color: '#221C19', lineHeight: 1.15, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{biz.name}</div>
-        {biz.featuredEvent ? (
-          <div style={{ marginTop: 7, whiteSpace: 'nowrap', overflow: 'hidden' }}>
-            <span style={{ fontSize: 12, fontWeight: 700, color: '#E8505B', overflow: 'hidden', textOverflow: 'ellipsis' }}>🎉 {biz.featuredEvent.title}</span>
-          </div>
-        ) : (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 7 }}>
-            <span style={{ fontSize: 12, color: '#6B615A' }}>{biz.type} · {biz.dist} km</span>
-          </div>
-        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 7 }}>
+          <span style={{ fontSize: 12, color: '#6B615A' }}>{biz.type} · {biz.dist} km</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Tarjeta de EVENTO en la franja de Destacados: imagen del evento, título del
+// evento y el negocio que lo organiza. Espejo de EventMiniCard (nativo).
+function EventCard({ biz, onOpen }: { biz: Business; onOpen: () => void }) {
+  const en = useContext(LangContext) === 'en'
+  const ev = biz.featuredEvent
+  const cover = ev?.img || biz.img
+  const subtitle = ev?.date ? `${biz.name} · ${ev.date}` : biz.name
+  return (
+    <div onClick={onOpen} style={{ width: 188, flexShrink: 0, cursor: 'pointer', background: '#fff', border: '1px solid #E9E0D5', borderRadius: 18, overflow: 'hidden', boxShadow: '0 2px 10px rgba(34,28,25,.06)' }}>
+      <div style={{ height: 112, background: cover ? `center/cover no-repeat url(${cover})` : `linear-gradient(135deg,${biz.grad[0]},${biz.grad[1]})`, position: 'relative' }}>
+        <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(transparent,rgba(20,14,12,.5))' }} />
+        <span style={{ position: 'absolute', top: 10, left: 10, background: 'rgba(232,80,91,.95)', color: '#fff', fontSize: 10, fontWeight: 700, padding: '4px 8px', borderRadius: 999 }}>🎉 {en ? 'Event' : 'Evento'}</span>
+      </div>
+      <div style={{ padding: '11px 13px 13px' }}>
+        <div style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 15, color: '#221C19', lineHeight: 1.2, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{ev?.title || biz.name}</div>
+        <div style={{ fontSize: 12, color: '#6B615A', marginTop: 6, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{subtitle}</div>
       </div>
     </div>
   )
@@ -969,27 +978,14 @@ function HeroFeatured({ biz, mode, onOpen }: { biz: Business; mode: Mode; onOpen
       {(() => { const badge = featuredBadge(biz); return badge && (
         <div style={{ position: 'absolute', top: 12, left: 12, background: 'rgba(27,36,54,.85)', color: '#fff', fontSize: 10.5, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', padding: '5px 10px', borderRadius: 999 }}>{badge.icon} {badge.label}</div>
       ) })()}
-      {biz.featuredEvent && (
-        <div style={{ position: 'absolute', top: 12, right: 12, display: 'inline-flex', alignItems: 'center', gap: 5, background: 'rgba(232,80,91,.92)', color: '#fff', fontSize: 11, fontWeight: 700, padding: '5px 10px', borderRadius: 999 }}>
-          🎉 {en ? 'Event' : 'Evento'}{biz.featuredEvent.date ? ` · ${biz.featuredEvent.date}` : ''}
-        </div>
-      )}
       <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: 18, paddingTop: 50, background: 'linear-gradient(transparent,rgba(20,14,12,.82))', color: '#fff' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
           <Stars rating={biz.rating} />
           <span style={{ fontSize: 12.5, opacity: .9 }}>{biz.type}</span>
         </div>
-        {biz.featuredEvent ? (
-          <>
-            <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 25, lineHeight: 1.1 }}>{biz.featuredEvent.title}</div>
-            <div style={{ fontSize: 13.5, opacity: .9, marginTop: 6, maxWidth: '34ch' }}>{biz.featuredEvent.description || biz.name}</div>
-          </>
-        ) : (
-          <>
-            <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 25, lineHeight: 1.1 }}>{biz.name}</div>
-            <div style={{ fontSize: 13.5, opacity: .9, marginTop: 6, maxWidth: '34ch' }}>{en ? biz.en : biz.es}</div>
-          </>
-        )}
+        {/* El héroe es el negocio Premium (los eventos van a la franja). */}
+        <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 25, lineHeight: 1.1 }}>{biz.name}</div>
+        <div style={{ fontSize: 13.5, opacity: .9, marginTop: 6, maxWidth: '34ch' }}>{en ? biz.en : biz.es}</div>
       </div>
     </div>
   )
@@ -1002,21 +998,30 @@ function Discovery({ mode, onOpen, onBook, onModeToggle, onBell, onMsg }: { mode
   const cats = en ? ['All', 'Eat', 'Spa', 'Tours', 'Nightlife'] : ['Todo', 'Comer', 'Spa', 'Tours', 'Noche']
   const catKeys: (string | null)[] = [null, 'Comer', 'Spa', 'Tours', 'Vida nocturna']
   const [cat, setCat] = useState(0)
-  // Premium tiene prioridad por el único spot destacado; si no hay Premium,
-  // cae al primer Destacado disponible.
-  const featured = businesses.find(b => b.tier === 'premium' && b.featured) ?? businesses.find(b => b.featured) ?? businesses[0]
+  // Héroe "Hoy en [ciudad]": SOLO negocios Premium (el spot #1 pagado). Los
+  // destacados normales y los eventos van a la franja de abajo.
+  const featured = businesses.find(b => b.tier === 'premium' && b.featured)
   const catKey = catKeys[cat] ?? null
   const filteredBiz = catKey ? businesses.filter(b => b.cat === catKey) : businesses
   const favs = filteredBiz.filter(b => b.localFav)
   const newer = filteredBiz.filter(b => !b.localFav && !b.featured).slice(0, 3)
   const showFeatured = !!featured && (!catKey || featured.cat === catKey)
-  // Franja de Destacados: negocios featured que no ocupan el hero (todos los que
-  // no son el Premium mostrado arriba), con su etiqueta ✦.
-  const destacados = filteredBiz.filter(b => b.featured && b.id !== (showFeatured ? featured?.id : undefined))
+  // Franja de Destacados: destacados normales + eventos, cada uno como su tarjeta.
+  // Un negocio Premium con evento aparece en el héroe Y con su evento aquí.
+  const heroId = showFeatured ? featured?.id : undefined
+  const stripItems = filteredBiz.filter(b => b.featured).flatMap((b): { biz: Business; isEvent: boolean }[] => {
+    if (b.tier === 'premium') {
+      const out: { biz: Business; isEvent: boolean }[] = []
+      if (b.id !== heroId) out.push({ biz: b, isEvent: false })   // Premium extra (no héroe)
+      if (b.featuredEvent) out.push({ biz: b, isEvent: true })     // + su evento
+      return out
+    }
+    return [{ biz: b, isEvent: !!b.featuredEvent }]
+  })
 
   // Impresiones reales del espacio Destacado (una vez por negocio/sesión).
   const featuredImpId = showFeatured ? featured?.id : undefined
-  const destacadoIds = destacados.map(b => b.id).join(',')
+  const destacadoIds = stripItems.map(it => it.biz.id).join(',')
   useEffect(() => {
     if (featuredImpId) trackFeatured(featuredImpId, 'impression', 'hero')
     if (destacadoIds) destacadoIds.split(',').forEach(id => trackFeatured(id, 'impression', 'strip'))
@@ -1093,15 +1098,17 @@ function Discovery({ mode, onOpen, onBook, onModeToggle, onBell, onMsg }: { mode
         </>
       )}
 
-      {/* franja de destacados (tier 'destacado') */}
-      {destacados.length > 0 && (
+      {/* franja de destacados: destacados normales + eventos */}
+      {stripItems.length > 0 && (
         <>
           <div style={{ padding: '0 16px', marginBottom: 12 }}>
             <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 20, color: '#221C19' }}>{en ? 'Featured' : 'Destacados'}</div>
             <div style={{ fontSize: 13, color: '#6B615A', marginTop: 2 }}>{en ? 'Businesses that paid to stand out' : 'Negocios que pagaron por resaltar'}</div>
           </div>
           <div style={{ display: 'flex', gap: 12, padding: '0 16px 24px', overflowX: 'auto' }}>
-            {destacados.map(b => <DestacadoCard key={b.id} biz={b} onOpen={() => { trackFeatured(b.id, 'click', 'strip'); onOpen(b) }} />)}
+            {stripItems.map(it => it.isEvent
+              ? <EventCard key={`${it.biz.id}-event`} biz={it.biz} onOpen={() => { trackFeatured(it.biz.id, 'click', 'strip'); onOpen(it.biz) }} />
+              : <DestacadoCard key={`${it.biz.id}-biz`} biz={it.biz} onOpen={() => { trackFeatured(it.biz.id, 'click', 'strip'); onOpen(it.biz) }} />)}
           </div>
         </>
       )}

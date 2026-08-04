@@ -255,12 +255,10 @@ export async function fetchCityData(municipio: string): Promise<CityData> {
     const featuredImg = b.featured_service_id
       ? catalog[b.id].find(s => s.id === b.featured_service_id)?.img
       : undefined
-    // Si destaca un evento con imagen, esa manda como portada de la tarjeta.
-    const eventImg = b.featured_event?.image_url || undefined
-    // La foto de perfil que sube el dueño en Ajustes es su portada elegida: gana a
-    // una imagen genérica del catálogo, pero cede ante un evento/producto que el
-    // dueño destacó explícitamente (ésos traen su propia imagen promocional).
-    const cover = eventImg ?? featuredImg ?? (b.logo_url || undefined) ?? catalog[b.id].find(s => s.img)?.img
+    // Portada del NEGOCIO: producto destacado; luego la foto de perfil que sube el
+    // dueño en Ajustes (su portada elegida); por último una imagen del catálogo. El
+    // evento NO entra aquí: se muestra como su propia tarjeta en Discover.
+    const cover = featuredImg ?? (b.logo_url || undefined) ?? catalog[b.id].find(s => s.img)?.img
     return mapBusiness(b, grad, reviews, alerts, offers, cover)
   })
 
