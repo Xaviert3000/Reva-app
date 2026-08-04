@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { requireBizAnyModule } from '@/lib/biz-auth'
 
 export const dynamic = 'force-dynamic'
 
@@ -19,6 +20,7 @@ export async function GET(req: NextRequest) {
   const bizId = req.nextUrl.searchParams.get('biz_id')
   if (!bizId) return NextResponse.json({ error: 'biz_id requerido' }, { status: 400 })
   if (!(await ownerOf(bizId, user.id))) return NextResponse.json({ error: 'No autorizado' }, { status: 403 })
+  if (!(await requireBizAnyModule(bizId, ['orders']))) return NextResponse.json({ error: 'Sin permiso para este módulo' }, { status: 403 })
 
   const admin = createAdminClient()
   const { data, error } = await admin
@@ -46,6 +48,7 @@ export async function POST(req: NextRequest) {
   const phone: string | null = (body.phone ?? '').trim() || null
   if (!bizId || !email) return NextResponse.json({ error: 'biz_id y email requeridos' }, { status: 400 })
   if (!(await ownerOf(bizId, user.id))) return NextResponse.json({ error: 'No autorizado' }, { status: 403 })
+  if (!(await requireBizAnyModule(bizId, ['orders']))) return NextResponse.json({ error: 'Sin permiso para este módulo' }, { status: 403 })
 
   const admin = createAdminClient()
   const password: string = (body.password ?? '').trim() || ('Reva-' + Math.random().toString(36).slice(2, 8))
@@ -119,6 +122,7 @@ export async function DELETE(req: NextRequest) {
   const courierId = req.nextUrl.searchParams.get('user_id')
   if (!bizId || !courierId) return NextResponse.json({ error: 'biz_id y user_id requeridos' }, { status: 400 })
   if (!(await ownerOf(bizId, user.id))) return NextResponse.json({ error: 'No autorizado' }, { status: 403 })
+  if (!(await requireBizAnyModule(bizId, ['orders']))) return NextResponse.json({ error: 'Sin permiso para este módulo' }, { status: 403 })
 
   const admin = createAdminClient()
   const { error } = await admin.from('couriers').update({ active: false }).eq('user_id', courierId).eq('biz_id', bizId)

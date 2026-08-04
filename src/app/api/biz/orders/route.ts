@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { requireBizAnyModule } from '@/lib/biz-auth'
 
 export const dynamic = 'force-dynamic'
 
@@ -36,6 +37,8 @@ export async function POST(req: NextRequest) {
   const channel: string = body.channel === 'kiosk' ? 'kiosk' : 'pos'
   if (!bizId) return NextResponse.json({ error: 'biz_id requerido' }, { status: 400 })
   if (!(await ownerOf(bizId, user.id))) return NextResponse.json({ error: 'No autorizado' }, { status: 403 })
+  // Un pedido puede entrar desde Pedidos, Punto de venta o Autoservicio.
+  if (!(await requireBizAnyModule(bizId, ['orders', 'pos', 'kiosk']))) return NextResponse.json({ error: 'Sin permiso para este módulo' }, { status: 403 })
 
   const rawItems: InStoreItem[] = Array.isArray(body.items) ? body.items : []
   const items = rawItems
@@ -109,6 +112,7 @@ export async function GET(req: NextRequest) {
   const bizId = req.nextUrl.searchParams.get('biz_id')
   if (!bizId) return NextResponse.json({ error: 'biz_id requerido' }, { status: 400 })
   if (!(await ownerOf(bizId, user.id))) return NextResponse.json({ error: 'No autorizado' }, { status: 403 })
+  if (!(await requireBizAnyModule(bizId, ['orders']))) return NextResponse.json({ error: 'Sin permiso para este módulo' }, { status: 403 })
 
   // ?pending_counter=1 → sólo las órdenes de Autoservicio "pagar en caja" aún sin
   // cobrar (pending_payment + canal kiosk), para que la cajera las cobre en el POS.
@@ -147,6 +151,7 @@ export async function PATCH(req: NextRequest) {
   const bizId: string | undefined = body.biz_id
   if (!id || !bizId) return NextResponse.json({ error: 'id y biz_id requeridos' }, { status: 400 })
   if (!(await ownerOf(bizId, user.id))) return NextResponse.json({ error: 'No autorizado' }, { status: 403 })
+  if (!(await requireBizAnyModule(bizId, ['orders']))) return NextResponse.json({ error: 'Sin permiso para este módulo' }, { status: 403 })
 
   const patch: Record<string, unknown> = {}
   if (typeof body.status === 'string' && (STATUSES as readonly string[]).includes(body.status)) {

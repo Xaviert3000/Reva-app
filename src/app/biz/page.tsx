@@ -12,6 +12,7 @@ import { clearFeatured, fetchFeaturedItems, pauseFeaturedItem, type FeaturedItem
 import { fetchPromotions, createPromotion, updatePromotion, setPromotionActive, deletePromotion, promoWindowLabel, type Promo, type PromoInput, fetchAlerts, createAlert, updateAlert, setAlertActive, deleteAlert, type BizAlert, type AlertInput } from '@/lib/promotions'
 import { loadAgentConfig, saveAgentConfig, parseAgentConfig, DEFAULT_AGENT_CONFIG, type BizAgentConfig } from '@/lib/biz-agent-config'
 import { loadOwnerSession, type OwnerBusiness } from '@/lib/biz-session'
+import { type BizRole, type BizPermissions, MODULE_GROUPS, ROLE_LABEL, ASSIGNABLE_ROLES, DEFAULT_MODULES, canAccessModule, canManageTeam, canSeeVoidPin } from '@/lib/biz-roles'
 import { createClient } from '@/lib/supabase/client'
 import QRCode from 'qrcode'
 import type { Service as CatalogService } from '@/lib/data'
@@ -4548,7 +4549,7 @@ const saleActionHint = (type: 'void' | 'refunded', method: string | null, en = f
   return `Úsalo cuando la venta fue correcta pero devuelves el dinero. ${how} Reva sólo actualiza el registro: saldrá de tus ingresos en Informes.`
 }
 
-function SalesHistoryView({ vert, bizInfo, onGo }: { vert: Vert; bizInfo: BizInfo; onGo: (v: string) => void }) {
+function SalesHistoryView({ vert, bizInfo, onGo, canManagePin }: { vert: Vert; bizInfo: BizInfo; onGo: (v: string) => void; canManagePin: boolean }) {
   const t = useT()
   const en = useEn()
   const bizId = SHARED_BIZ_ID[vert.id] ?? vert.id
@@ -4794,10 +4795,12 @@ function SalesHistoryView({ vert, bizInfo, onGo }: { vert: Vert; bizInfo: BizInf
         <div style={{ display: 'flex', gap: 8 }}>
           {chip('todas', t('Todas', 'All'))}{chip('paid', t('Pagadas', 'Paid'))}{chip('void', t('Anuladas', 'Voided'))}{chip('refunded', t('Reembolsadas', 'Refunded'))}
         </div>
-        <button onClick={() => { setSecOpen(v => !v); setSecPin(''); setSecMsg('') }} title={t('Autorización para anular o reembolsar', 'Authorization to void or refund')}
-          style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 16px', borderRadius: 999, border: `1px solid ${authPinSet ? R.jade : R.line}`, background: authPinSet ? (R.jadeTint ?? R.surface) : R.surface, color: authPinSet ? R.jade : R.ink, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13 }}>
-          <Icon n="shield" size={16} color={authPinSet ? R.jade : R.ink} /> {t('Seguridad', 'Security')}
-        </button>
+        {canManagePin && (
+          <button onClick={() => { setSecOpen(v => !v); setSecPin(''); setSecMsg('') }} title={t('Autorización para anular o reembolsar', 'Authorization to void or refund')}
+            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 16px', borderRadius: 999, border: `1px solid ${authPinSet ? R.jade : R.line}`, background: authPinSet ? (R.jadeTint ?? R.surface) : R.surface, color: authPinSet ? R.jade : R.ink, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13 }}>
+            <Icon n="shield" size={16} color={authPinSet ? R.jade : R.ink} /> {t('Seguridad', 'Security')}
+          </button>
+        )}
         <button onClick={printReport} disabled={list.length === 0} title={t('Imprimir el historial que ves en pantalla', 'Print the history shown on screen')}
           style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 16px', borderRadius: 999, border: `1px solid ${R.line}`, background: R.surface, color: list.length === 0 ? R.inkFaint : R.ink, cursor: list.length === 0 ? 'default' : 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13, opacity: list.length === 0 ? .6 : 1 }}>
           <Icon n="printer" size={16} color={list.length === 0 ? R.inkFaint : R.ink} /> {t('Imprimir', 'Print')}
@@ -5328,8 +5331,230 @@ function ReportsView({ vert, items, onGo, bizInfo, metrics, agenda, requests }: 
   )
 }
 
-type EmpRole = 'Dueño' | 'Admin' | 'Caja'
-type Employee = { id: number; name: string; email: string; role: EmpRole; status: 'activo' | 'invitado' }
+// Fila del equipo devuelta por /api/biz/team (miembro activo o invitación pendiente).
+type TeamRow = {
+  id: string; kind: 'member' | 'invite'; email: string; role: BizRole
+  roleLabel: { es: string; en: string }; permissions: { modules: string[] } | null
+  status: 'activo' | 'invitado'; isOwner: boolean
+}
+
+// Selector de módulos/submódulos: casillas agrupadas igual que el menú. `value`
+// es la lista blanca de ids de submódulo; onChange devuelve la nueva lista.
+function ModulePicker({ value, onChange, en }: { value: string[]; onChange: (next: string[]) => void; en: boolean }) {
+  const t = (es: string, e: string) => (en ? e : es)
+  const has = (id: string) => value.includes(id)
+  const toggle = (id: string) => onChange(has(id) ? value.filter(x => x !== id) : [...value, id])
+  const toggleGroup = (ids: string[], allOn: boolean) => onChange(allOn ? value.filter(x => !ids.includes(x)) : Array.from(new Set([...value, ...ids])))
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, border: `1px solid ${R.line}`, borderRadius: 12, padding: 12, background: R.bg }}>
+      <div style={{ fontSize: 11.5, color: R.inkSoft }}>{t('Elige a qué puede entrar este empleado.', 'Choose what this employee can access.')}</div>
+      {MODULE_GROUPS.map(g => {
+        const ids = g.items.map(i => i.id)
+        const allOn = ids.every(id => has(id))
+        return (
+          <div key={g.id} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <button type="button" onClick={() => toggleGroup(ids, allOn)} style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontFamily: R.ui }}>
+              <span style={{ width: 16, height: 16, borderRadius: 5, border: `1.5px solid ${allOn ? R.coral : R.line}`, background: allOn ? R.coral : 'transparent', display: 'grid', placeItems: 'center', flexShrink: 0 }}>{allOn && <Icon n="check" size={11} color="#fff" stroke={3} />}</span>
+              <span style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '.04em', textTransform: 'uppercase', color: R.inkSoft }}>{t(g.es, g.en)}</span>
+            </button>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, paddingLeft: 23 }}>
+              {g.items.map(it => {
+                const on = has(it.id)
+                return (
+                  <button key={it.id} type="button" onClick={() => toggle(it.id)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px', borderRadius: 999, border: `1px solid ${on ? R.coral : R.line}`, background: on ? R.coralTint : R.surface, color: on ? R.coralPress : R.inkSoft, cursor: 'pointer', fontFamily: R.ui, fontWeight: 600, fontSize: 12.5 }}>
+                    {on && <Icon n="check" size={11} color={R.coral} stroke={3} />}{t(it.es, it.en)}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// Panel real de Empleados: lista miembros/invitaciones desde /api/biz/team e
+// invita con rol + permisos por módulo. Solo lo renderiza el dueño/admin.
+function TeamManager({ bizId, en }: { bizId: string; en: boolean }) {
+  const t = (es: string, e: string) => (en ? e : es)
+  const [team, setTeam] = useState<TeamRow[] | null>(null)
+  const [email, setEmail] = useState('')
+  const [role, setRole] = useState<BizRole>('caja')
+  const [modules, setModules] = useState<string[]>(DEFAULT_MODULES.caja)
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  const [ok, setOk] = useState('')
+
+  const load = useCallback(async () => {
+    try {
+      const r = await fetch(`/api/biz/team?biz_id=${encodeURIComponent(bizId)}`)
+      if (!r.ok) { setTeam([]); return }
+      const d = await r.json()
+      setTeam((d.team ?? []) as TeamRow[])
+    } catch { setTeam([]) }
+  }, [bizId])
+  useEffect(() => { load() }, [load])
+
+  // Al cambiar de rol, sugiere los permisos por defecto de ese rol.
+  function pickRole(r: BizRole) {
+    setRole(r)
+    if (r === 'encargado') setModules(DEFAULT_MODULES.encargado)
+    else if (r === 'caja') setModules(DEFAULT_MODULES.caja)
+    else setModules([]) // admin ve todo; repartidor no usa el panel
+  }
+
+  const showPicker = role === 'encargado' || role === 'caja'
+
+  async function invite() {
+    const mail = email.trim().toLowerCase()
+    if (!mail || !mail.includes('@')) { setErr(t('Ingresa un correo válido.', 'Enter a valid email.')); return }
+    setBusy(true); setErr(''); setOk('')
+    try {
+      const r = await fetch('/api/biz/team', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ biz_id: bizId, email: mail, role, permissions: showPicker ? modules : null }),
+      })
+      const d = await r.json().catch(() => ({}))
+      if (!r.ok) { setErr(d.error || t('No se pudo enviar la invitación.', 'Could not send the invitation.')); return }
+      setOk(d.warning || t('Invitación enviada ✓', 'Invitation sent ✓'))
+      setEmail('')
+      load()
+    } catch { setErr(t('Sin conexión con el servidor.', 'No connection to the server.')) }
+    finally { setBusy(false) }
+  }
+
+  async function remove(row: TeamRow) {
+    if (row.isOwner) return
+    const body = row.kind === 'member' ? { biz_id: bizId, member_id: row.id } : { biz_id: bizId, invite_id: row.id }
+    await fetch('/api/biz/team', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    load()
+  }
+
+  const roleTint = (r: BizRole) => r === 'owner' ? R.coralTint : r === 'admin' ? R.jadeTint : R.bgAlt
+  const roleColor = (r: BizRole) => r === 'owner' ? R.coralPress : r === 'admin' ? R.jade : R.inkSoft
+
+  return (
+    <div style={{ background: R.surface, border: `1px solid ${R.line}`, borderRadius: 16, padding: '16px 18px', marginBottom: 20 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+        <Icon n="users" size={17} color={R.coral} />
+        <span style={{ fontFamily: R.display, fontWeight: 700, fontSize: 15, color: R.ink }}>{t('Empleados', 'Employees')}</span>
+      </div>
+      <div style={{ fontSize: 13, color: R.inkSoft, marginBottom: 14 }}>{t('Acceso a la plataforma para tu equipo, por rol y módulos.', 'Platform access for your team, by role and modules.')}</div>
+
+      {/* Lista de miembros + invitaciones */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
+        {team === null && <div style={{ fontSize: 12.5, color: R.inkFaint }}>{t('Cargando…', 'Loading…')}</div>}
+        {(team ?? []).map(row => (
+          <div key={row.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', background: R.bg, border: `1px solid ${R.line}`, borderRadius: 12 }}>
+            <div style={{ width: 38, height: 38, borderRadius: '50%', background: roleTint(row.role), display: 'grid', placeItems: 'center', flexShrink: 0, fontFamily: R.display, fontWeight: 800, fontSize: 15, color: roleColor(row.role) }}>{row.email.slice(0, 1).toUpperCase()}</div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 700, fontSize: 13.5, color: R.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.email}{row.isOwner ? t(' (tú)', ' (you)') : ''}</div>
+              {row.role !== 'owner' && row.role !== 'admin' && row.permissions?.modules?.length ? (
+                <div style={{ fontSize: 11.5, color: R.inkFaint, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.permissions.modules.length} {t('módulos', 'modules')}</div>
+              ) : row.role === 'repartidor' ? (
+                <div style={{ fontSize: 11.5, color: R.inkFaint }}>{t('Panel de repartidor', 'Courier panel')}</div>
+              ) : null}
+            </div>
+            <span style={{ fontSize: 11.5, fontWeight: 700, padding: '4px 9px', borderRadius: 999, background: roleTint(row.role), color: roleColor(row.role), whiteSpace: 'nowrap' }}>{en ? row.roleLabel.en : row.roleLabel.es}</span>
+            {row.status === 'invitado' && <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 999, background: R.amberTint, color: R.amberDeep, whiteSpace: 'nowrap' }}>{t('Pendiente', 'Pending')}</span>}
+            {!row.isOwner && (
+              <button onClick={() => remove(row)} style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 4, color: R.inkFaint, display: 'grid', placeItems: 'center' }} aria-label={t('Quitar', 'Remove')}>
+                <Icon n="x" size={15} color={R.inkFaint} />
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* Invitar */}
+      <div style={{ borderTop: `1px solid ${R.line}`, paddingTop: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div style={{ fontSize: 12.5, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase', color: R.inkSoft }}>{t('Invitar empleado', 'Invite employee')}</div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <div style={{ position: 'relative', flex: 1, minWidth: 180 }}>
+            <div style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}><Icon n="mail" size={15} color={R.inkFaint} stroke={1.8} /></div>
+            <input value={email} onChange={e => { setEmail(e.target.value); setErr('') }} onKeyDown={e => e.key === 'Enter' && invite()} placeholder="correo@ejemplo.com"
+              style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${err ? R.coral : R.line}`, borderRadius: 10, padding: '10px 12px 10px 34px', fontSize: 13.5, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.bg }} />
+          </div>
+          <select value={role} onChange={e => pickRole(e.target.value as BizRole)} style={{ border: `1px solid ${R.line}`, borderRadius: 10, padding: '10px 10px', fontSize: 13.5, color: R.ink, background: R.bg, fontFamily: R.ui, cursor: 'pointer', outline: 'none' }}>
+            {ASSIGNABLE_ROLES.map(r => <option key={r} value={r}>{en ? ROLE_LABEL[r].en : ROLE_LABEL[r].es}</option>)}
+          </select>
+        </div>
+        {showPicker && <ModulePicker value={modules} onChange={setModules} en={en} />}
+        {role === 'admin' && <div style={{ fontSize: 11.5, color: R.inkFaint }}>{t('Admin ve todos los módulos y puede gestionar el equipo.', 'Admin sees every module and can manage the team.')}</div>}
+        {role === 'repartidor' && <div style={{ fontSize: 11.5, color: R.inkFaint }}>{t('El repartidor no entra a este panel: usará el panel de repartidor (/courier) para sus entregas.', 'The courier does not use this panel: they will use the courier panel (/courier) for deliveries.')}</div>}
+        {err && <div style={{ fontSize: 12, color: R.coral }}>{err}</div>}
+        {ok && <div style={{ fontSize: 12, color: R.jade }}>{ok}</div>}
+        <button onClick={invite} disabled={busy} style={{ alignSelf: 'flex-start', display: 'flex', alignItems: 'center', gap: 7, padding: '10px 16px', border: 'none', borderRadius: 10, background: busy ? R.inkSoft : R.ink, color: '#fff', cursor: busy ? 'default' : 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5 }}>
+          <Icon n="send" size={14} color="#fff" />{busy ? t('Enviando…', 'Sending…') : t('Enviar invitación', 'Send invitation')}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// Pantalla de activación de invitación de empleado (/biz?invite=<token>). Valida
+// el token, deja crear contraseña y luego entra según el rol.
+function BizAccept({ token, lang, onCancel }: { token: string; lang: Lang; onCancel: () => void }) {
+  const en = lang === 'en'
+  const t = (es: string, e: string) => (en ? e : es)
+  const [state, setState] = useState<'loading' | 'form' | 'error' | 'done'>('loading')
+  const [info, setInfo] = useState<{ email: string; role: BizRole; roleLabel: { es: string; en: string }; bizName: string } | null>(null)
+  const [pass, setPass] = useState('')
+  const [msg, setMsg] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    fetch(`/api/biz/team/accept?token=${encodeURIComponent(token)}`)
+      .then(async r => { const d = await r.json(); if (!r.ok) { setMsg(d.error || t('Invitación inválida.', 'Invalid invitation.')); setState('error') } else { setInfo(d); setState('form') } })
+      .catch(() => { setMsg(t('Sin conexión.', 'No connection.')); setState('error') })
+  }, [token])
+
+  async function submit() {
+    if (pass.length < 8) { setMsg(t('La contraseña debe tener al menos 8 caracteres.', 'Password must be at least 8 characters.')); return }
+    setBusy(true); setMsg('')
+    try {
+      const r = await fetch('/api/biz/team/accept', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token, password: pass }) })
+      const d = await r.json().catch(() => ({}))
+      if (!r.ok) { setMsg(d.error || t('No se pudo activar tu cuenta.', 'Could not activate your account.')); return }
+      // Inicia sesión con la cuenta recién creada y entra al panel correspondiente.
+      const supabase = createClient()
+      await supabase.auth.signInWithPassword({ email: d.email, password: pass })
+      window.location.href = d.bizPanel ? '/biz' : '/courier'
+    } catch { setMsg(t('Sin conexión con el servidor.', 'No connection to the server.')) }
+    finally { setBusy(false) }
+  }
+
+  return (
+    <div style={{ minHeight: '100vh', background: R.bg, display: 'grid', placeItems: 'center', fontFamily: R.ui, padding: 20 }}>
+      <div style={{ width: '100%', maxWidth: 420, background: R.surface, border: `1px solid ${R.line}`, borderRadius: 20, padding: 28 }}>
+        <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 22, color: R.ink, marginBottom: 6 }}>{t('Únete al equipo', 'Join the team')}</div>
+        {state === 'loading' && <div style={{ fontSize: 14, color: R.inkSoft }}>{t('Validando invitación…', 'Validating invitation…')}</div>}
+        {state === 'error' && (
+          <>
+            <div style={{ fontSize: 14, color: R.coral, marginBottom: 16 }}>{msg}</div>
+            <button onClick={onCancel} style={{ padding: '11px 18px', border: `1px solid ${R.line}`, borderRadius: 12, background: R.surface, color: R.ink, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14 }}>{t('Ir al inicio', 'Go home')}</button>
+          </>
+        )}
+        {state === 'form' && info && (
+          <>
+            <div style={{ fontSize: 14, color: R.inkSoft, marginBottom: 18, lineHeight: 1.5 }}>
+              {en
+                ? <>You were invited to <strong style={{ color: R.ink }}>{info.bizName}</strong> as <strong style={{ color: R.ink }}>{info.roleLabel.en}</strong>. Create a password for <strong style={{ color: R.ink }}>{info.email}</strong>.</>
+                : <>Te invitaron a <strong style={{ color: R.ink }}>{info.bizName}</strong> como <strong style={{ color: R.ink }}>{info.roleLabel.es}</strong>. Crea una contraseña para <strong style={{ color: R.ink }}>{info.email}</strong>.</>}
+            </div>
+            <input value={pass} onChange={e => { setPass(e.target.value); setMsg('') }} type="password" autoComplete="new-password" placeholder={t('Contraseña (mín. 8)', 'Password (min. 8)')} onKeyDown={e => e.key === 'Enter' && submit()}
+              style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${msg ? R.coral : R.line}`, borderRadius: 12, padding: '12px 14px', fontSize: 15, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.bg, marginBottom: 10 }} />
+            {msg && <div style={{ fontSize: 12.5, color: R.coral, marginBottom: 10 }}>{msg}</div>}
+            <button onClick={submit} disabled={busy} style={{ width: '100%', padding: '13px', border: 'none', borderRadius: 14, background: busy ? R.inkSoft : R.ink, color: '#fff', cursor: busy ? 'default' : 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 14.5 }}>
+              {busy ? t('Activando…', 'Activating…') : t('Crear mi acceso', 'Create my access')}
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
 
 // Interruptor reutilizable para Ajustes.
 function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void }) {
@@ -5518,7 +5743,7 @@ function daysUntil(iso: string | null): number | null {
   return Math.max(0, Math.ceil((new Date(iso).getTime() - Date.now()) / 86_400_000))
 }
 
-function SettingsView({ agentCfg, setAgentCfg, taxMode, setTaxMode, bizInfo, setBizInfo, vert, onGo, lang, setLang, onReload, profileInit, plan }: { agentCfg: BizAgentConfig; setAgentCfg: (u: BizAgentConfig | ((c: BizAgentConfig) => BizAgentConfig)) => void; taxMode: TaxMode; setTaxMode: (v: TaxMode) => void; bizInfo: BizInfo; setBizInfo: (v: BizInfo) => void; vert: Vert; onGo: (v: string) => void; lang: Lang; setLang: (l: Lang) => void; onReload: () => void; profileInit: { name: string; description: string; logo: string }; plan: PlanInfo }) {
+function SettingsView({ agentCfg, setAgentCfg, taxMode, setTaxMode, bizInfo, setBizInfo, vert, onGo, lang, setLang, onReload, profileInit, plan, role }: { agentCfg: BizAgentConfig; setAgentCfg: (u: BizAgentConfig | ((c: BizAgentConfig) => BizAgentConfig)) => void; taxMode: TaxMode; setTaxMode: (v: TaxMode) => void; bizInfo: BizInfo; setBizInfo: (v: BizInfo) => void; vert: Vert; onGo: (v: string) => void; lang: Lang; setLang: (l: Lang) => void; onReload: () => void; profileInit: { name: string; description: string; logo: string }; plan: PlanInfo; role: BizRole }) {
   const t = useT()
   const en = useEn()
   const agentOn = agentCfg.on
@@ -5705,30 +5930,6 @@ function SettingsView({ agentCfg, setAgentCfg, taxMode, setTaxMode, bizInfo, set
     }
     cancelAlertForm()
   }
-  const [employees, setEmployees] = useState<Employee[]>([
-    { id: 1, name: vert.full.split(' ')[0] + ' (tú)', email: '', role: 'Dueño', status: 'activo' },
-  ])
-  const [inviteEmail, setInviteEmail] = useState('')
-  const [inviteRole, setInviteRole] = useState<'Admin' | 'Caja'>('Admin')
-  const [inviteError, setInviteError] = useState('')
-  const [resentEmpIds, setResentEmpIds] = useState<number[]>([])
-
-  function flashResent(id: number) {
-    setResentEmpIds(prev => [...prev, id])
-    setTimeout(() => setResentEmpIds(prev => prev.filter(x => x !== id)), 2500)
-  }
-
-  function sendInvite() {
-    const email = inviteEmail.trim()
-    if (!email || !email.includes('@')) { setInviteError('Ingresa un correo válido.'); return }
-    const existing = employees.find(e => e.email === email)
-    if (existing?.status === 'activo') { setInviteError('Este correo ya tiene acceso activo.'); return }
-    if (existing?.status === 'invitado') { flashResent(existing.id); setInviteEmail(''); setInviteError(''); return }
-    setEmployees(prev => [...prev, { id: Date.now(), name: '', email, role: inviteRole, status: 'invitado' }])
-    setInviteEmail('')
-    setInviteError('')
-  }
-
   const fieldStyle: CSSProperties = { width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 10, padding: '11px 13px', fontSize: 14, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.bg }
   const lblStyle: CSSProperties = { display: 'block', fontSize: 11.5, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase', color: R.inkSoft, marginBottom: 5 }
   const titles: Record<string, string> = en
@@ -5823,85 +6024,8 @@ function SettingsView({ agentCfg, setAgentCfg, taxMode, setTaxMode, bizInfo, set
         </div>
       </div>
 
-      {/* ── Empleados ─────────────────────────────────── */}
-      <div style={{ background: R.surface, border: `1px solid ${R.line}`, borderRadius: 16, padding: '16px 18px', marginBottom: 20 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
-          <Icon n="users" size={17} color={R.coral} />
-          <span style={{ fontFamily: R.display, fontWeight: 700, fontSize: 15, color: R.ink }}>{t('Empleados', 'Employees')}</span>
-        </div>
-        <div style={{ fontSize: 13, color: R.inkSoft, marginBottom: 14 }}>{t('Acceso a la plataforma para tu equipo.', 'Platform access for your team.')}</div>
-
-        {/* member list */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14 }}>
-          {employees.map(emp => (
-            <div key={emp.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', background: R.bg, border: `1px solid ${R.line}`, borderRadius: 12 }}>
-              {/* avatar */}
-              <div style={{ width: 38, height: 38, borderRadius: '50%', background: emp.role === 'Dueño' ? R.coralTint : R.bgAlt, display: 'grid', placeItems: 'center', flexShrink: 0, fontFamily: R.display, fontWeight: 800, fontSize: 15, color: emp.role === 'Dueño' ? R.coralPress : R.inkSoft }}>
-                {(emp.name || emp.email).slice(0, 1).toUpperCase()}
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 700, fontSize: 13.5, color: R.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {emp.name || emp.email}
-                </div>
-                {emp.name && <div style={{ fontSize: 12, color: R.inkFaint, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{emp.email || '—'}</div>}
-              </div>
-              {/* role chip */}
-              <span style={{ fontSize: 11.5, fontWeight: 700, padding: '4px 9px', borderRadius: 999, background: emp.role === 'Dueño' ? R.coralTint : emp.role === 'Admin' ? R.jadeTint : R.bgAlt, color: emp.role === 'Dueño' ? R.coralPress : emp.role === 'Admin' ? R.jade : R.inkSoft, whiteSpace: 'nowrap' }}>
-                {emp.role === 'Dueño' ? t('Dueño', 'Owner') : emp.role === 'Caja' ? t('Caja', 'Register') : emp.role}
-              </span>
-              {/* status chip */}
-              {emp.status === 'invitado' && (
-                <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 999, whiteSpace: 'nowrap', background: resentEmpIds.includes(emp.id) ? R.jadeTint : R.amberTint, color: resentEmpIds.includes(emp.id) ? R.jade : R.amberDeep }}>
-                  {resentEmpIds.includes(emp.id) ? t('Reenviado ✓', 'Resent ✓') : t('Pendiente', 'Pending')}
-                </span>
-              )}
-              {emp.status === 'invitado' && (
-                <button onClick={() => flashResent(emp.id)} title={t('Reenviar invitación', 'Resend invitation')} aria-label={t('Reenviar', 'Resend')} style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 4, color: R.inkFaint, display: 'grid', placeItems: 'center' }}>
-                  <Icon n="send" size={13} color={R.inkFaint} />
-                </button>
-              )}
-              {/* remove (not for owner) */}
-              {emp.role !== 'Dueño' && (
-                <button onClick={() => setEmployees(prev => prev.filter(e => e.id !== emp.id))} style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 4, color: R.inkFaint, display: 'grid', placeItems: 'center' }} aria-label={t('Eliminar', 'Delete')}>
-                  <Icon n="x" size={15} color={R.inkFaint} />
-                </button>
-              )}
-            </div>
-          ))}
-        </div>
-
-        {/* invite form */}
-        <div style={{ borderTop: `1px solid ${R.line}`, paddingTop: 14 }}>
-          <div style={{ fontSize: 12.5, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase', color: R.inkSoft, marginBottom: 9 }}>{t('Invitar empleado', 'Invite employee')}</div>
-          <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-            <div style={{ position: 'relative', flex: 1 }}>
-              <div style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}>
-                <Icon n="mail" size={15} color={R.inkFaint} stroke={1.8} />
-              </div>
-              <input
-                value={inviteEmail}
-                onChange={e => { setInviteEmail(e.target.value); setInviteError('') }}
-                onKeyDown={e => e.key === 'Enter' && sendInvite()}
-                placeholder="correo@ejemplo.com"
-                style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${inviteError ? R.coral : R.line}`, borderRadius: 10, padding: '10px 12px 10px 34px', fontSize: 13.5, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.bg }}
-              />
-            </div>
-            {/* role selector */}
-            <select value={inviteRole} onChange={e => setInviteRole(e.target.value as 'Admin' | 'Caja')} style={{ border: `1px solid ${R.line}`, borderRadius: 10, padding: '10px 10px', fontSize: 13.5, color: R.ink, background: R.bg, fontFamily: R.ui, cursor: 'pointer', outline: 'none' }}>
-              <option value="Admin">Admin</option>
-              <option value="Caja">{t('Caja', 'Register')}</option>
-            </select>
-          </div>
-          {inviteError && <div style={{ fontSize: 12, color: R.coral, marginBottom: 6 }}>{inviteError}</div>}
-          <button onClick={sendInvite} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '10px 16px', border: 'none', borderRadius: 10, background: R.ink, color: '#fff', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5 }}>
-            <Icon n="send" size={14} color="#fff" />
-            {t('Enviar invitación', 'Send invitation')}
-          </button>
-          <div style={{ fontSize: 11.5, color: R.inkFaint, marginTop: 8 }}>
-            {t('Admin: gestiona reservas y mensajes. Caja: solo Punto de venta.', 'Admin: manages bookings and messages. Register: Point of sale only.')}
-          </div>
-        </div>
-      </div>
+      {/* ── Empleados ─── (solo dueño/admin gestionan el equipo) ─── */}
+      {canManageTeam(role) && <TeamManager bizId={SHARED_BIZ_ID[vert.id] ?? vert.id} en={en} />}
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {rows.map(row => (
@@ -7838,6 +7962,10 @@ export default function BizPage() {
   const [onboardBiz, setOnboardBiz] = useState<OwnerBusiness | null>(null)
   const [vertIdx, setVertIdx] = useState(0)
   const [view, setView] = useState('requests')
+  // Aceptación de invitación de empleado: /biz?invite=<token> muestra la pantalla
+  // de activación (crear contraseña) en vez del panel.
+  const [bizInviteToken, setBizInviteToken] = useState<string | null>(null)
+  useEffect(() => { const tk = new URLSearchParams(window.location.search).get('invite'); if (tk) setBizInviteToken(tk) }, [])
   // Idioma del panel — toggle propio del negocio, persistido en el dispositivo.
   const [lang, setLang] = useState<Lang>('es')
   useEffect(() => { try { const s = localStorage.getItem('reva-biz-lang'); if (s === 'en' || s === 'es') setLang(s) } catch {} }, [])
@@ -7912,6 +8040,22 @@ export default function BizPage() {
     setKioskExitPin(raw?.kiosk_exit_pin ?? '')
     setStripeReady(!!(raw?.stripe_account_id && raw?.stripe_charges_enabled))
   }, [vertIdx, verts, ownerBiz])
+
+  // Guardia de rol: el repartidor no entra al panel del negocio (va a /courier);
+  // y si la vista activa no está permitida para el rol, salta al primer submódulo
+  // al que sí tiene acceso. owner/admin ven todo, así que esto no les afecta.
+  useEffect(() => {
+    if (!ownerReady || !verts || verts.length === 0) return
+    const v = verts[vertIdx] ?? verts[0]
+    const raw = ownerBiz[vertIdx] ?? ownerBiz.find(b => b.id === v.id)
+    const role = raw?.role ?? 'owner'
+    const perms = raw?.permissions ?? null
+    if (role === 'repartidor') { window.location.href = '/courier'; return }
+    if (view !== 'settings' && !canAccessModule(role, perms, view)) {
+      const first = MODULE_GROUPS.flatMap(g => g.items).find(it => canAccessModule(role, perms, it.id))
+      if (first) setView(first.id)
+    }
+  }, [ownerReady, verts, ownerBiz, vertIdx, view])
 
   // Guardado de ajustes debounced hacia /api/biz/settings (evita un write por tecla).
   const settingsTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -8068,6 +8212,8 @@ export default function BizPage() {
   }, [view, reloadMetrics])
 
   // Gating — todos los hooks quedaron arriba.
+  // Invitación de empleado (/biz?invite=<token>): pantalla de activación, sin sesión.
+  if (bizInviteToken) return <LangContext.Provider value={lang}><BizAccept token={bizInviteToken} lang={lang} onCancel={() => { setBizInviteToken(null); window.history.replaceState({}, '', '/biz') }} /></LangContext.Provider>
   if (!ownerReady) {
     return (
       <div style={{ minHeight: '100vh', background: R.bg, display: 'grid', placeItems: 'center', fontFamily: R.ui, color: R.inkSoft, fontSize: 14 }}>
@@ -8085,6 +8231,12 @@ export default function BizPage() {
   }
 
   const vert = verts[vertIdx] ?? verts[0]
+  // Rol y permisos del usuario en sesión sobre el negocio activo. owner/admin ven
+  // todo; el resto sólo sus submódulos. Filtra el menú y bloquea acciones.
+  const rawActive = ownerBiz[vertIdx] ?? ownerBiz.find(b => b.id === vert.id)
+  const currentRole: BizRole = rawActive?.role ?? 'owner'
+  const currentPerms: BizPermissions | null = rawActive?.permissions ?? null
+  const canModule = (id: string) => canAccessModule(currentRole, currentPerms, id)
   const panelRequests = reservationsToRequests(reservations)
   const panelAgenda = reservationsToAgenda(reservations)
 
@@ -8129,7 +8281,7 @@ export default function BizPage() {
     if (view === 'inventory') return <InventoryView vert={vert} items={catalog} setItems={setCatalog} onGo={setView} />
     if (view === 'pos') return <PosView vert={vert} items={catalog} setItems={setCatalog} onGo={setView} taxMode={taxMode} bizInfo={bizInfo} />
     if (view === 'kiosk') return <KioskView vert={vert} items={catalog} setItems={setCatalog} onGo={setView} taxMode={taxMode} bizInfo={bizInfo} exitPin={kioskExitPin} onSetExitPin={persistKioskExitPin} stripeReady={stripeReady} />
-    if (view === 'sales') return <SalesHistoryView vert={vert} bizInfo={bizInfo} onGo={setView} />
+    if (view === 'sales') return <SalesHistoryView vert={vert} bizInfo={bizInfo} onGo={setView} canManagePin={canSeeVoidPin(currentRole)} />
     if (view === 'destacado') {
       const rawBiz = ownerBiz[vertIdx] ?? ownerBiz.find(b => b.id === vert.id)
       const isActive = !!rawBiz?.featured && (!rawBiz.featured_until || new Date(rawBiz.featured_until).getTime() > Date.now())
@@ -8158,7 +8310,7 @@ export default function BizPage() {
         cancelAtPeriodEnd: rawBiz?.plan_cancel_at_period_end ?? false,
         hasSubscription: !!rawBiz?.stripe_subscription_id,
       }
-      return <SettingsView agentCfg={agentCfg} setAgentCfg={setAgentCfg} taxMode={taxMode} setTaxMode={persistTaxMode} bizInfo={bizInfo} setBizInfo={persistBizInfo} vert={vert} onGo={setView} lang={lang} setLang={setLangPersist} onReload={reloadOwner} profileInit={profileInit} plan={plan} />
+      return <SettingsView agentCfg={agentCfg} setAgentCfg={setAgentCfg} taxMode={taxMode} setTaxMode={persistTaxMode} bizInfo={bizInfo} setBizInfo={persistBizInfo} vert={vert} onGo={setView} lang={lang} setLang={setLangPersist} onReload={reloadOwner} profileInit={profileInit} plan={plan} role={currentRole} />
     }
     return <PlaceholderView title={VIEW_TITLES[view]?.[0] ?? view} />
   }
@@ -8185,7 +8337,10 @@ export default function BizPage() {
             // Pedidos se muestra si el negocio acepta pedidos online O si ya hay
             // pedidos (p. ej. ventas del Punto de venta / Autoservicio enviadas al
             // tablero), para que el flujo de preparación/entrega siempre sea visible.
-            const items = group.items.filter(it => it.id !== 'orders' || vert.caps.orders || orders.length > 0)
+            const items = group.items
+              // Permisos del empleado: owner/admin ven todo; el resto sólo sus submódulos.
+              .filter(it => canModule(it.id))
+              .filter(it => it.id !== 'orders' || vert.caps.orders || orders.length > 0)
             if (!items.length) return null
             const ordersActive = orders.filter(o => !['delivered', 'cancelled', 'refunded'].includes(o.status)).length
             const groupBadge = items.reduce((n, it) => n + (it.id === 'requests' ? panelRequests.length : it.id === 'orders' ? ordersActive : it.id === 'messages' ? unreadMsgs : it.id === 'comunicados' ? commUnread : 0), 0)

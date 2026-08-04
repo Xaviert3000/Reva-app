@@ -2,6 +2,7 @@
 // The panel (/biz) uses this to render the owner's real business instead of the
 // baked-in demo verticals. Runs on the client with the user's session.
 import { createClient } from './supabase/client'
+import { BizRole, BizPermissions, normalizeRole } from './biz-roles'
 
 export interface OwnerService {
   id: string
@@ -61,6 +62,10 @@ export interface OwnerBusiness {
   tier: string | null
   featured_service_id: string | null
   featured_event: { title?: string; date?: string | null; description?: string | null; image_url?: string | null; days?: number[] | null; start_time?: string | null; end_time?: string | null; terms?: string | null } | null
+  // Rol y permisos del usuario en sesión sobre ESTE negocio. El panel filtra el
+  // menú y bloquea acciones según esto. owner/admin ven todo (permissions se ignora).
+  role: BizRole
+  permissions: BizPermissions | null
   services: OwnerService[]
 }
 
@@ -82,12 +87,21 @@ export async function loadOwnerSession(): Promise<OwnerSession> {
 
   const { data: memberRows } = await supabase
     .from('biz_members')
-    .select('biz_id')
+    .select('biz_id,role,permissions')
     .eq('user_id', user.id)
 
   const bizIds = (memberRows ?? []).map(r => r.biz_id).filter(Boolean) as string[]
   if (bizIds.length === 0) {
     return { userId: user.id, email: user.email ?? null, businesses: [] }
+  }
+  // Rol/permisos del usuario por negocio (para filtrar el menú y las acciones).
+  const roleByBiz = new Map<string, { role: BizRole; permissions: BizPermissions | null }>()
+  for (const r of (memberRows ?? [])) {
+    if (!r.biz_id) continue
+    roleByBiz.set(r.biz_id as string, {
+      role: normalizeRole(r.role as string),
+      permissions: (r.permissions as BizPermissions | null) ?? null,
+    })
   }
 
   const { data: bizRows } = await supabase
@@ -102,6 +116,8 @@ export async function loadOwnerSession(): Promise<OwnerSession> {
 
   const businesses: OwnerBusiness[] = (bizRows ?? []).map(b => ({
     ...b,
+    role: roleByBiz.get(b.id)?.role ?? 'owner',
+    permissions: roleByBiz.get(b.id)?.permissions ?? null,
     services: (svcRows ?? [])
       .filter(s => s.biz_id === b.id)
       .map(({ biz_id: _biz_id, ...s }) => s),

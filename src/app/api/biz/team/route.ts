@@ -1,0 +1,180 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { requireBizManager } from '@/lib/biz-auth'
+import { ASSIGNABLE_ROLES, BizRole, ROLE_LABEL, normalizeRole, ALL_MODULE_IDS } from '@/lib/biz-roles'
+
+export const dynamic = 'force-dynamic'
+
+// Equipo del negocio (empleados). Solo dueño/admin puede gestionarlo.
+//   GET    ?biz_id=            → miembros activos + invitaciones pendientes.
+//   POST   { biz_id, email, role, permissions? } → invita (fila + correo).
+//   PATCH  { biz_id, member_id?|invite_id?, role?, permissions? } → edita rol/permisos.
+//   DELETE { biz_id, member_id?|invite_id? }      → quita al empleado o cancela invitación.
+
+// Sanea la lista de submódulos permitidos (solo ids válidos y únicos).
+function cleanModules(raw: unknown): string[] | null {
+  if (!Array.isArray(raw)) return null
+  const ids = raw.filter(x => typeof x === 'string' && ALL_MODULE_IDS.includes(x))
+  return Array.from(new Set(ids))
+}
+
+// Rol asignable válido (owner nunca es asignable por la API).
+function cleanRole(raw: unknown): BizRole | null {
+  const r = normalizeRole(typeof raw === 'string' ? raw : '')
+  return ASSIGNABLE_ROLES.includes(r) ? r : null
+}
+
+export async function GET(req: NextRequest) {
+  const bizId = req.nextUrl.searchParams.get('biz_id')
+  if (!bizId) return NextResponse.json({ error: 'biz_id requerido' }, { status: 400 })
+  if (!(await requireBizManager(bizId))) return NextResponse.json({ error: 'No autorizado' }, { status: 403 })
+
+  const db = createAdminClient()
+  const { data: memberRows } = await db.from('biz_members').select('id,user_id,role,permissions').eq('biz_id', bizId)
+  const { data: inviteRows } = await db.from('biz_invites').select('id,email,role,permissions,status').eq('biz_id', bizId).eq('status', 'invitado')
+
+  // Correos de los miembros activos (biz_members guarda user_id, no email).
+  const { data: userList } = await db.auth.admin.listUsers()
+  const emailById = new Map<string, string>((userList?.users ?? []).map(u => [u.id, u.email ?? '']))
+
+  const members = (memberRows ?? []).map(m => {
+    const role = normalizeRole(m.role as string)
+    return {
+      id: m.id as string,
+      kind: 'member' as const,
+      email: emailById.get(m.user_id as string) ?? '',
+      role,
+      roleLabel: ROLE_LABEL[role],
+      permissions: (m.permissions as { modules: string[] } | null) ?? null,
+      status: 'activo' as const,
+      isOwner: role === 'owner',
+    }
+  })
+  const invites = (inviteRows ?? []).map(i => {
+    const role = normalizeRole(i.role as string)
+    return {
+      id: i.id as string,
+      kind: 'invite' as const,
+      email: i.email as string,
+      role,
+      roleLabel: ROLE_LABEL[role],
+      permissions: (i.permissions as { modules: string[] } | null) ?? null,
+      status: 'invitado' as const,
+      isOwner: false,
+    }
+  })
+
+  return NextResponse.json({ team: [...members, ...invites] })
+}
+
+export async function POST(req: NextRequest) {
+  const body = await req.json().catch(() => ({}))
+  const bizId = String(body.biz_id ?? '')
+  if (!bizId) return NextResponse.json({ error: 'biz_id requerido' }, { status: 400 })
+  const manager = await requireBizManager(bizId)
+  if (!manager) return NextResponse.json({ error: 'No autorizado' }, { status: 403 })
+
+  const email = String(body.email ?? '').trim().toLowerCase()
+  if (!email || !email.includes('@')) return NextResponse.json({ error: 'Ingresa un correo válido.' }, { status: 400 })
+  const role = cleanRole(body.role)
+  if (!role) return NextResponse.json({ error: 'Rol inválido.' }, { status: 400 })
+  const permissions = cleanModules(body.permissions)
+
+  const db = createAdminClient()
+
+  // ¿El correo ya es miembro activo de este negocio?
+  const { data: userList } = await db.auth.admin.listUsers()
+  const existingUser = (userList?.users ?? []).find(u => u.email?.toLowerCase() === email)
+  if (existingUser) {
+    const { data: already } = await db.from('biz_members').select('id').eq('biz_id', bizId).eq('user_id', existingUser.id).maybeSingle()
+    if (already) return NextResponse.json({ error: 'Este correo ya tiene acceso activo.' }, { status: 409 })
+  }
+
+  // Inserta (o reenvía renovando) la invitación.
+  const { data: existingInv } = await db.from('biz_invites').select('id,status').eq('biz_id', bizId).eq('email', email).maybeSingle()
+  let token: string
+  if (existingInv) {
+    const { data: up, error } = await db.from('biz_invites')
+      .update({ role, permissions, status: 'invitado', expires_at: new Date(Date.now() + 7 * 864e5).toISOString() })
+      .eq('id', existingInv.id).select('token').single()
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    token = up.token as string
+  } else {
+    const { data: ins, error } = await db.from('biz_invites')
+      .insert({ biz_id: bizId, email, role, permissions, invited_by: manager.userId })
+      .select('token').single()
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    token = ins.token as string
+  }
+
+  // Correo de invitación (best-effort: la fila ya quedó guardada aunque el correo
+  // falle). Reusa la edge function `send-team-invite` (Resend). El repartidor,
+  // aunque no entre al panel, recibe el mismo enlace para crear su acceso a /courier.
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://reva-app-ten.vercel.app'
+  const inviteUrl = `${appUrl}/biz?invite=${token}`
+  let warning: string | undefined
+  try {
+    const { error: fnErr } = await db.functions.invoke('send-team-invite', {
+      body: { email, role: ROLE_LABEL[role].es, inviteUrl, invitedBy: manager.userId },
+    })
+    if (fnErr) warning = 'La invitación se guardó, pero el correo pudo no enviarse.'
+  } catch {
+    warning = 'La invitación se guardó, pero el correo pudo no enviarse.'
+  }
+
+  return NextResponse.json({ ok: true, warning })
+}
+
+export async function PATCH(req: NextRequest) {
+  const body = await req.json().catch(() => ({}))
+  const bizId = String(body.biz_id ?? '')
+  if (!bizId) return NextResponse.json({ error: 'biz_id requerido' }, { status: 400 })
+  if (!(await requireBizManager(bizId))) return NextResponse.json({ error: 'No autorizado' }, { status: 403 })
+
+  const role = body.role !== undefined ? cleanRole(body.role) : undefined
+  if (body.role !== undefined && !role) return NextResponse.json({ error: 'Rol inválido.' }, { status: 400 })
+  const permissions = body.permissions !== undefined ? cleanModules(body.permissions) : undefined
+
+  const patch: Record<string, unknown> = {}
+  if (role !== undefined) patch.role = role
+  if (permissions !== undefined) patch.permissions = permissions
+  if (Object.keys(patch).length === 0) return NextResponse.json({ ok: true })
+
+  const db = createAdminClient()
+  if (body.member_id) {
+    // No permitir editar al dueño (evita degradarlo por error).
+    const { data: m } = await db.from('biz_members').select('role').eq('id', body.member_id).eq('biz_id', bizId).maybeSingle()
+    if (!m) return NextResponse.json({ error: 'Empleado no encontrado' }, { status: 404 })
+    if (normalizeRole(m.role as string) === 'owner') return NextResponse.json({ error: 'No se puede cambiar al dueño.' }, { status: 403 })
+    const { error } = await db.from('biz_members').update(patch).eq('id', body.member_id).eq('biz_id', bizId)
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  } else if (body.invite_id) {
+    const { error } = await db.from('biz_invites').update(patch).eq('id', body.invite_id).eq('biz_id', bizId)
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  } else {
+    return NextResponse.json({ error: 'Falta member_id o invite_id.' }, { status: 400 })
+  }
+  return NextResponse.json({ ok: true })
+}
+
+export async function DELETE(req: NextRequest) {
+  const body = await req.json().catch(() => ({}))
+  const bizId = String(body.biz_id ?? '')
+  if (!bizId) return NextResponse.json({ error: 'biz_id requerido' }, { status: 400 })
+  if (!(await requireBizManager(bizId))) return NextResponse.json({ error: 'No autorizado' }, { status: 403 })
+
+  const db = createAdminClient()
+  if (body.member_id) {
+    const { data: m } = await db.from('biz_members').select('role').eq('id', body.member_id).eq('biz_id', bizId).maybeSingle()
+    if (!m) return NextResponse.json({ error: 'Empleado no encontrado' }, { status: 404 })
+    if (normalizeRole(m.role as string) === 'owner') return NextResponse.json({ error: 'No se puede quitar al dueño.' }, { status: 403 })
+    const { error } = await db.from('biz_members').delete().eq('id', body.member_id).eq('biz_id', bizId)
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  } else if (body.invite_id) {
+    const { error } = await db.from('biz_invites').delete().eq('id', body.invite_id).eq('biz_id', bizId)
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  } else {
+    return NextResponse.json({ error: 'Falta member_id o invite_id.' }, { status: 400 })
+  }
+  return NextResponse.json({ ok: true })
+}

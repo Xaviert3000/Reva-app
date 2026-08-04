@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { requireBizAnyModule } from '@/lib/biz-auth'
 
 // Reservas del negocio para el panel del dueño.
 //  GET  ?biz_id=... → lista las reservas del negocio con el nombre del cliente.
@@ -26,6 +27,8 @@ export async function GET(req: NextRequest) {
   const bizId = req.nextUrl.searchParams.get('biz_id')
   const targetIds = bizId ? bizIds.filter(id => id === bizId) : bizIds
   if (targetIds.length === 0) return NextResponse.json({ error: 'No autorizado' }, { status: 403 })
+  // Permiso de módulo (Solicitudes/Agenda) cuando se consulta un negocio concreto.
+  if (bizId && !(await requireBizAnyModule(bizId, ['requests', 'agenda']))) return NextResponse.json({ error: 'Sin permiso para este módulo' }, { status: 403 })
 
   const admin = createAdminClient()
   const { data: rows, error } = await admin
@@ -71,6 +74,7 @@ export async function PATCH(req: NextRequest) {
   if (!bizIds.includes(rsv.biz_id as string)) {
     return NextResponse.json({ error: 'No autorizado' }, { status: 403 })
   }
+  if (!(await requireBizAnyModule(rsv.biz_id as string, ['requests', 'agenda']))) return NextResponse.json({ error: 'Sin permiso para este módulo' }, { status: 403 })
 
   const { error } = await admin.from('reservations').update({ status }).eq('id', id)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })

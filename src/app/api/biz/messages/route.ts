@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { requireBizAnyModule } from '@/lib/biz-auth'
 
 export const dynamic = 'force-dynamic'
 
@@ -23,6 +24,7 @@ export async function GET(req: NextRequest) {
   const bizId = req.nextUrl.searchParams.get('biz_id')
   const owned = await ownedBizIds(user.id)
   if (!bizId || !owned.includes(bizId)) return NextResponse.json({ error: 'No autorizado' }, { status: 403 })
+  if (!(await requireBizAnyModule(bizId, ['messages']))) return NextResponse.json({ error: 'Sin permiso para este módulo' }, { status: 403 })
 
   const admin = createAdminClient()
   const { data: rows } = await admin
@@ -70,6 +72,7 @@ export async function POST(req: NextRequest) {
 
   const owned = await ownedBizIds(user.id)
   if (!owned.includes(biz_id)) return NextResponse.json({ error: 'No autorizado' }, { status: 403 })
+  if (!(await requireBizAnyModule(biz_id, ['messages']))) return NextResponse.json({ error: 'Sin permiso para este módulo' }, { status: 403 })
 
   const admin = createAdminClient()
   const { data: msg, error } = await admin

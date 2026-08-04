@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { requireBizAnyModule } from '@/lib/biz-auth'
 
 // Historial de ventas del Punto de venta para el panel del dueño.
 //  GET  ?biz_id=... → lista las ventas del negocio (encabezado + renglones), más
@@ -26,6 +27,7 @@ export async function GET(req: NextRequest) {
   const bizId = req.nextUrl.searchParams.get('biz_id')
   const owned = await ownedBizIds(user.id)
   if (!bizId || !owned.includes(bizId)) return NextResponse.json({ error: 'No autorizado' }, { status: 403 })
+  if (!(await requireBizAnyModule(bizId, ['sales']))) return NextResponse.json({ error: 'Sin permiso para este módulo' }, { status: 403 })
 
   const admin = createAdminClient()
 
@@ -119,6 +121,7 @@ export async function PATCH(req: NextRequest) {
   if (!owned.includes(sale.biz_id as string)) {
     return NextResponse.json({ error: 'No autorizado' }, { status: 403 })
   }
+  if (!(await requireBizAnyModule(sale.biz_id as string, ['sales']))) return NextResponse.json({ error: 'Sin permiso para este módulo' }, { status: 403 })
 
   // Autorización para acciones sensibles: si el negocio configuró un PIN, anular
   // o reembolsar exige que coincida. Se valida aquí (servidor) para que ver el
