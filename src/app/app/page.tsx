@@ -908,6 +908,42 @@ function Concierge({ mode, onOpen, onBook, onBookService, onServiceDetail, onMod
 }
 
 // ── Discovery ──────────────────────────────────────────────
+
+// Estado de apertura según `hours` ("HH:MM – HH:MM", del panel del negocio).
+// null si no se puede interpretar. Maneja rangos que cruzan medianoche.
+function bizOpenState(hours: string): { open: boolean; opensAt: string } | null {
+  const parts = hours.split(/[–—-]/).map(s => s.trim()).filter(Boolean)
+  if (parts.length !== 2) return null
+  const toMin = (s: string): number | null => {
+    const m = s.split(':')
+    if (m.length !== 2) return null
+    const h = Number(m[0]), mm = Number(m[1])
+    return Number.isFinite(h) && Number.isFinite(mm) ? h * 60 + mm : null
+  }
+  const o = toMin(parts[0]), c = toMin(parts[1])
+  if (o == null || c == null) return null
+  const now = new Date()
+  const cur = now.getHours() * 60 + now.getMinutes()
+  const open = o <= c ? (cur >= o && cur < c) : (cur >= o || cur < c)
+  return { open, opensAt: parts[0] }
+}
+
+// Etiqueta "Abierto / Cerrado". `onDark` = sobre imagen (texto blanco).
+function OpenBadge({ biz, onDark = false }: { biz: Business; onDark?: boolean }) {
+  const en = useContext(LangContext) === 'en'
+  const st = bizOpenState(biz.hours)
+  if (!st) return null
+  const label = st.open ? (en ? 'Open' : 'Abierto') : (en ? 'Closed' : 'Cerrado')
+  const bg = onDark ? 'rgba(0,0,0,.32)' : (st.open ? '#DDF0E8' : '#F3EADD')
+  const color = onDark ? '#fff' : (st.open ? '#1F8A6D' : '#6B615A')
+  const dot = st.open ? '#1F8A6D' : '#A89E94'
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: bg, color, fontSize: 11, fontWeight: 700, padding: '3px 8px', borderRadius: 999, whiteSpace: 'nowrap', flexShrink: 0 }}>
+      <span style={{ width: 6, height: 6, borderRadius: '50%', background: dot }} />{label}
+    </span>
+  )
+}
+
 function MiniCard({ biz, mode, onOpen }: { biz: Business; mode: Mode; onOpen: () => void }) {
   const en = useContext(LangContext) === 'en'
   return (
@@ -918,8 +954,9 @@ function MiniCard({ biz, mode, onOpen }: { biz: Business; mode: Mode; onOpen: ()
       </div>
       <div style={{ padding: '11px 13px 13px' }}>
         <div style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 15, color: '#221C19', lineHeight: 1.15, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{biz.name}</div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 7 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 7, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 12, color: '#6B615A' }}>{biz.type} · {biz.dist} km</span>
+          <OpenBadge biz={biz} />
         </div>
       </div>
     </div>
@@ -941,8 +978,9 @@ function DestacadoCard({ biz, onOpen }: { biz: Business; onOpen: () => void }) {
       </div>
       <div style={{ padding: '11px 13px 13px' }}>
         <div style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 15, color: '#221C19', lineHeight: 1.15, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{biz.name}</div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 7 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 7, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 12, color: '#6B615A' }}>{biz.type} · {biz.dist} km</span>
+          <OpenBadge biz={biz} />
         </div>
       </div>
     </div>
@@ -982,6 +1020,7 @@ function HeroFeatured({ biz, mode, onOpen }: { biz: Business; mode: Mode; onOpen
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
           <Stars rating={biz.rating} />
           <span style={{ fontSize: 12.5, opacity: .9 }}>{biz.type}</span>
+          <OpenBadge biz={biz} onDark />
         </div>
         {/* El héroe es el negocio Premium (los eventos van a la franja). */}
         <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 25, lineHeight: 1.1 }}>{biz.name}</div>
@@ -1204,6 +1243,7 @@ function BizDetail({ biz, mode, onClose, onBook, onOpenCart, onMessage }: { biz:
           <div style={{ display: 'flex', gap: 8, marginTop: 14, flexWrap: 'wrap' }}>
             <span style={{ fontSize: 13, fontWeight: 600, color: '#6B615A', background: '#F3EADD', padding: '7px 13px', borderRadius: 999 }}>{biz.type}</span>
             <span style={{ fontSize: 13, fontWeight: 600, color: '#6B615A', background: '#F3EADD', padding: '7px 13px', borderRadius: 999 }}>🕐 {biz.hours}</span>
+            <span style={{ display: 'inline-flex', alignItems: 'center' }}><OpenBadge biz={biz} /></span>
             {biz.localFav && <span style={{ fontSize: 13, fontWeight: 700, color: '#1F8A6D', background: '#DDF0E8', padding: '7px 13px', borderRadius: 999 }}>★ Local fav</span>}
           </div>
 
