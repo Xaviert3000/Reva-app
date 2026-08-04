@@ -1116,9 +1116,8 @@ function Discovery({ mode, onOpen, onBook, onModeToggle, onBell, onMsg }: { mode
       {/* local favs */}
       {favs.length > 0 && (
         <>
-          <div style={{ padding: '0 16px', marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ padding: '0 16px', marginBottom: 12 }}>
             <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 20, color: '#221C19' }}>{en ? 'Local favorites' : 'Favoritos locales'}</div>
-            <span style={{ fontSize: 13.5, fontWeight: 600, color: '#E8505B' }}>{en ? 'See all' : 'Ver todo'}</span>
           </div>
           <div style={{ display: 'flex', gap: 12, padding: '0 16px 24px', overflowX: 'auto' }}>
             {favs.map(b => <MiniCard key={b.id} biz={b} mode={mode} onOpen={() => onOpen(b)} />)}
