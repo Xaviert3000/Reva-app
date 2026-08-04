@@ -4565,6 +4565,31 @@ function SalesHistoryView({ vert, bizInfo, onGo }: { vert: Vert; bizInfo: BizInf
   const [reason, setReason] = useState('')
   const [restock, setRestock] = useState(true)   // ¿devolver las unidades al inventario?
   const [busy, setBusy] = useState(false)
+  // Autorización: ¿el negocio exige PIN para anular/reembolsar? El PIN capturado
+  // en el paso de confirmación y su error de validación (PIN incorrecto).
+  const [authPinSet, setAuthPinSet] = useState(false)
+  const [pinInput, setPinInput] = useState('')
+  const [pinErr, setPinErr] = useState(false)
+  const [secOpen, setSecOpen] = useState(false)   // editor de seguridad (configurar el PIN)
+  const [secPin, setSecPin] = useState('')        // PIN nuevo que se está capturando en el editor
+  const [secBusy, setSecBusy] = useState(false)
+  const [secMsg, setSecMsg] = useState('')
+
+  // Guarda (o quita) el PIN de autorización del negocio. `pin` vacío lo desactiva.
+  async function saveAuthPin(pin: string) {
+    setSecBusy(true); setSecMsg('')
+    try {
+      const r = await fetch('/api/biz/settings', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ biz_id: bizId, void_auth_pin: pin }),
+      })
+      if (!r.ok) { setSecMsg(t('No se pudo guardar. Intenta de nuevo.', 'Could not save. Try again.')); return }
+      setAuthPinSet(pin.length >= 4)
+      setSecPin(''); setSecOpen(false)
+    } catch {
+      setSecMsg(t('Sin conexión con el servidor', 'No connection to the server'))
+    } finally { setSecBusy(false) }
+  }
 
   const load = useCallback(async () => {
     setError('')
@@ -4573,6 +4598,7 @@ function SalesHistoryView({ vert, bizInfo, onGo }: { vert: Vert; bizInfo: BizInf
       if (!r.ok) { setSales([]); setError(r.status === 403 ? t('No autorizado', 'Not authorized') : t('No se pudieron cargar las ventas', 'Could not load sales')); return }
       const d = await r.json()
       setSales((d.sales ?? []) as SaleRow[])
+      setAuthPinSet(!!d.auth_pin_set)
     } catch {
       setSales([]); setError(t('Sin conexión con el servidor', 'No connection to the server'))
     }
@@ -4699,20 +4725,25 @@ function SalesHistoryView({ vert, bizInfo, onGo }: { vert: Vert; bizInfo: BizInf
     setTimeout(() => { try { w?.focus(); w?.print() } catch {} setTimeout(() => frame.remove(), 800) }, 150)
   }
 
-  async function applyStatus(s: SaleRow, status: 'paid' | 'void' | 'refunded', why: string, doRestock: boolean) {
+  async function applyStatus(s: SaleRow, status: 'paid' | 'void' | 'refunded', why: string, doRestock: boolean, authPin?: string) {
     setBusy(true)
-    setError('')
+    setError(''); setPinErr(false)
     try {
       const r = await fetch('/api/biz/sales', {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: s.id, status, reason: why, restock: doRestock }),
+        body: JSON.stringify({ id: s.id, status, reason: why, restock: doRestock, pin: authPin }),
       })
-      if (!r.ok) { setError(t('No se pudo actualizar la venta', 'Could not update the sale')); return }
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({} as { code?: string }))
+        // PIN incorrecto: no cierres el paso — marca el error y deja reintentar.
+        if (err.code === 'pin') { setPinErr(true); return }
+        setError(t('No se pudo actualizar la venta', 'Could not update the sale')); return
+      }
       const data = await r.json().catch(() => ({} as { restocked?: boolean }))
       const note = status === 'paid' ? null : (why.trim() || s.note)
       setSales(prev => (prev ?? []).map(x => x.id === s.id ? { ...x, status, note } : x))
       setDetail(prev => prev && prev.id === s.id ? { ...prev, status, note } : prev)
-      setConfirm(null); setReason('')
+      setConfirm(null); setReason(''); setPinInput('')
       // El estatus se guardó; si pidió reponer inventario y no ocurrió (RPC 021 sin
       // aplicar), avísalo para que ajuste el stock a mano en Inventario.
       const wantedRestock = doRestock && s.items.some(it => it.tracked)
@@ -4763,11 +4794,41 @@ function SalesHistoryView({ vert, bizInfo, onGo }: { vert: Vert; bizInfo: BizInf
         <div style={{ display: 'flex', gap: 8 }}>
           {chip('todas', t('Todas', 'All'))}{chip('paid', t('Pagadas', 'Paid'))}{chip('void', t('Anuladas', 'Voided'))}{chip('refunded', t('Reembolsadas', 'Refunded'))}
         </div>
+        <button onClick={() => { setSecOpen(v => !v); setSecPin(''); setSecMsg('') }} title={t('Autorización para anular o reembolsar', 'Authorization to void or refund')}
+          style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 16px', borderRadius: 999, border: `1px solid ${authPinSet ? R.jade : R.line}`, background: authPinSet ? (R.jadeTint ?? R.surface) : R.surface, color: authPinSet ? R.jade : R.ink, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13 }}>
+          <Icon n="shield" size={16} color={authPinSet ? R.jade : R.ink} /> {t('Seguridad', 'Security')}
+        </button>
         <button onClick={printReport} disabled={list.length === 0} title={t('Imprimir el historial que ves en pantalla', 'Print the history shown on screen')}
           style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 16px', borderRadius: 999, border: `1px solid ${R.line}`, background: R.surface, color: list.length === 0 ? R.inkFaint : R.ink, cursor: list.length === 0 ? 'default' : 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13, opacity: list.length === 0 ? .6 : 1 }}>
           <Icon n="printer" size={16} color={list.length === 0 ? R.inkFaint : R.ink} /> {t('Imprimir', 'Print')}
         </button>
       </div>
+
+      {/* Editor de seguridad: PIN de autorización para anular/reembolsar */}
+      {secOpen && (
+        <div style={{ border: `1px solid ${R.line}`, borderRadius: 14, padding: 16, marginBottom: 14, background: R.surface, display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Icon n="shield" size={16} color={R.ink} />
+            <span style={{ fontSize: 14, fontWeight: 800, color: R.ink }}>{t('Autorización para anular o reembolsar', 'Authorization to void or refund')}</span>
+            <span style={{ marginLeft: 'auto', fontSize: 11.5, fontWeight: 700, color: authPinSet ? R.jade : R.inkFaint, background: authPinSet ? (R.jadeTint ?? R.bgAlt) : R.bgAlt, padding: '3px 10px', borderRadius: 999 }}>
+              {authPinSet ? t('Activo', 'On') : t('Sin PIN', 'Off')}
+            </span>
+          </div>
+          <span style={{ fontSize: 12.5, color: R.inkSoft, lineHeight: 1.5 }}>
+            {t('Con un PIN puesto, Reva lo pedirá antes de anular o reembolsar cualquier venta. Así sólo el personal autorizado puede hacerlo. Deja el campo vacío y guarda para quitarlo.', 'With a PIN set, Reva will ask for it before voiding or refunding any sale, so only authorized staff can do it. Leave the field empty and save to remove it.')}
+          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <input value={secPin} onChange={e => { setSecPin(e.target.value.replace(/\D/g, '').slice(0, 6)); setSecMsg('') }}
+              type="password" inputMode="numeric" autoComplete="off" placeholder={authPinSet ? t('Nuevo PIN (4–6 dígitos)', 'New PIN (4–6 digits)') : t('PIN (4–6 dígitos)', 'PIN (4–6 digits)')}
+              style={{ width: 200, boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 10, padding: '10px 12px', fontSize: 15, letterSpacing: 3, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.surface }} />
+            <button disabled={secBusy || (secPin.length > 0 && secPin.length < 4)} onClick={() => saveAuthPin(secPin)}
+              style={{ padding: '10px 18px', borderRadius: 999, border: 'none', background: (secBusy || (secPin.length > 0 && secPin.length < 4)) ? R.inkSoft : R.ink, color: '#fff', cursor: (secBusy || (secPin.length > 0 && secPin.length < 4)) ? 'default' : 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13 }}>
+              {secBusy ? t('Guardando…', 'Saving…') : secPin.length >= 4 ? t('Guardar PIN', 'Save PIN') : authPinSet ? t('Quitar PIN', 'Remove PIN') : t('Guardar', 'Save')}
+            </button>
+          </div>
+          {secMsg && <span style={{ fontSize: 12, color: R.coral }}>{secMsg}</span>}
+        </div>
+      )}
 
       {/* Filtro por periodo */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
@@ -4893,9 +4954,22 @@ function SalesHistoryView({ vert, bizInfo, onGo }: { vert: Vert; bizInfo: BizInf
                         </label>
                       )
                     })()}
+                    {authPinSet && (
+                      <div style={{ marginBottom: 12 }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12.5, fontWeight: 700, color: R.ink, marginBottom: 6 }}>
+                          <Icon n="shield" size={14} color={R.ink} /> {t('PIN de autorización', 'Authorization PIN')}
+                        </label>
+                        <input value={pinInput} onChange={e => { setPinInput(e.target.value.replace(/\D/g, '').slice(0, 6)); setPinErr(false) }}
+                          type="password" inputMode="numeric" autoComplete="off" placeholder="••••"
+                          style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${pinErr ? R.coral : R.line}`, borderRadius: 10, padding: '10px 12px', fontSize: 15, letterSpacing: 4, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.surface }} />
+                        <span style={{ display: 'block', fontSize: 11.5, color: pinErr ? R.coral : R.inkSoft, marginTop: 5 }}>
+                          {pinErr ? t('PIN incorrecto. Inténtalo de nuevo.', 'Wrong PIN. Try again.') : t('Requerido para anular o reembolsar.', 'Required to void or refund.')}
+                        </span>
+                      </div>
+                    )}
                     <div style={{ display: 'flex', gap: 10 }}>
-                      <button disabled={busy} onClick={() => { setConfirm(null); setReason('') }} style={{ flex: 1, padding: '12px', border: 'none', borderRadius: 12, background: R.bgAlt, color: R.inkSoft, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5 }}>{t('Cancelar', 'Cancel')}</button>
-                      <button disabled={busy} onClick={() => applyStatus(detail, confirm.type, reason, restock)} style={{ flex: 1.6, padding: '12px', border: 'none', borderRadius: 12, background: confirm.type === 'void' ? R.coral : R.amber, color: '#fff', cursor: busy ? 'default' : 'pointer', fontFamily: R.ui, fontWeight: 800, fontSize: 13.5, opacity: busy ? .7 : 1 }}>
+                      <button disabled={busy} onClick={() => { setConfirm(null); setReason(''); setPinInput(''); setPinErr(false) }} style={{ flex: 1, padding: '12px', border: 'none', borderRadius: 12, background: R.bgAlt, color: R.inkSoft, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5 }}>{t('Cancelar', 'Cancel')}</button>
+                      <button disabled={busy || (authPinSet && pinInput.length < 4)} onClick={() => applyStatus(detail, confirm.type, reason, restock, pinInput)} style={{ flex: 1.6, padding: '12px', border: 'none', borderRadius: 12, background: confirm.type === 'void' ? R.coral : R.amber, color: '#fff', cursor: (busy || (authPinSet && pinInput.length < 4)) ? 'default' : 'pointer', fontFamily: R.ui, fontWeight: 800, fontSize: 13.5, opacity: (busy || (authPinSet && pinInput.length < 4)) ? .7 : 1 }}>
                         {busy ? t('Guardando…', 'Saving…') : confirm.type === 'void' ? t('Sí, anular', 'Yes, void') : t('Sí, reembolsar', 'Yes, refund')}
                       </button>
                     </div>
@@ -4914,8 +4988,8 @@ function SalesHistoryView({ vert, bizInfo, onGo }: { vert: Vert; bizInfo: BizInf
                           {en ? <><b style={{ color: R.ink }}>Void</b>: fix an on-the-spot error. <b style={{ color: R.ink }}>Refund</b>: return the money on a correct sale. Reva doesn’t move money — do it on your terminal or register.</> : <><b style={{ color: R.ink }}>Anular</b>: corrige un error del momento. <b style={{ color: R.ink }}>Reembolsar</b>: devuelve el dinero de una venta correcta. Reva no mueve el dinero — hazlo en tu terminal o caja.</>}
                         </div>
                         <div style={{ display: 'flex', gap: 10 }}>
-                          <button onClick={() => { setReason(''); setRestock(false); setConfirm({ type: 'refunded' }) }} style={{ flex: 1, padding: '12px', border: `1px solid ${R.amber}`, borderRadius: 12, background: R.amberTint, color: R.amberDeep, cursor: 'pointer', fontFamily: R.ui, fontWeight: 800, fontSize: 13.5 }}>{t('Reembolsar', 'Refund')}</button>
-                          <button onClick={() => { setReason(''); setRestock(true); setConfirm({ type: 'void' }) }} style={{ flex: 1, padding: '12px', border: 'none', borderRadius: 12, background: R.coral, color: '#fff', cursor: 'pointer', fontFamily: R.ui, fontWeight: 800, fontSize: 13.5 }}>{t('Anular venta', 'Void sale')}</button>
+                          <button onClick={() => { setReason(''); setRestock(false); setPinInput(''); setPinErr(false); setConfirm({ type: 'refunded' }) }} style={{ flex: 1, padding: '12px', border: `1px solid ${R.amber}`, borderRadius: 12, background: R.amberTint, color: R.amberDeep, cursor: 'pointer', fontFamily: R.ui, fontWeight: 800, fontSize: 13.5 }}>{t('Reembolsar', 'Refund')}</button>
+                          <button onClick={() => { setReason(''); setRestock(true); setPinInput(''); setPinErr(false); setConfirm({ type: 'void' }) }} style={{ flex: 1, padding: '12px', border: 'none', borderRadius: 12, background: R.coral, color: '#fff', cursor: 'pointer', fontFamily: R.ui, fontWeight: 800, fontSize: 13.5 }}>{t('Anular venta', 'Void sale')}</button>
                         </div>
                       </>
                     ) : (

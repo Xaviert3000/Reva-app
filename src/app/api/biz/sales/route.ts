@@ -28,6 +28,14 @@ export async function GET(req: NextRequest) {
   if (!bizId || !owned.includes(bizId)) return NextResponse.json({ error: 'No autorizado' }, { status: 403 })
 
   const admin = createAdminClient()
+
+  // ¿El negocio exige PIN para anular/reembolsar? Sólo devolvemos el booleano,
+  // nunca el PIN. Best-effort: si la columna aún no existe (migración 047 sin
+  // aplicar) el historial sigue funcionando sin autorización.
+  let authPinSet = false
+  const { data: bizRow } = await admin.from('businesses').select('void_auth_pin').eq('id', bizId).maybeSingle()
+  if (bizRow && typeof bizRow.void_auth_pin === 'string' && bizRow.void_auth_pin.length >= 4) authPinSet = true
+
   const { data: rows, error } = await admin
     .from('pos_sales')
     .select('id,total,subtotal,tax_amount,item_count,payment_method,auth_code,card_last4,reference,status,note,created_at,pos_sale_items(name,qty,unit_price,service_id,service:services(stock))')
@@ -89,7 +97,7 @@ export async function GET(req: NextRequest) {
     })),
   }))
 
-  return NextResponse.json({ sales })
+  return NextResponse.json({ sales, auth_pin_set: authPinSet })
 }
 
 export async function PATCH(req: NextRequest) {
@@ -97,7 +105,7 @@ export async function PATCH(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
 
-  const { id, status, reason, restock } = await req.json()
+  const { id, status, reason, restock, pin } = await req.json()
   const allowed = ['paid', 'refunded', 'void']
   if (!id || !allowed.includes(status)) {
     return NextResponse.json({ error: 'Parámetros inválidos' }, { status: 400 })
@@ -110,6 +118,21 @@ export async function PATCH(req: NextRequest) {
   const owned = await ownedBizIds(user.id)
   if (!owned.includes(sale.biz_id as string)) {
     return NextResponse.json({ error: 'No autorizado' }, { status: 403 })
+  }
+
+  // Autorización para acciones sensibles: si el negocio configuró un PIN, anular
+  // o reembolsar exige que coincida. Se valida aquí (servidor) para que ver el
+  // código en el navegador no baste. Reactivar como 'paid' no lo pide. Best-effort
+  // con la columna: si aún no existe (migración 047), no hay gate.
+  if (status === 'void' || status === 'refunded') {
+    const { data: bizRow } = await admin.from('businesses').select('void_auth_pin').eq('id', sale.biz_id).maybeSingle()
+    const authPin = bizRow && typeof bizRow.void_auth_pin === 'string' && bizRow.void_auth_pin.length >= 4 ? bizRow.void_auth_pin : null
+    if (authPin) {
+      const given = String(pin ?? '').replace(/\D/g, '')
+      if (given !== authPin) {
+        return NextResponse.json({ error: 'PIN de autorización incorrecto', code: 'pin' }, { status: 403 })
+      }
+    }
   }
 
   const patch: Record<string, unknown> = { status }

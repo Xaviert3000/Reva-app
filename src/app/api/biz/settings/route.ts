@@ -56,6 +56,12 @@ export async function POST(req: NextRequest) {
     const pin = String(body.kiosk_exit_pin ?? '').replace(/\D/g, '').slice(0, 6)
     patch.kiosk_exit_pin = pin.length >= 4 ? pin : null
   }
+  // PIN de autorización para anular/reembolsar en Ventas. Sólo dígitos (4–6);
+  // vacío/null lo desactiva (las acciones vuelven a la confirmación simple).
+  if (body.void_auth_pin !== undefined) {
+    const pin = String(body.void_auth_pin ?? '').replace(/\D/g, '').slice(0, 6)
+    patch.void_auth_pin = pin.length >= 4 ? pin : null
+  }
   if (Object.keys(patch).length === 0) return NextResponse.json({ ok: true })
 
   const { error } = await admin.from('businesses').update(patch).eq('id', bizId)
