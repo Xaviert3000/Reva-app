@@ -7980,7 +7980,13 @@ export default function BizPage() {
   // Con sesión pero sin negocio configurado → onboarding.
   const reloadOwner = useCallback(async () => {
     const session = await loadOwnerSession()
-    if (!session.userId) { window.location.href = '/biz/login'; return }
+    if (!session.userId) {
+      // Si viene con invitación (/biz?invite=<token>) no mandamos a login: el
+      // invitado aún no tiene sesión y la pantalla BizAccept crea su cuenta y
+      // contraseña. Redirigir aquí se llevaba el ?invite= y rompía el flujo.
+      if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('invite')) return
+      window.location.href = '/biz/login'; return
+    }
     if (session.businesses.length === 0) {
       // Registrado antes de crear el negocio: el onboarding lo completa.
       setVerts([]); setNeedsOnboarding(true); setOnboardBiz(null); setOwnerReady(true)

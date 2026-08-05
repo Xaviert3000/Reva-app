@@ -123,11 +123,15 @@ export async function POST(req: NextRequest) {
   // aunque no entre al panel, recibe el mismo enlace para crear su acceso a /courier.
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://reva-app-ten.vercel.app'
   const inviteUrl = `${appUrl}/biz?invite=${token}`
+  // Nombre del negocio para el correo ("<Negocio> te ha invitado…"); antes se
+  // pasaba el UUID del dueño, que se veía en el correo.
+  const { data: bizRow } = await db.from('businesses').select('full_name,name').eq('id', bizId).maybeSingle()
+  const invitedByName = (bizRow?.full_name || bizRow?.name || undefined) as string | undefined
   let warning: string | undefined
   let mailErrorDetail: string | undefined
   try {
     const { error: fnErr } = await db.functions.invoke('send-team-invite', {
-      body: { email, role: ROLE_LABEL[role].es, inviteUrl, invitedBy: manager.userId },
+      body: { email, role: ROLE_LABEL[role].es, inviteUrl, invitedBy: invitedByName },
     })
     if (fnErr) {
       // Extrae el detalle real: si la función respondió non-2xx, `context` es la
