@@ -4,7 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { openrouterChat, type ChatMessage } from '@/lib/openrouter'
 import { bizChatSystemPrompt } from '@/lib/ai-prompts'
 import { loadPlatformConfig, resolvedPrompt, modelChain } from '@/lib/platform-config'
-import type { Mode } from '@/lib/data'
+import { isOpenNow, bizLocalTimeLabel, type Mode } from '@/lib/data'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 30
@@ -15,10 +15,27 @@ interface DbMessage { id: string; biz_id: string; user_id: string; from_role: st
 // negocio. Le da el catálogo de productos con su id y le pide terminar con un
 // marcador oculto cuando el cliente confirma qué quiere pedir. La app usa ese
 // marcador para pintar tarjetas "Agregar" y llenar el carrito de verdad.
-function orderProtocol(products: { id: string; name: string; price: string }[]): string {
-  if (products.length === 0) return ''
+function orderProtocol(
+  products: { id: string; name: string; price: string }[],
+  ctx: { openNow: boolean; hours: string; nowLabel: string },
+): string {
+  // Estado actual del negocio: el agente debe respetar el horario. El checkout
+  // también bloquea pedidos si está cerrado, así que aceptar uno estando cerrado
+  // sería un callejón sin salida para el cliente.
+  const stateBlock = `
+
+HORARIO Y ESTADO ACTUAL (respétalo SIEMPRE)
+- Ahora mismo (hora local del negocio): ${ctx.nowLabel}.
+- Horario del negocio: ${ctx.hours || 'no especificado'}.
+- En este momento el negocio está ${ctx.openNow ? 'ABIERTO.' : 'CERRADO.'}${ctx.openNow ? '' : `
+- Como está CERRADO: NO tomes pedidos de productos ni confirmes un pedido para pagar ahora (el pago está bloqueado fuera de horario). Con amabilidad, dile que ahorita están cerrados e indícale el horario (${ctx.hours || 'consultar horario'}) para que regrese a ordenar. NUNCA digas que sí puedes tomarle el pedido ahora. Las reservas para una fecha/hora futura sí las puedes seguir gestionando normalmente.`}`
+
+  // Si no hay productos pedibles o el negocio está cerrado, solo damos el estado
+  // (sin instrucciones para emitir el marcador de pedido).
+  if (products.length === 0 || !ctx.openNow) return stateBlock
+
   const list = products.map(p => `  • ${p.name}${p.price ? ` (${p.price})` : ''} → id: ${p.id}`).join('\n')
-  return `
+  return `${stateBlock}
 
 ARMAR EL PEDIDO (muy importante)
 Estos son los productos que el cliente puede PEDIR y pagar en línea, con su id:
@@ -160,10 +177,12 @@ export async function POST(req: NextRequest) {
       },
       resolvedPrompt(cfg, 'biz-chat'),
     )
-    // Protocolo de pedido (en código, no en el prompt editable, para que funcione
-    // aunque el dueño personalice el prompt): lista los productos con su id y le
-    // pide cerrar el pedido con un marcador oculto que la app convierte en carrito.
-    system += orderProtocol(products)
+    // Protocolo de pedido + estado del horario (en código, no en el prompt
+    // editable, para que funcione aunque el dueño personalice el prompt): lista los
+    // productos con su id, le dice si está abierto/cerrado y le pide cerrar el
+    // pedido con un marcador oculto que la app convierte en carrito.
+    const openNow = isOpenNow(biz?.hours)
+    system += orderProtocol(products, { openNow, hours: biz?.hours ?? '', nowLabel: bizLocalTimeLabel() })
 
     const apiMsgs: ChatMessage[] = (hist ?? []).map(h => ({
       role: (h.from_role === 'biz' ? 'assistant' : 'user') as 'assistant' | 'user',
@@ -176,9 +195,15 @@ export async function POST(req: NextRequest) {
     }
 
     // Extrae el marcador `<!-- order: id*qty, ... -->` y lo quita del texto visible.
-    const parsed = parseOrderMarker(replyText, new Set(products.map(p => p.id)))
-    replyText = parsed.text
-    order = parsed.order
+    // Estando CERRADO nunca ofrecemos tarjetas de pedido (el checkout lo bloquea):
+    // solo limpiamos cualquier comentario que el modelo hubiera dejado.
+    if (openNow) {
+      const parsed = parseOrderMarker(replyText, new Set(products.map(p => p.id)))
+      replyText = parsed.text
+      order = parsed.order
+    } else {
+      replyText = replyText.replace(/<!--[\s\S]*?-->/g, '').replace(/\n{3,}/g, '\n\n').trim()
+    }
   } catch { /* sin IA: se guarda un aviso abajo */ }
 
   if (!replyText) replyText = 'Gracias por tu mensaje — el negocio te responderá en breve.'

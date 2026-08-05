@@ -202,17 +202,42 @@ export function isScheduled(s?: Service): boolean {
   return !s || s.scheduled !== false
 }
 
+// Zona horaria de los negocios (BCS = America/Mazatlan, sin horario de verano).
+// Todos los negocios de la plataforma están en BCS; si más adelante hay otros
+// estados, habría que resolver la tz por negocio.
+export const BIZ_TZ = 'America/Mazatlan'
+
+// Minutos del día (0–1439) en la hora LOCAL del negocio, no la del servidor.
+// Importa porque en producción (Vercel) el server corre en UTC: usar getHours()
+// daría un "ahora" corrido ~7h y calcularía mal abierto/cerrado.
+function bizMinutesOfDay(now: Date = new Date()): number {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: BIZ_TZ, hour: '2-digit', minute: '2-digit', hour12: false,
+  }).formatToParts(now)
+  const h = +(parts.find(p => p.type === 'hour')?.value ?? '0')
+  const m = +(parts.find(p => p.type === 'minute')?.value ?? '0')
+  return h * 60 + m
+}
+
+// Etiqueta legible del "ahora" local del negocio (día + hora), para dar contexto
+// al agente de IA del chat.
+export function bizLocalTimeLabel(now: Date = new Date()): string {
+  return new Intl.DateTimeFormat('es-MX', {
+    timeZone: BIZ_TZ, weekday: 'long', hour: '2-digit', minute: '2-digit', hour12: false,
+  }).format(now)
+}
+
 // ¿El negocio está abierto AHORA según su horario "HH:MM – HH:MM"? Soporta rangos
 // que cruzan medianoche (ej. "18:00 – 01:00"). Si el horario no es parseable o está
 // vacío, devuelve true (no bloquea): mejor permitir que trabar por un dato ausente.
-// Lo usan el checkout de pedidos (server) y la ficha del cliente para respetar el
-// horario tanto en pedidos como en reservas.
+// Lo usan el checkout de pedidos (server), el chat del negocio y la ficha del
+// cliente para respetar el horario tanto en pedidos como en reservas.
 export function isOpenNow(hours: string | null | undefined, now: Date = new Date()): boolean {
   const m = (hours ?? '').match(/(\d{1,2}):(\d{2})\s*[–—-]\s*(\d{1,2}):(\d{2})/)
   if (!m) return true
   const start = +m[1] * 60 + +m[2]
   const end = +m[3] * 60 + +m[4]
-  const cur = now.getHours() * 60 + now.getMinutes()
+  const cur = bizMinutesOfDay(now)
   return start <= end ? cur >= start && cur < end : cur >= start || cur < end
 }
 
