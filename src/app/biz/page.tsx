@@ -100,6 +100,7 @@ function Icon({ n, size = 20, color = 'currentColor', stroke = 2, fill = 'none' 
     qr: <><rect x="3.5" y="3.5" width="6.5" height="6.5" rx="1" /><rect x="14" y="3.5" width="6.5" height="6.5" rx="1" /><rect x="3.5" y="14" width="6.5" height="6.5" rx="1" /><path d="M14 14h3M20.5 14v6.5M14 17.5v3M17.5 20.5h3" /></>,
     users: <><circle cx="8" cy="8" r="3.5" /><path d="M2 20a7 7 0 0112 0" /><circle cx="17" cy="8" r="3.5" /><path d="M23 20a7 7 0 00-10-5.8" /></>,
     mail: <><rect x="2" y="5" width="20" height="15" rx="2.5" /><path d="M2 8l10 7 10-7" /></>,
+    phone: <path d="M6.5 3.5a1.5 1.5 0 011.4 1l1 2.4a1.5 1.5 0 01-.35 1.65l-1 1a12 12 0 005.4 5.4l1-1a1.5 1.5 0 011.65-.35l2.4 1a1.5 1.5 0 011 1.4v2.6a1.5 1.5 0 01-1.6 1.5C10.6 20.3 3.7 13.4 3 5.1A1.5 1.5 0 014.5 3.5z" />,
     pin: <><path d="M12 21s7-5.4 7-11a7 7 0 10-14 0c0 5.6 7 11 7 11z" /><circle cx="12" cy="10" r="2.6" /></>,
     monitor: <><rect x="3" y="4" width="18" height="12" rx="2" /><path d="M8 20h8M12 16v4" /></>,
     expand: <><path d="M8 3H5a2 2 0 00-2 2v3M16 3h3a2 2 0 012 2v3M21 16v3a2 2 0 01-2 2h-3M3 16v3a2 2 0 002 2h3" /></>,
@@ -5336,6 +5337,148 @@ type TeamRow = {
   id: string; kind: 'member' | 'invite'; email: string; role: BizRole
   roleLabel: { es: string; en: string }; permissions: { modules: string[] } | null
   status: 'activo' | 'invitado'; isOwner: boolean
+  name: string | null; phone: string | null; joinedAt: string | null
+}
+
+// Actividad de un empleado (la trae /api/biz/team/member al abrir su ficha).
+type MemberActivity = {
+  sales: { count: number; total: number }
+  deliveries: { count: number; active: number }
+  lastActiveAt: string | null
+}
+
+// Nombres legibles de los submódulos a los que un empleado tiene acceso.
+function moduleLabels(ids: string[], en: boolean): string[] {
+  const byId = new Map(MODULE_GROUPS.flatMap(g => g.items).map(i => [i.id, en ? i.en : i.es]))
+  return ids.map(id => byId.get(id) ?? id)
+}
+
+// Ficha de detalle de un empleado: datos de contacto, acceso y actividad real.
+function EmployeeDetail({ row, bizId, en, onClose }: { row: TeamRow; bizId: string; en: boolean; onClose: () => void }) {
+  const t = (es: string, e: string) => (en ? e : es)
+  const [act, setAct] = useState<MemberActivity | null>(null)
+  const [loading, setLoading] = useState(row.kind === 'member')
+
+  useEffect(() => {
+    if (row.kind !== 'member') return
+    let alive = true
+    ;(async () => {
+      try {
+        const r = await fetch(`/api/biz/team/member?biz_id=${encodeURIComponent(bizId)}&member_id=${encodeURIComponent(row.id)}`)
+        const d = await r.json().catch(() => null)
+        if (alive && r.ok) setAct(d as MemberActivity)
+      } finally { if (alive) setLoading(false) }
+    })()
+    return () => { alive = false }
+  }, [row.id, row.kind, bizId])
+
+  const isCourier = row.role === 'repartidor'
+  const isFull = row.role === 'owner' || row.role === 'admin'
+  const mods = row.permissions?.modules ?? (row.role === 'encargado' ? DEFAULT_MODULES.encargado : row.role === 'caja' ? DEFAULT_MODULES.caja : [])
+  const when = (iso: string | null) => iso ? new Date(iso).toLocaleDateString(en ? 'en-US' : 'es-MX', { day: '2-digit', month: 'long', year: 'numeric' }) : '—'
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(20,15,12,.45)', display: 'grid', placeItems: 'center', zIndex: 70, padding: 20 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: R.surface, borderRadius: 20, width: 'min(440px, 94vw)', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 24px 60px rgba(0,0,0,.28)' }}>
+        {/* Encabezado */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 13, padding: '20px 20px 16px', borderBottom: `1px solid ${R.lineSoft}` }}>
+          <div style={{ width: 52, height: 52, borderRadius: '50%', background: isFull ? (row.role === 'owner' ? R.coralTint : R.jadeTint) : R.bgAlt, display: 'grid', placeItems: 'center', flexShrink: 0, fontFamily: R.display, fontWeight: 800, fontSize: 21, color: row.role === 'owner' ? R.coralPress : row.role === 'admin' ? R.jade : R.inkSoft }}>
+            {(row.name || row.email).slice(0, 1).toUpperCase()}
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 18, color: R.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.name || t('Sin nombre', 'No name')}{row.isOwner ? t(' (tú)', ' (you)') : ''}</div>
+            <div style={{ fontSize: 12.5, color: R.inkSoft, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.email}</div>
+          </div>
+          <button onClick={onClose} style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 4, color: R.inkFaint, display: 'grid', placeItems: 'center' }} aria-label={t('Cerrar', 'Close')}><Icon n="x" size={18} color={R.inkFaint} /></button>
+        </div>
+
+        <div style={{ padding: '16px 20px 20px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {/* Datos */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            <span style={{ fontSize: 12, fontWeight: 700, padding: '5px 11px', borderRadius: 999, background: row.role === 'owner' ? R.coralTint : row.role === 'admin' ? R.jadeTint : R.bgAlt, color: row.role === 'owner' ? R.coralPress : row.role === 'admin' ? R.jade : R.inkSoft }}>{en ? row.roleLabel.en : row.roleLabel.es}</span>
+            {row.status === 'invitado' && <span style={{ fontSize: 12, fontWeight: 700, padding: '5px 11px', borderRadius: 999, background: R.amberTint, color: R.amberDeep }}>{t('Invitación pendiente', 'Pending invite')}</span>}
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {row.phone && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '9px 0', borderBottom: `1px solid ${R.lineSoft}` }}>
+                <Icon n="phone" size={15} color={R.inkFaint} />
+                <span style={{ fontSize: 13.5, color: R.ink }}>{row.phone}</span>
+              </div>
+            )}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '9px 0', borderBottom: `1px solid ${R.lineSoft}` }}>
+              <Icon n="cal" size={15} color={R.inkFaint} />
+              <span style={{ fontSize: 13.5, color: R.ink }}>{row.status === 'invitado' ? t('Invitado el', 'Invited on') : t('Se unió el', 'Joined on')} {when(row.joinedAt)}</span>
+            </div>
+          </div>
+
+          {/* Acceso a módulos */}
+          {!isCourier && (
+            <div>
+              <div style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '.04em', textTransform: 'uppercase', color: R.inkSoft, marginBottom: 8 }}>{t('Acceso', 'Access')}</div>
+              {isFull ? (
+                <div style={{ fontSize: 13, color: R.ink }}>{t('Acceso total a la plataforma.', 'Full access to the platform.')}</div>
+              ) : (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {moduleLabels(mods, en).map((label, i) => (
+                    <span key={i} style={{ fontSize: 12, fontWeight: 600, padding: '4px 10px', borderRadius: 999, background: R.bg, border: `1px solid ${R.line}`, color: R.inkSoft }}>{label}</span>
+                  ))}
+                  {mods.length === 0 && <span style={{ fontSize: 12.5, color: R.inkFaint }}>{t('Sin módulos asignados.', 'No modules assigned.')}</span>}
+                </div>
+              )}
+            </div>
+          )}
+          {isCourier && (
+            <div style={{ fontSize: 13, color: R.inkSoft, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Icon n="box" size={15} color={R.inkFaint} />{t('Entra al panel de repartidor (/courier) y ve solo sus entregas asignadas.', 'Uses the courier panel (/courier) and only sees their assigned deliveries.')}
+            </div>
+          )}
+
+          {/* Actividad */}
+          {row.kind === 'member' && (
+            <div>
+              <div style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '.04em', textTransform: 'uppercase', color: R.inkSoft, marginBottom: 8 }}>{t('Actividad', 'Activity')}</div>
+              {loading ? (
+                <div style={{ fontSize: 12.5, color: R.inkFaint }}>{t('Cargando…', 'Loading…')}</div>
+              ) : act ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    {isCourier ? (
+                      <>
+                        <StatBox label={t('Entregas', 'Deliveries')} value={String(act.deliveries.count)} />
+                        <StatBox label={t('En curso', 'In progress')} value={String(act.deliveries.active)} />
+                      </>
+                    ) : (
+                      <>
+                        <StatBox label={t('Ventas', 'Sales')} value={String(act.sales.count)} />
+                        <StatBox label={t('Cobrado', 'Collected')} value={money(act.sales.total)} />
+                      </>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 12, color: R.inkFaint }}>{t('Última actividad:', 'Last activity:')} {act.lastActiveAt ? saleWhen(act.lastActiveAt, en) : t('sin registro', 'no record')}</div>
+                </div>
+              ) : (
+                <div style={{ fontSize: 12.5, color: R.inkFaint }}>{t('Sin datos de actividad.', 'No activity data.')}</div>
+              )}
+            </div>
+          )}
+          {row.kind === 'invite' && (
+            <div style={{ fontSize: 12.5, color: R.inkFaint }}>{t('Verás su actividad cuando acepte la invitación y empiece a trabajar.', 'Activity will appear once they accept the invite and start working.')}</div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Cuadro de estadística compacto para la ficha del empleado.
+function StatBox({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{ flex: 1, background: R.bg, border: `1px solid ${R.line}`, borderRadius: 12, padding: '11px 13px' }}>
+      <div style={{ fontFamily: R.display, fontWeight: 800, fontSize: 19, color: R.ink }}>{value}</div>
+      <div style={{ fontSize: 11.5, color: R.inkSoft, marginTop: 1 }}>{label}</div>
+    </div>
+  )
 }
 
 // Selector de módulos/submódulos: casillas agrupadas igual que el menú. `value`
@@ -5387,6 +5530,7 @@ function TeamManager({ bizId, en }: { bizId: string; en: boolean }) {
   const [ok, setOk] = useState('')
   const [resendingId, setResendingId] = useState<string | null>(null)
   const [resentId, setResentId] = useState<string | null>(null)
+  const [detail, setDetail] = useState<TeamRow | null>(null) // ficha del empleado abierta
   // Datos extra del repartidor (se guardan en `couriers` al aceptar).
   const [courierName, setCourierName] = useState('')
   const [courierPhone, setCourierPhone] = useState('')
@@ -5466,11 +5610,13 @@ function TeamManager({ bizId, en }: { bizId: string; en: boolean }) {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
         {team === null && <div style={{ fontSize: 12.5, color: R.inkFaint }}>{t('Cargando…', 'Loading…')}</div>}
         {(team ?? []).map(row => (
-          <div key={row.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', background: R.bg, border: `1px solid ${R.line}`, borderRadius: 12 }}>
-            <div style={{ width: 38, height: 38, borderRadius: '50%', background: roleTint(row.role), display: 'grid', placeItems: 'center', flexShrink: 0, fontFamily: R.display, fontWeight: 800, fontSize: 15, color: roleColor(row.role) }}>{row.email.slice(0, 1).toUpperCase()}</div>
+          <div key={row.id} onClick={() => setDetail(row)} role="button" tabIndex={0} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setDetail(row) } }} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', background: R.bg, border: `1px solid ${R.line}`, borderRadius: 12, cursor: 'pointer' }}>
+            <div style={{ width: 38, height: 38, borderRadius: '50%', background: roleTint(row.role), display: 'grid', placeItems: 'center', flexShrink: 0, fontFamily: R.display, fontWeight: 800, fontSize: 15, color: roleColor(row.role) }}>{(row.name || row.email).slice(0, 1).toUpperCase()}</div>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 700, fontSize: 13.5, color: R.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.email}{row.isOwner ? t(' (tú)', ' (you)') : ''}</div>
-              {row.role !== 'owner' && row.role !== 'admin' && row.permissions?.modules?.length ? (
+              <div style={{ fontWeight: 700, fontSize: 13.5, color: R.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.name || row.email}{row.isOwner ? t(' (tú)', ' (you)') : ''}</div>
+              {row.name ? (
+                <div style={{ fontSize: 11.5, color: R.inkFaint, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.email}</div>
+              ) : row.role !== 'owner' && row.role !== 'admin' && row.permissions?.modules?.length ? (
                 <div style={{ fontSize: 11.5, color: R.inkFaint, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.permissions.modules.length} {t('módulos', 'modules')}</div>
               ) : row.role === 'repartidor' ? (
                 <div style={{ fontSize: 11.5, color: R.inkFaint }}>{t('Panel de repartidor', 'Courier panel')}</div>
@@ -5479,13 +5625,13 @@ function TeamManager({ bizId, en }: { bizId: string; en: boolean }) {
             <span style={{ fontSize: 11.5, fontWeight: 700, padding: '4px 9px', borderRadius: 999, background: roleTint(row.role), color: roleColor(row.role), whiteSpace: 'nowrap' }}>{en ? row.roleLabel.en : row.roleLabel.es}</span>
             {row.status === 'invitado' && <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 999, background: R.amberTint, color: R.amberDeep, whiteSpace: 'nowrap' }}>{t('Pendiente', 'Pending')}</span>}
             {row.status === 'invitado' && (
-              <button onClick={() => resend(row)} disabled={resendingId === row.id} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 9px', borderRadius: 999, border: `1px solid ${resentId === row.id ? R.jade : R.line}`, background: resentId === row.id ? R.jadeTint : R.surface, color: resentId === row.id ? R.jade : R.inkSoft, cursor: resendingId === row.id ? 'default' : 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 11.5, whiteSpace: 'nowrap' }}>
+              <button onClick={e => { e.stopPropagation(); resend(row) }} disabled={resendingId === row.id} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 9px', borderRadius: 999, border: `1px solid ${resentId === row.id ? R.jade : R.line}`, background: resentId === row.id ? R.jadeTint : R.surface, color: resentId === row.id ? R.jade : R.inkSoft, cursor: resendingId === row.id ? 'default' : 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 11.5, whiteSpace: 'nowrap' }}>
                 <Icon n={resentId === row.id ? 'check' : 'send'} size={11} color={resentId === row.id ? R.jade : R.inkSoft} stroke={resentId === row.id ? 3 : 1.8} />
                 {resentId === row.id ? t('Reenviada', 'Resent') : resendingId === row.id ? t('Enviando…', 'Sending…') : t('Reenviar', 'Resend')}
               </button>
             )}
             {!row.isOwner && (
-              <button onClick={() => remove(row)} style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 4, color: R.inkFaint, display: 'grid', placeItems: 'center' }} aria-label={t('Quitar', 'Remove')}>
+              <button onClick={e => { e.stopPropagation(); remove(row) }} style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 4, color: R.inkFaint, display: 'grid', placeItems: 'center' }} aria-label={t('Quitar', 'Remove')}>
                 <Icon n="x" size={15} color={R.inkFaint} />
               </button>
             )}
@@ -5525,6 +5671,8 @@ function TeamManager({ bizId, en }: { bizId: string; en: boolean }) {
           <Icon n="send" size={14} color="#fff" />{busy ? t('Enviando…', 'Sending…') : t('Enviar invitación', 'Send invitation')}
         </button>
       </div>
+
+      {detail && <EmployeeDetail row={detail} bizId={bizId} en={en} onClose={() => setDetail(null)} />}
     </div>
   )
 }

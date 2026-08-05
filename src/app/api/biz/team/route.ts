@@ -31,18 +31,36 @@ export async function GET(req: NextRequest) {
 
   const db = createAdminClient()
   const { data: memberRows } = await db.from('biz_members').select('id,user_id,role,permissions').eq('biz_id', bizId)
-  const { data: inviteRows } = await db.from('biz_invites').select('id,email,role,permissions,status').eq('biz_id', bizId).eq('status', 'invitado')
+  const { data: inviteRows } = await db.from('biz_invites').select('id,email,role,permissions,status,courier_name,courier_phone,created_at').eq('biz_id', bizId).eq('status', 'invitado')
 
-  // Correos de los miembros activos (biz_members guarda user_id, no email).
+  // Datos de contacto de los repartidores (nombre/teléfono capturados al invitar).
+  const { data: courierRows } = await db.from('couriers').select('user_id,name,phone,created_at').eq('biz_id', bizId)
+  const courierById = new Map<string, { name: string | null; phone: string | null; created_at: string | null }>(
+    (courierRows ?? []).map(c => [c.user_id as string, { name: (c.name as string) ?? null, phone: (c.phone as string) ?? null, created_at: (c.created_at as string) ?? null }])
+  )
+
+  // Miembros activos: biz_members guarda user_id, así que resolvemos correo,
+  // nombre, teléfono y fecha de alta desde auth (metadata) y couriers.
   const { data: userList } = await db.auth.admin.listUsers()
-  const emailById = new Map<string, string>((userList?.users ?? []).map(u => [u.id, u.email ?? '']))
+  const userById = new Map((userList?.users ?? []).map(u => [u.id, u] as const))
 
   const members = (memberRows ?? []).map(m => {
     const role = normalizeRole(m.role as string)
+    const uid = m.user_id as string
+    const u = userById.get(uid)
+    const meta = (u?.user_metadata ?? {}) as Record<string, unknown>
+    const courier = courierById.get(uid)
+    // Nombre/teléfono: primero el registro de repartidor (más explícito), luego el
+    // metadata de la cuenta (nombre puesto al registrarse el cliente/empleado).
+    const name = (courier?.name || (meta.full_name as string) || (meta.name as string) || '') || null
+    const phone = (courier?.phone || (meta.phone as string) || '') || null
     return {
       id: m.id as string,
       kind: 'member' as const,
-      email: emailById.get(m.user_id as string) ?? '',
+      email: u?.email ?? '',
+      name,
+      phone,
+      joinedAt: courier?.created_at || u?.created_at || null,
       role,
       roleLabel: ROLE_LABEL[role],
       permissions: (m.permissions as { modules: string[] } | null) ?? null,
@@ -56,6 +74,9 @@ export async function GET(req: NextRequest) {
       id: i.id as string,
       kind: 'invite' as const,
       email: i.email as string,
+      name: (i.courier_name as string) || null,
+      phone: (i.courier_phone as string) || null,
+      joinedAt: (i.created_at as string) ?? null, // fecha en que se envió la invitación
       role,
       roleLabel: ROLE_LABEL[role],
       permissions: (i.permissions as { modules: string[] } | null) ?? null,
