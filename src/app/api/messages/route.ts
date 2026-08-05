@@ -9,7 +9,54 @@ import type { Mode } from '@/lib/data'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 30
 
-interface DbMessage { id: string; biz_id: string; user_id: string; from_role: string; body: string; read_at: string | null; created_at: string }
+interface DbMessage { id: string; biz_id: string; user_id: string; from_role: string; body: string; read_at: string | null; created_at: string; order_items: { serviceId: string; qty: number }[] | null }
+
+// Instrucción de "armar el pedido" que se añade al system prompt del agente del
+// negocio. Le da el catálogo de productos con su id y le pide terminar con un
+// marcador oculto cuando el cliente confirma qué quiere pedir. La app usa ese
+// marcador para pintar tarjetas "Agregar" y llenar el carrito de verdad.
+function orderProtocol(products: { id: string; name: string; price: string }[]): string {
+  if (products.length === 0) return ''
+  const list = products.map(p => `  • ${p.name}${p.price ? ` (${p.price})` : ''} → id: ${p.id}`).join('\n')
+  return `
+
+ARMAR EL PEDIDO (muy importante)
+Estos son los productos que el cliente puede PEDIR y pagar en línea, con su id:
+${list}
+Cuando el cliente confirme qué producto(s) quiere y cuántos, ayúdalo a armar el pedido:
+1. Responde normal, de forma breve y cálida, confirmando qué llevará.
+2. Al FINAL de tu respuesta, en una línea aparte, agrega EXACTAMENTE este marcador oculto con los productos y cantidades, usando SOLO los ids de la lista de arriba:
+   <!-- order: id*cantidad, id*cantidad -->
+   Ejemplo: <!-- order: ${products[0].id}*2 -->
+Reglas del marcador:
+- Usa únicamente ids que existan en la lista de arriba. Si el cliente pide algo que no está, dilo y NO lo incluyas en el marcador.
+- Solo agrega el marcador cuando el cliente ya haya confirmado qué quiere; no lo pongas si todavía está preguntando o dudando.
+- No menciones el marcador ni los ids en el texto visible; el cliente solo verá tarjetas para agregar al pedido.`
+}
+
+// Extrae el marcador `<!-- order: id*qty, id*qty -->` de la respuesta del agente,
+// lo quita del texto visible y devuelve las líneas de pedido válidas (ids que
+// existen en el catálogo). Acepta separadores *, x o × y cantidad opcional (=1).
+function parseOrderMarker(text: string, validIds: Set<string>): { text: string; order: { serviceId: string; qty: number }[] } {
+  const order: { serviceId: string; qty: number }[] = []
+  const m = text.match(/<!--\s*order:\s*([\s\S]*?)-->/i)
+  if (m) {
+    for (const raw of m[1].split(',')) {
+      const item = raw.trim()
+      if (!item) continue
+      const pair = item.match(/^(.+?)\s*[*x×]\s*(\d+)\s*$/i)
+      const id = (pair ? pair[1] : item).trim()
+      const qty = pair ? Math.max(1, Math.min(99, parseInt(pair[2], 10))) : 1
+      if (!validIds.has(id)) continue
+      const existing = order.find(o => o.serviceId === id)
+      if (existing) existing.qty = Math.min(99, existing.qty + qty)
+      else order.push({ serviceId: id, qty })
+    }
+  }
+  // Quita cualquier comentario HTML del texto visible (incluye el marcador).
+  const clean = text.replace(/<!--[\s\S]*?-->/g, '').replace(/\n{3,}/g, '\n\n').trim()
+  return { text: clean, order }
+}
 
 // Chat cliente ↔ negocio, persistido en la tabla `messages`.
 //  GET            → hilos del cliente (uno por negocio) para el inbox.
@@ -27,7 +74,7 @@ export async function GET(req: NextRequest) {
   if (bizId) {
     const { data } = await admin
       .from('messages')
-      .select('id,biz_id,user_id,from_role,body,read_at,created_at')
+      .select('id,biz_id,user_id,from_role,body,read_at,created_at,order_items')
       .eq('user_id', user.id)
       .eq('biz_id', bizId)
       .order('created_at', { ascending: true })
@@ -81,17 +128,27 @@ export async function POST(req: NextRequest) {
 
   // 2) Genera la respuesta del agente del negocio.
   let replyText = ''
+  // Productos que el agente decidió agregar al pedido (id + cantidad), parseados
+  // del marcador oculto de su respuesta. Se devuelven a la app para pintar las
+  // tarjetas "Agregar" y armar el carrito de verdad.
+  let order: { serviceId: string; qty: number }[] = []
   try {
-    const { data: biz } = await admin.from('businesses').select('name,type,kind,hours').eq('id', biz_id).single()
-    const { data: svcs } = await admin.from('services').select('name').eq('biz_id', biz_id).eq('active', true)
+    const { data: biz } = await admin.from('businesses').select('name,type,kind,hours,does_orders').eq('id', biz_id).single()
+    const { data: svcs } = await admin.from('services').select('id,name,price,scheduled').eq('biz_id', biz_id).eq('active', true)
     const { data: hist } = await admin
       .from('messages')
       .select('from_role,body')
       .eq('user_id', user.id).eq('biz_id', biz_id)
       .order('created_at', { ascending: true })
 
+    // Productos pedibles: el negocio acepta pedidos y el servicio no usa calendario.
+    const products = biz?.does_orders
+      ? (svcs ?? []).filter(s => (s as { scheduled?: boolean }).scheduled === false)
+          .map(s => ({ id: s.id as string, name: s.name as string, price: (s.price as string) ?? '' }))
+      : []
+
     const cfg = await loadPlatformConfig()
-    const system = bizChatSystemPrompt(
+    let system = bizChatSystemPrompt(
       {
         bizName: biz?.name ?? 'el negocio',
         bizType: biz?.kind ?? biz?.type ?? '',
@@ -103,6 +160,11 @@ export async function POST(req: NextRequest) {
       },
       resolvedPrompt(cfg, 'biz-chat'),
     )
+    // Protocolo de pedido (en código, no en el prompt editable, para que funcione
+    // aunque el dueño personalice el prompt): lista los productos con su id y le
+    // pide cerrar el pedido con un marcador oculto que la app convierte en carrito.
+    system += orderProtocol(products)
+
     const apiMsgs: ChatMessage[] = (hist ?? []).map(h => ({
       role: (h.from_role === 'biz' ? 'assistant' : 'user') as 'assistant' | 'user',
       content: h.from_role === 'reva' ? `[Reva] ${h.body}` : (h.body as string),
@@ -112,15 +174,20 @@ export async function POST(req: NextRequest) {
       const json = await res.json()
       replyText = json?.choices?.[0]?.message?.content?.trim() ?? ''
     }
+
+    // Extrae el marcador `<!-- order: id*qty, ... -->` y lo quita del texto visible.
+    const parsed = parseOrderMarker(replyText, new Set(products.map(p => p.id)))
+    replyText = parsed.text
+    order = parsed.order
   } catch { /* sin IA: se guarda un aviso abajo */ }
 
   if (!replyText) replyText = 'Gracias por tu mensaje — el negocio te responderá en breve.'
 
   const { data: replyMsg } = await admin
     .from('messages')
-    .insert({ biz_id, user_id: user.id, from_role: 'biz', body: replyText })
+    .insert({ biz_id, user_id: user.id, from_role: 'biz', body: replyText, order_items: order.length ? order : null })
     .select()
     .single()
 
-  return NextResponse.json({ userMessage: userMsg, reply: replyMsg })
+  return NextResponse.json({ userMessage: userMsg, reply: replyMsg, order })
 }
