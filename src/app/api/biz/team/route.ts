@@ -113,16 +113,30 @@ export async function POST(req: NextRequest) {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://reva-app-ten.vercel.app'
   const inviteUrl = `${appUrl}/biz?invite=${token}`
   let warning: string | undefined
+  let mailErrorDetail: string | undefined
   try {
     const { error: fnErr } = await db.functions.invoke('send-team-invite', {
       body: { email, role: ROLE_LABEL[role].es, inviteUrl, invitedBy: manager.userId },
     })
-    if (fnErr) warning = 'La invitación se guardó, pero el correo pudo no enviarse.'
-  } catch {
+    if (fnErr) {
+      // Extrae el detalle real: si la función respondió non-2xx, `context` es la
+      // Response con el cuerpo del error (ej. Resend rechazó, falta la API key).
+      let detail = fnErr.message || fnErr.name
+      const ctx = (fnErr as { context?: Response }).context
+      if (ctx && typeof ctx.text === 'function') {
+        try { const b = await ctx.text(); if (b) detail = b } catch { /* cuerpo no legible */ }
+      }
+      mailErrorDetail = detail
+      console.error('[biz/team] send-team-invite invoke failed:', fnErr.name, '→', detail)
+      warning = 'La invitación se guardó, pero el correo pudo no enviarse.'
+    }
+  } catch (e) {
+    mailErrorDetail = e instanceof Error ? e.message : String(e)
+    console.error('[biz/team] send-team-invite threw:', mailErrorDetail)
     warning = 'La invitación se guardó, pero el correo pudo no enviarse.'
   }
 
-  return NextResponse.json({ ok: true, warning })
+  return NextResponse.json({ ok: true, warning, mailErrorDetail })
 }
 
 export async function PATCH(req: NextRequest) {
