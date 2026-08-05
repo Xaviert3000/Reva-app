@@ -80,6 +80,14 @@ export async function POST(req: NextRequest) {
   if (!role) return NextResponse.json({ error: 'Rol inválido.' }, { status: 400 })
   const permissions = cleanModules(body.permissions)
 
+  // Datos del repartidor (nombre/teléfono): se guardan en la invitación y se
+  // copian a `couriers` cuando acepta, para que el flujo de entregas funcione.
+  // `hasCourierFields` distingue una invitación nueva (trae los campos) de un
+  // reenvío desde la fila (no los trae) para no borrar lo ya guardado.
+  const hasCourierFields = body.name !== undefined || body.phone !== undefined
+  const courierName = String(body.name ?? '').trim() || null
+  const courierPhone = String(body.phone ?? '').trim() || null
+
   const db = createAdminClient()
 
   // ¿El correo ya es miembro activo de este negocio?
@@ -94,14 +102,17 @@ export async function POST(req: NextRequest) {
   const { data: existingInv } = await db.from('biz_invites').select('id,status').eq('biz_id', bizId).eq('email', email).maybeSingle()
   let token: string
   if (existingInv) {
+    const patch: Record<string, unknown> = { role, permissions, status: 'invitado', expires_at: new Date(Date.now() + 7 * 864e5).toISOString() }
+    // En reenvío (sin campos) preservamos el nombre/teléfono ya guardados.
+    if (hasCourierFields) { patch.courier_name = courierName; patch.courier_phone = courierPhone }
     const { data: up, error } = await db.from('biz_invites')
-      .update({ role, permissions, status: 'invitado', expires_at: new Date(Date.now() + 7 * 864e5).toISOString() })
+      .update(patch)
       .eq('id', existingInv.id).select('token').single()
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
     token = up.token as string
   } else {
     const { data: ins, error } = await db.from('biz_invites')
-      .insert({ biz_id: bizId, email, role, permissions, invited_by: manager.userId })
+      .insert({ biz_id: bizId, email, role, permissions, invited_by: manager.userId, courier_name: courierName, courier_phone: courierPhone })
       .select('token').single()
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
     token = ins.token as string
@@ -179,11 +190,16 @@ export async function DELETE(req: NextRequest) {
 
   const db = createAdminClient()
   if (body.member_id) {
-    const { data: m } = await db.from('biz_members').select('role').eq('id', body.member_id).eq('biz_id', bizId).maybeSingle()
+    const { data: m } = await db.from('biz_members').select('role,user_id').eq('id', body.member_id).eq('biz_id', bizId).maybeSingle()
     if (!m) return NextResponse.json({ error: 'Empleado no encontrado' }, { status: 404 })
     if (normalizeRole(m.role as string) === 'owner') return NextResponse.json({ error: 'No se puede quitar al dueño.' }, { status: 403 })
     const { error } = await db.from('biz_members').delete().eq('id', body.member_id).eq('biz_id', bizId)
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    // Si era repartidor, desactiva su fila en `couriers` para que deje de recibir
+    // entregas (no la borramos: los pedidos pasados referencian courier_id).
+    if (normalizeRole(m.role as string) === 'repartidor' && m.user_id) {
+      await db.from('couriers').update({ active: false }).eq('user_id', m.user_id as string).eq('biz_id', bizId)
+    }
   } else if (body.invite_id) {
     const { error } = await db.from('biz_invites').delete().eq('id', body.invite_id).eq('biz_id', bizId)
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })

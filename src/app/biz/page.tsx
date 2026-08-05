@@ -5387,6 +5387,9 @@ function TeamManager({ bizId, en }: { bizId: string; en: boolean }) {
   const [ok, setOk] = useState('')
   const [resendingId, setResendingId] = useState<string | null>(null)
   const [resentId, setResentId] = useState<string | null>(null)
+  // Datos extra del repartidor (se guardan en `couriers` al aceptar).
+  const [courierName, setCourierName] = useState('')
+  const [courierPhone, setCourierPhone] = useState('')
 
   const load = useCallback(async () => {
     try {
@@ -5415,12 +5418,12 @@ function TeamManager({ bizId, en }: { bizId: string; en: boolean }) {
     try {
       const r = await fetch('/api/biz/team', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ biz_id: bizId, email: mail, role, permissions: showPicker ? modules : null }),
+        body: JSON.stringify({ biz_id: bizId, email: mail, role, permissions: showPicker ? modules : null, ...(role === 'repartidor' ? { name: courierName.trim(), phone: courierPhone.trim() } : {}) }),
       })
       const d = await r.json().catch(() => ({}))
       if (!r.ok) { setErr(d.error || t('No se pudo enviar la invitación.', 'Could not send the invitation.')); return }
       setOk(d.warning || t('Invitación enviada ✓', 'Invitation sent ✓'))
-      setEmail('')
+      setEmail(''); setCourierName(''); setCourierPhone('')
       load()
     } catch { setErr(t('Sin conexión con el servidor.', 'No connection to the server.')) }
     finally { setBusy(false) }
@@ -5505,7 +5508,17 @@ function TeamManager({ bizId, en }: { bizId: string; en: boolean }) {
         </div>
         {showPicker && <ModulePicker value={modules} onChange={setModules} en={en} />}
         {role === 'admin' && <div style={{ fontSize: 11.5, color: R.inkFaint }}>{t('Admin ve todos los módulos y puede gestionar el equipo.', 'Admin sees every module and can manage the team.')}</div>}
-        {role === 'repartidor' && <div style={{ fontSize: 11.5, color: R.inkFaint }}>{t('El repartidor no entra a este panel: usará el panel de repartidor (/courier) para sus entregas.', 'The courier does not use this panel: they will use the courier panel (/courier) for deliveries.')}</div>}
+        {role === 'repartidor' && (
+          <>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <input value={courierName} onChange={e => setCourierName(e.target.value)} placeholder={t('Nombre del repartidor', 'Courier name')}
+                style={{ flex: 1, minWidth: 150, boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 10, padding: '10px 12px', fontSize: 13.5, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.bg }} />
+              <input value={courierPhone} onChange={e => setCourierPhone(e.target.value)} placeholder={t('Teléfono', 'Phone')} inputMode="tel"
+                style={{ flex: 1, minWidth: 150, boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 10, padding: '10px 12px', fontSize: 13.5, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.bg }} />
+            </div>
+            <div style={{ fontSize: 11.5, color: R.inkFaint }}>{t('El repartidor no entra a este panel: al aceptar su invitación usará el panel de repartidor (/courier) para sus entregas.', 'The courier does not use this panel: after accepting the invite they will use the courier panel (/courier) for deliveries.')}</div>
+          </>
+        )}
         {err && <div style={{ fontSize: 12, color: R.coral }}>{err}</div>}
         {ok && <div style={{ fontSize: 12, color: R.jade }}>{ok}</div>}
         <button onClick={invite} disabled={busy} style={{ alignSelf: 'flex-start', display: 'flex', alignItems: 'center', gap: 7, padding: '10px 16px', border: 'none', borderRadius: 10, background: busy ? R.inkSoft : R.ink, color: '#fff', cursor: busy ? 'default' : 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5 }}>
@@ -5599,19 +5612,6 @@ function OrdersSettingsCard({ vert, stripeReady, onSaved }: { vert: Vert; stripe
   const [saving, setSaving] = useState(false)
   const [savedMsg, setSavedMsg] = useState(false)
 
-  const [couriers, setCouriers] = useState<PanelCourier[]>([])
-  const [form, setForm] = useState({ name: '', email: '', phone: '' })
-  const [courierBusy, setCourierBusy] = useState(false)
-  const [courierMsg, setCourierMsg] = useState<string | null>(null)
-
-  const loadCouriers = useCallback(async () => {
-    try {
-      const r = await fetch(`/api/biz/couriers?biz_id=${encodeURIComponent(vert.id)}`)
-      if (r.ok) { const d = await r.json(); setCouriers((d.couriers ?? []).filter((c: PanelCourier) => c.active)) }
-    } catch { /* ignora */ }
-  }, [vert.id])
-  useEffect(() => { loadCouriers() }, [loadCouriers])
-
   async function saveCaps() {
     setSaving(true); setSavedMsg(false)
     try {
@@ -5621,34 +5621,6 @@ function OrdersSettingsCard({ vert, stripeReady, onSaved }: { vert: Vert; stripe
       })
       setSavedMsg(true); onSaved()
     } catch { /* ignora */ } finally { setSaving(false) }
-  }
-
-  async function addCourier() {
-    if (!form.email.trim() || courierBusy) return
-    setCourierBusy(true); setCourierMsg(null)
-    try {
-      const r = await fetch('/api/biz/couriers', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ biz_id: vert.id, name: form.name, email: form.email, phone: form.phone }),
-      })
-      const d = await r.json().catch(() => ({}))
-      if (r.ok) {
-        setForm({ name: '', email: '', phone: '' })
-        setCourierMsg(d.temp_password
-          ? (d.emailed
-              ? t(`Repartidor creado. Le enviamos un correo con su acceso. Clave temporal (respaldo): ${d.temp_password}`, `Courier created. We emailed them their access. Temp password (backup): ${d.temp_password}`)
-              : t(`Repartidor creado. Clave temporal: ${d.temp_password} — compártela y que entre en /courier.`, `Courier created. Temp password: ${d.temp_password} — share it; they log in at /courier.`))
-          : t('Repartidor agregado.', 'Courier added.'))
-        loadCouriers()
-      } else {
-        setCourierMsg(d.error || t('No se pudo agregar', 'Could not add'))
-      }
-    } catch { setCourierMsg(t('Error de red', 'Network error')) } finally { setCourierBusy(false) }
-  }
-
-  async function removeCourier(userId: string) {
-    setCouriers(prev => prev.filter(c => c.user_id !== userId))
-    try { await fetch(`/api/biz/couriers?biz_id=${encodeURIComponent(vert.id)}&user_id=${encodeURIComponent(userId)}`, { method: 'DELETE' }) } catch { /* ignora */ }
   }
 
   const inputStyle: CSSProperties = { width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 10, padding: '10px 12px', fontSize: 14, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.bg }
@@ -5694,7 +5666,7 @@ function OrdersSettingsCard({ vert, stripeReady, onSaved }: { vert: Vert; stripe
             <div style={rowStyle}>
               <div style={{ flex: 1 }}>
                 <div style={{ fontWeight: 700, fontSize: 14, color: R.ink }}>🛵 {t('Entrega a domicilio', 'Home delivery')}</div>
-                <div style={{ fontSize: 12.5, color: R.inkSoft }}>{t('Requiere repartidores (abajo).', 'Requires couriers (below).')}</div>
+                <div style={{ fontSize: 12.5, color: R.inkSoft }}>{t('Requiere repartidores (regístralos en Empleados).', 'Requires couriers (add them in Employees).')}</div>
               </div>
               <Toggle on={delivery} onChange={setDelivery} />
             </div>
@@ -5715,35 +5687,11 @@ function OrdersSettingsCard({ vert, stripeReady, onSaved }: { vert: Vert; stripe
         {savedMsg && <span style={{ fontSize: 13, color: R.jade, fontWeight: 600 }}>{t('Guardado', 'Saved')} ✓</span>}
       </div>
 
-      {/* Repartidores */}
+      {/* Los repartidores se registran en Empleados (rol Repartidor). */}
       {orders && delivery && (
-        <div style={{ marginTop: 18, paddingTop: 16, borderTop: `1px solid ${R.lineSoft}` }}>
-          <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 14.5, color: R.ink, marginBottom: 4 }}>{t('Repartidores', 'Couriers')}</div>
-          <div style={{ fontSize: 12.5, color: R.inkSoft, marginBottom: 12 }}>{t('Cada repartidor entra en /courier y ve solo sus entregas asignadas.', 'Each courier logs in at /courier and only sees their assigned deliveries.')}</div>
-
-          {couriers.length > 0 && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14 }}>
-              {couriers.map(c => (
-                <div key={c.user_id} style={{ display: 'flex', alignItems: 'center', gap: 10, background: R.bg, border: `1px solid ${R.line}`, borderRadius: 10, padding: '9px 12px' }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 700, fontSize: 13.5, color: R.ink }}>{c.name || '—'}</div>
-                    {c.phone && <div style={{ fontSize: 12, color: R.inkSoft }}>{c.phone}</div>}
-                  </div>
-                  <button onClick={() => removeCourier(c.user_id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: R.inkFaint, fontSize: 13, fontWeight: 700 }}>{t('Quitar', 'Remove')}</button>
-                </div>
-              ))}
-            </div>
-          )}
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
-            <input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder={t('Nombre', 'Name')} style={inputStyle} />
-            <input value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} placeholder={t('Teléfono', 'Phone')} style={inputStyle} />
-          </div>
-          <input value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} placeholder={t('Correo (para iniciar sesión)', 'Email (to sign in)')} inputMode="email" style={{ ...inputStyle, marginBottom: 8 }} />
-          <button onClick={addCourier} disabled={courierBusy || !form.email.trim()} style={{ padding: '10px 18px', borderRadius: 999, border: `1px solid ${R.coral}`, background: R.coralTint, color: R.coralPress, cursor: courierBusy ? 'wait' : 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5 }}>
-            {courierBusy ? t('Agregando…', 'Adding…') : t('Agregar repartidor', 'Add courier')}
-          </button>
-          {courierMsg && <div style={{ fontSize: 12.5, color: R.ink, background: R.bgAlt, borderRadius: 10, padding: '9px 12px', marginTop: 10 }}>{courierMsg}</div>}
+        <div style={{ marginTop: 16, paddingTop: 14, borderTop: `1px solid ${R.lineSoft}`, fontSize: 12.5, color: R.inkSoft, display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+          <span style={{ fontSize: 14, lineHeight: 1.2 }}>🛵</span>
+          <span>{t('Los repartidores ahora se registran en Empleados (rol Repartidor, más abajo). Cada uno entra en /courier y ve solo sus entregas asignadas.', 'Couriers are now added in Employees (Courier role, below). Each one logs in at /courier and only sees their assigned deliveries.')}</span>
         </div>
       )}
     </div>

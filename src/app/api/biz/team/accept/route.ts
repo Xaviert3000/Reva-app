@@ -10,11 +10,11 @@ export const dynamic = 'force-dynamic'
 //   POST { token, password }  → crea/re-activa la cuenta y la fila en biz_members;
 //                               marca la invitación 'activo'. Luego entra por /biz.
 
-type Row = { id: string; biz_id: string; email: string; role: string; permissions: unknown; status: string; expires_at: string | null }
+type Row = { id: string; biz_id: string; email: string; role: string; permissions: unknown; status: string; expires_at: string | null; courier_name: string | null; courier_phone: string | null }
 const isExpired = (r: Row) => !!r.expires_at && new Date(r.expires_at).getTime() < Date.now()
 
 async function findByToken(db: ReturnType<typeof createAdminClient>, token: string): Promise<Row | null> {
-  const { data } = await db.from('biz_invites').select('id,biz_id,email,role,permissions,status,expires_at').eq('token', token).maybeSingle()
+  const { data } = await db.from('biz_invites').select('id,biz_id,email,role,permissions,status,expires_at,courier_name,courier_phone').eq('token', token).maybeSingle()
   return (data as Row | null) ?? null
 }
 
@@ -69,6 +69,15 @@ export async function POST(req: NextRequest) {
   const { error: memErr } = await db.from('biz_members')
     .upsert({ biz_id: row.biz_id, user_id: userId, role, permissions: row.permissions ?? null }, { onConflict: 'biz_id,user_id' })
   if (memErr) return NextResponse.json({ error: memErr.message }, { status: 500 })
+
+  // El repartidor necesita una fila en `couriers` para aparecer en la asignación
+  // de pedidos y ver sus entregas en /courier. Se crea/reactiva al aceptar, con
+  // el nombre/teléfono capturados al invitarlo desde Empleados.
+  if (role === 'repartidor') {
+    const { error: courierErr } = await db.from('couriers')
+      .upsert({ user_id: userId, biz_id: row.biz_id, name: row.courier_name, phone: row.courier_phone, active: true }, { onConflict: 'user_id' })
+    if (courierErr) console.error('biz accept courier upsert error:', courierErr)
+  }
 
   await db.from('biz_invites').update({ status: 'activo' }).eq('id', row.id)
 
