@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { getRouteUser } from '@/lib/supabase/route-auth'
 import { createAdminClient } from '@/lib/supabase/admin'
 
 export const dynamic = 'force-dynamic'
@@ -8,9 +8,9 @@ export const dynamic = 'force-dynamic'
 const COURIER_STATUSES = ['out_for_delivery', 'delivered'] as const
 
 // GET /api/courier/orders → pedidos de entrega asignados al repartidor con sesión.
-export async function GET() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+// Acepta cookie (web) o `Authorization: Bearer <token>` (app nativa) vía getRouteUser.
+export async function GET(req: NextRequest) {
+  const { user } = await getRouteUser(req)
   if (!user) return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
 
   const admin = createAdminClient()
@@ -31,8 +31,7 @@ export async function GET() {
 // PATCH /api/courier/orders → el repartidor marca "en camino" o "entregado".
 // body: { id, status }
 export async function PATCH(req: NextRequest) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const { user } = await getRouteUser(req)
   if (!user) return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
 
   const body = await req.json()
