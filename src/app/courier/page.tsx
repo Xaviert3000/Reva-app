@@ -157,6 +157,13 @@ export default function CourierPage() {
       <div style={{ marginTop: 12, padding: '12px 14px', background: C.bg, borderRadius: 12 }}>
         <div style={{ fontWeight: 700, fontSize: 14, color: C.ink }}>{o.customer_name || 'Cliente'}</div>
         {o.address && <div style={{ fontSize: 13.5, color: C.ink, marginTop: 4 }}>📍 {o.address}</div>}
+        {/* Ruta hacia el domicilio: abre la app/web de mapas con navegación. Sin API ni costo. */}
+        {o.address && (
+          <div style={{ display: 'flex', gap: 14, marginTop: 6 }}>
+            <a href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(o.address)}&travelmode=driving`} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12.5, color: C.coralPress, textDecoration: 'none', fontWeight: 700 }}>🧭 Google Maps</a>
+            <a href={`https://waze.com/ul?q=${encodeURIComponent(o.address)}&navigate=yes`} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12.5, color: C.coralPress, textDecoration: 'none', fontWeight: 700 }}>Waze</a>
+          </div>
+        )}
         {o.customer_phone && <a href={`tel:${o.customer_phone}`} style={{ display: 'inline-block', fontSize: 13.5, color: C.blue, marginTop: 4, textDecoration: 'none', fontWeight: 600 }}>📞 {o.customer_phone}</a>}
         {o.notes && <div style={{ fontSize: 12.5, color: C.inkSoft, marginTop: 4, fontStyle: 'italic' }}>“{o.notes}”</div>}
       </div>
