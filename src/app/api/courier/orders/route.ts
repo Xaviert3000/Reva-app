@@ -20,7 +20,7 @@ export async function GET() {
 
   const { data, error } = await admin
     .from('orders')
-    .select('id,status,fulfillment,customer_name,customer_phone,address,notes,total,created_at,businesses:biz_id(name), order_items(name,qty)')
+    .select('id,status,fulfillment,customer_name,customer_phone,address,notes,total,eta_at,created_at,businesses:biz_id(name), order_items(name,qty)')
     .eq('courier_id', user.id)
     .in('status', ['ready', 'out_for_delivery', 'delivered'])
     .order('created_at', { ascending: false })
@@ -46,6 +46,16 @@ export async function PATCH(req: NextRequest) {
   const { data: courier } = await admin.from('couriers').select('active').eq('user_id', user.id).maybeSingle()
   if (!courier || !courier.active) return NextResponse.json({ error: 'No es repartidor activo' }, { status: 403 })
 
+  // Al salir "en camino" el repartidor puede fijar un ETA (minutos hasta llegar);
+  // lo guardamos como hora absoluta para que el cliente vea la cuenta regresiva.
+  const patch: Record<string, unknown> = { status }
+  if (status === 'out_for_delivery') {
+    const mins = Number(body.eta_minutes)
+    if (Number.isFinite(mins) && mins > 0 && mins <= 240) {
+      patch.eta_at = new Date(Date.now() + mins * 60_000).toISOString()
+    }
+  }
+
   // Al marcar ENTREGADO se exige el código de confirmación: el repartidor se lo
   // pide al cliente y lo captura. Se valida contra el guardado (que el repartidor
   // nunca ve). Sin coincidencia, no se cierra la entrega.
@@ -66,7 +76,7 @@ export async function PATCH(req: NextRequest) {
   }
 
   // Sólo puede tocar pedidos asignados a él.
-  const { error } = await admin.from('orders').update({ status }).eq('id', id).eq('courier_id', user.id)
+  const { error } = await admin.from('orders').update(patch).eq('id', id).eq('courier_id', user.id)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ ok: true })
 }
