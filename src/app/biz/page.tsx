@@ -5385,6 +5385,8 @@ function TeamManager({ bizId, en }: { bizId: string; en: boolean }) {
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const [ok, setOk] = useState('')
+  const [resendingId, setResendingId] = useState<string | null>(null)
+  const [resentId, setResentId] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     try {
@@ -5431,6 +5433,21 @@ function TeamManager({ bizId, en }: { bizId: string; en: boolean }) {
     load()
   }
 
+  // Reenvía una invitación pendiente: el POST detecta la invitación existente,
+  // renueva token/expiración y reintenta el correo (mismo rol y permisos).
+  async function resend(row: TeamRow) {
+    if (resendingId) return
+    setResendingId(row.id); setResentId(null)
+    try {
+      const r = await fetch('/api/biz/team', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ biz_id: bizId, email: row.email, role: row.role, permissions: row.permissions?.modules ?? null }),
+      })
+      if (r.ok) { setResentId(row.id); setTimeout(() => setResentId(c => (c === row.id ? null : c)), 2600) }
+    } catch { /* silencioso: la fila ya existe, solo reintentábamos el correo */ }
+    finally { setResendingId(null) }
+  }
+
   const roleTint = (r: BizRole) => r === 'owner' ? R.coralTint : r === 'admin' ? R.jadeTint : R.bgAlt
   const roleColor = (r: BizRole) => r === 'owner' ? R.coralPress : r === 'admin' ? R.jade : R.inkSoft
 
@@ -5458,6 +5475,12 @@ function TeamManager({ bizId, en }: { bizId: string; en: boolean }) {
             </div>
             <span style={{ fontSize: 11.5, fontWeight: 700, padding: '4px 9px', borderRadius: 999, background: roleTint(row.role), color: roleColor(row.role), whiteSpace: 'nowrap' }}>{en ? row.roleLabel.en : row.roleLabel.es}</span>
             {row.status === 'invitado' && <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 999, background: R.amberTint, color: R.amberDeep, whiteSpace: 'nowrap' }}>{t('Pendiente', 'Pending')}</span>}
+            {row.status === 'invitado' && (
+              <button onClick={() => resend(row)} disabled={resendingId === row.id} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 9px', borderRadius: 999, border: `1px solid ${resentId === row.id ? R.jade : R.line}`, background: resentId === row.id ? R.jadeTint : R.surface, color: resentId === row.id ? R.jade : R.inkSoft, cursor: resendingId === row.id ? 'default' : 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 11.5, whiteSpace: 'nowrap' }}>
+                <Icon n={resentId === row.id ? 'check' : 'send'} size={11} color={resentId === row.id ? R.jade : R.inkSoft} stroke={resentId === row.id ? 3 : 1.8} />
+                {resentId === row.id ? t('Reenviada', 'Resent') : resendingId === row.id ? t('Enviando…', 'Sending…') : t('Reenviar', 'Resend')}
+              </button>
+            )}
             {!row.isOwner && (
               <button onClick={() => remove(row)} style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 4, color: R.inkFaint, display: 'grid', placeItems: 'center' }} aria-label={t('Quitar', 'Remove')}>
                 <Icon n="x" size={15} color={R.inkFaint} />
