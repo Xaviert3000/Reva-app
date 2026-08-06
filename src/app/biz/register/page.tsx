@@ -1,24 +1,46 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { RevaMark } from '@/components/ui/RevaMark'
 import { Btn } from '@/components/ui/Btn'
 import { createClient } from '@/lib/supabase/client'
+import { BIZ_CATEGORIES_INIT } from '@/lib/bizcategories-config'
 
-const TYPES = [
-  'Restaurante', 'Bar', 'Spa', 'Clínica', 'Salón de belleza',
-  'Tour / Excursión', 'Despacho', 'Inmobiliaria', 'Otro',
-]
+// Las opciones del giro salen de las categorías que el super admin crea en
+// /admin → Ajustes → Categorías de negocio (tabla `business_categories`, de
+// lectura pública). Se cargan al montar; mientras tanto se muestra el seed por
+// defecto para que el selector nunca aparezca vacío. Siempre se agrega "Otro".
+const FALLBACK_TYPES = [...BIZ_CATEGORIES_INIT.map(c => c.label), 'Otro']
 
 export default function BizRegisterPage() {
   const [bizName, setBizName] = useState('')
   const [ownerName, setOwnerName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [bizType, setBizType] = useState(TYPES[0])
+  const [types, setTypes] = useState<string[]>(FALLBACK_TYPES)
+  const [bizType, setBizType] = useState(FALLBACK_TYPES[0])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [done, setDone] = useState(false)
+
+  // Carga las categorías reales del super admin desde Supabase (anon key, RLS
+  // pública). Si la tabla está vacía o falla, se queda con el fallback.
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      const supabase = createClient()
+      const { data } = await supabase
+        .from('business_categories')
+        .select('label')
+        .order('sort_order', { ascending: true })
+        .order('created_at', { ascending: true })
+      if (cancelled || !data || data.length === 0) return
+      const labels = [...data.map(c => c.label as string), 'Otro']
+      setTypes(labels)
+      setBizType(labels[0])
+    })()
+    return () => { cancelled = true }
+  }, [])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -107,7 +129,7 @@ export default function BizRegisterPage() {
                   onChange={e => setBizType(e.target.value)}
                   className="w-full border border-line rounded-[12px] px-4 py-3 text-[14.5px] text-ink outline-none focus:border-coral bg-bg transition-colors"
                 >
-                  {TYPES.map(t => <option key={t}>{t}</option>)}
+                  {types.map(t => <option key={t}>{t}</option>)}
                 </select>
               </div>
               <div>
