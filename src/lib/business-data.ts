@@ -6,6 +6,7 @@
 // interfaces so the UI doesn't branch on source.
 import { createClient } from './supabase/client'
 import { BIZ, CATALOG, slotsFromHours, type Business, type FeaturedTier, type Service, type ProactiveAlert, type AlertType, type BizOffer } from './data'
+import { BIZ_CATEGORIES_INIT, type BizCategory } from './bizcategories-config'
 
 interface DbBusiness {
   id: string
@@ -197,9 +198,11 @@ function mapBusiness(
 export interface CityData {
   businesses: Business[]
   catalog: Record<string, Service[]>
+  /** Categorías de negocio del super admin (business_categories) para los filtros. */
+  categories: BizCategory[]
 }
 
-export const LOS_CABOS_DATA: CityData = { businesses: BIZ, catalog: CATALOG }
+export const LOS_CABOS_DATA: CityData = { businesses: BIZ, catalog: CATALOG, categories: BIZ_CATEGORIES_INIT }
 
 // Fetches real businesses + their active services, reviews and live alerts for a
 // municipio (Los Cabos included — its 9 businesses are seeded in Supabase).
@@ -214,11 +217,11 @@ export async function fetchCityData(municipio: string): Promise<CityData> {
 
   if (error || !bizRows || bizRows.length === 0) {
     // Sin datos reales todavía: usa el demo curado solo para Los Cabos.
-    return municipio === 'Los Cabos' ? LOS_CABOS_DATA : { businesses: [], catalog: {} }
+    return municipio === 'Los Cabos' ? LOS_CABOS_DATA : { businesses: [], catalog: {}, categories: [] }
   }
 
   const ids = bizRows.map(b => b.id)
-  const [{ data: svcRows }, { data: revRows }, { data: alertRows }, { data: offerRows }] = await Promise.all([
+  const [{ data: svcRows }, { data: revRows }, { data: alertRows }, { data: offerRows }, { data: catRows }] = await Promise.all([
     supabase
       .from('services')
       .select('id,biz_id,name,description,price,price_label,category,duration_min,stock,scheduled,image_url,variants')
@@ -240,6 +243,10 @@ export async function fetchCityData(municipio: string): Promise<CityData> {
       .in('biz_id', ids)
       .eq('kind', 'oferta')
       .eq('active', true),
+    supabase
+      .from('business_categories')
+      .select('label,emoji')
+      .order('sort_order', { ascending: true }),
   ])
 
   const catalog: Record<string, Service[]> = {}
@@ -262,5 +269,6 @@ export async function fetchCityData(municipio: string): Promise<CityData> {
     return mapBusiness(b, grad, reviews, alerts, offers, cover)
   })
 
-  return { businesses, catalog }
+  const categories: BizCategory[] = (catRows ?? []).map(c => ({ label: c.label as string, emoji: (c.emoji as string) || '🏷️' }))
+  return { businesses, catalog, categories }
 }

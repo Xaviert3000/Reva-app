@@ -13,6 +13,7 @@ import QRCode from 'qrcode'
 import { type Mode, type Business, type Service, BIZ, CATALOG, CITIES, STATES_DATA, COPY, slotsFromHours, upcomingDays, slotAvailability, isScheduled, isOpenNow, inStock, tracksStock, dayOffered, findService, localSearch, servicesForSearch, activeAlert, findMunicipio, featuredBadge } from '@/lib/data'
 import { type VariantOption, usableGroups, hasVariants, variantDelta, variantLabel, defaultSelection } from '@/lib/variants'
 import { fetchCityData, type CityData } from '@/lib/business-data'
+import { BIZ_CATEGORIES_INIT } from '@/lib/bizcategories-config'
 import { createClient } from '@/lib/supabase/client'
 import { promoWindowLabel } from '@/lib/promotions'
 import { roveToken, ROVE_SERIALS, type RoveProgram } from '@/lib/rove'
@@ -21,7 +22,7 @@ import { clsx } from 'clsx'
 
 // Live businesses + catalog for the guest's current city (Supabase-backed for
 // any municipio besides Los Cabos, which keeps the curated demo set).
-const BizDataContext = createContext<CityData & { city: string; refresh: () => void }>({ businesses: BIZ, catalog: CATALOG, city: 'Los Cabos', refresh: () => {} })
+const BizDataContext = createContext<CityData & { city: string; refresh: () => void }>({ businesses: BIZ, catalog: CATALOG, categories: BIZ_CATEGORIES_INIT, city: 'Los Cabos', refresh: () => {} })
 
 // ── Carrito de pedidos (ecommerce) ─────────────────────────
 // Sólo aplica a negocios con doesOrders. Un carrito pertenece a UN negocio a la
@@ -1032,10 +1033,12 @@ function HeroFeatured({ biz, mode, onOpen }: { biz: Business; mode: Mode; onOpen
 
 function Discovery({ mode, onOpen, onBook, onModeToggle, onBell, onMsg }: { mode: Mode; onOpen: (b: Business) => void; onBook: (b: Business) => void; onModeToggle: () => void; onBell: () => void; onMsg: () => void }) {
   const en = useContext(LangContext) === 'en'
-  const { businesses, city } = useContext(BizDataContext)
+  const { businesses, categories, city } = useContext(BizDataContext)
   const copy = { ...(en ? COPY.explorer : COPY.vecino), discoverTitle: en ? `Tonight in ${city}` : `Hoy en ${city}` }
-  const cats = en ? ['All', 'Eat', 'Spa', 'Tours', 'Nightlife'] : ['Todo', 'Comer', 'Spa', 'Tours', 'Noche']
-  const catKeys: (string | null)[] = [null, 'Comer', 'Spa', 'Tours', 'Vida nocturna']
+  // Chips reales del super admin (business_categories); antes eran una lista fija
+  // de 5 desconectada de la BD. El primer chip siempre es "Todo".
+  const cats = [en ? 'All' : 'Todo', ...categories.map(c => `${c.emoji} ${c.label}`)]
+  const catKeys: (string | null)[] = [null, ...categories.map(c => c.label)]
   const [cat, setCat] = useState(0)
   // Héroe "Hoy en [ciudad]": SOLO negocios Premium (el spot #1 pagado). Los
   // destacados normales y los eventos van a la franja de abajo.
@@ -3590,7 +3593,7 @@ export default function AppPage() {
   // Live businesses + catalog for whatever city the guest is currently in.
   // Los Cabos uses the curated demo set instantly; other cities fetch from
   // Supabase and fall back to Los Cabos if that city has no data yet.
-  const [bizData, setBizData] = useState<CityData>({ businesses: BIZ, catalog: CATALOG })
+  const [bizData, setBizData] = useState<CityData>({ businesses: BIZ, catalog: CATALOG, categories: BIZ_CATEGORIES_INIT })
   useEffect(() => {
     let cancelled = false
     fetchCityData(currentCity).then(data => { if (!cancelled) setBizData(data) })
