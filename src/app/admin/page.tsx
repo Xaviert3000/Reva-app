@@ -900,6 +900,10 @@ export default function AdminPage() {
   const [revRange, setRevRange] = useState<'todos' | 'mes' | '30d' | 'custom'>('todos')
   const [revFrom, setRevFrom] = useState('')
   const [revTo, setRevTo] = useState('')
+  // Lista unificada de Suscripciones: buscador + tipo de vista + estado.
+  const [subQuery, setSubQuery] = useState('')
+  const [subVista, setSubVista] = useState<'suscripciones' | 'proximas' | 'emitidas'>('suscripciones')
+  const [subStatus, setSubStatus] = useState<'todos' | 'active' | 'trialing' | 'past_due' | 'canceled'>('todos')
 
   // Informes (reportes descargables de cada módulo)
   const [repType, setRepType] = useState<ReportKey>('negocios')
@@ -1738,63 +1742,94 @@ export default function AdminPage() {
                         )}
                       </div>
 
-                      {/* Estado por negocio */}
-                      <Card style={{ padding: 0, overflow: 'hidden', marginBottom: 22 }}>
-                        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: 14, padding: '12px 18px', borderBottom: `1px solid ${R.line}`, background: R.bgAlt, fontSize: 11.5, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.04em' }}>
-                          <span>{en ? 'Business' : 'Negocio'}</span><span>{en ? 'Status' : 'Estado'}</span><span>{en ? 'Next charge' : 'Próximo cobro'}</span><span style={{ textAlign: 'right' }}>{en ? 'Monthly' : 'Mensual'}</span>
-                        </div>
-                        {(subs?.subscriptions.length ?? 0) === 0 ? (
-                          <div style={{ textAlign: 'center', padding: '36px 0', color: R.inkSoft, fontSize: 14 }}>{en ? 'No subscriptions yet.' : 'Aún no hay suscripciones.'}</div>
-                        ) : subs!.subscriptions.map((s, i) => (
-                          <div key={s.biz_id} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: 14, alignItems: 'center', padding: '13px 18px', borderTop: i ? `1px solid ${R.lineSoft}` : 'none' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-                              <div style={{ width: 30, height: 30, borderRadius: 8, background: `linear-gradient(140deg, ${s.grad[0]}, ${s.grad[1]})`, display: 'grid', placeItems: 'center', fontFamily: R.display, fontWeight: 800, color: '#fff', fontSize: 13, flexShrink: 0 }}>{s.mono}</div>
-                              <span style={{ fontWeight: 600, fontSize: 13.5, color: R.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.biz_name}</span>
+                      {/* ── Lista unificada: buscador + filtros ── */}
+                      {(() => {
+                        const sq = subQuery.trim().toLowerCase()
+                        const scheduledPill = <span style={{ fontSize: 11, fontWeight: 700, color: R.amberDeep, background: R.amberTint, padding: '3px 9px', borderRadius: 999 }}>{en ? 'Scheduled' : 'Programada'}</span>
+                        // Normaliza los tres orígenes a una sola fila { negocio, estado, fecha, monto }.
+                        type URow = { key: string; biz_name: string; mono: string; grad: [string, string]; status: ReactNode; dateTxt: string; amount: number }
+                        let rows: URow[] = []
+                        if (subVista === 'suscripciones') {
+                          rows = (subs?.subscriptions ?? [])
+                            .filter(s => subStatus === 'todos' ? true : s.status === subStatus)
+                            .map(s => ({
+                              key: s.biz_id, biz_name: s.biz_name, mono: s.mono, grad: s.grad,
+                              status: <>{statusPill(s.status)}{s.cancel_at_period_end && <span style={{ fontSize: 10.5, color: R.inkFaint, marginLeft: 6 }}>{en ? 'ends' : 'termina'}</span>}</>,
+                              dateTxt: s.status === 'trialing' ? (en ? `Trial ends ${fmtD(s.trial_ends_at)}` : `Prueba hasta ${fmtD(s.trial_ends_at)}`) : fmtD(s.current_period_end),
+                              amount: s.amount,
+                            }))
+                        } else if (subVista === 'proximas') {
+                          rows = (subs?.upcoming ?? []).map((u, i) => ({
+                            key: u.biz_id + i, biz_name: u.biz_name, mono: u.mono, grad: u.grad,
+                            status: scheduledPill, dateTxt: fmtD(u.date), amount: u.amount,
+                          }))
+                        } else {
+                          rows = (subs?.invoices ?? []).map(iv => ({
+                            key: iv.id, biz_name: iv.biz_name, mono: iv.mono, grad: iv.grad,
+                            status: invStatus(iv.status), dateTxt: fmtD(iv.paid_at || iv.period_end || iv.due_date), amount: iv.amount,
+                          }))
+                        }
+                        if (sq) rows = rows.filter(r => r.biz_name.toLowerCase().includes(sq))
+                        const dateLabel = subVista === 'suscripciones' ? (en ? 'Next charge' : 'Próximo cobro') : (en ? 'Date' : 'Fecha')
+                        const vistaOpts: [typeof subVista, string][] = [
+                          ['suscripciones', en ? 'Subscriptions' : 'Suscripciones'],
+                          ['proximas', en ? 'Upcoming invoices' : 'Próximas facturas'],
+                          ['emitidas', en ? 'Issued invoices' : 'Facturas emitidas'],
+                        ]
+                        const statusOpts: [typeof subStatus, string][] = [
+                          ['todos', en ? 'All' : 'Todos'],
+                          ['active', en ? 'Active' : 'Activos'],
+                          ['trialing', en ? 'Trial' : 'Prueba'],
+                          ['past_due', en ? 'Past due' : 'Vencidos'],
+                          ['canceled', en ? 'Canceled' : 'Cancelados'],
+                        ]
+                        const emptyTxt = subVista === 'emitidas'
+                          ? (en ? 'No invoices issued yet. They appear when Stripe charges a plan.' : 'Aún no hay facturas emitidas. Aparecen cuando Stripe cobra un plan.')
+                          : subVista === 'proximas'
+                          ? (en ? 'No upcoming invoices scheduled.' : 'No hay próximas facturas programadas.')
+                          : (sq || subStatus !== 'todos') ? (en ? 'No subscriptions match your filters.' : 'Ninguna suscripción coincide con tus filtros.') : (en ? 'No subscriptions yet.' : 'Aún no hay suscripciones.')
+                        return (
+                          <>
+                            <div style={{ display: 'flex', gap: 10, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+                              <SearchBox value={subQuery} onChange={setSubQuery} placeholder={en ? 'Search business…' : 'Buscar negocio…'} />
+                              {vistaOpts.map(([key, label]) => {
+                                const on = subVista === key
+                                return <button key={key} onClick={() => setSubVista(key)} style={{ padding: '8px 14px', borderRadius: 999, border: `1px solid ${on ? R.coral : R.line}`, background: on ? R.coralTint : R.surface, color: on ? R.coralPress : R.inkSoft, fontFamily: R.ui, fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>{label}</button>
+                              })}
                             </div>
-                            <span>{statusPill(s.status)}{s.cancel_at_period_end && <span style={{ fontSize: 10.5, color: R.inkFaint, marginLeft: 6 }}>{en ? 'ends' : 'termina'}</span>}</span>
-                            <span style={{ fontSize: 13, color: R.inkSoft }}>{s.status === 'trialing' ? (en ? `Trial ends ${fmtD(s.trial_ends_at)}` : `Prueba hasta ${fmtD(s.trial_ends_at)}`) : fmtD(s.current_period_end)}</span>
-                            <span style={{ textAlign: 'right', fontFamily: R.display, fontWeight: 700, fontSize: 13.5, color: R.ink }}>{money2(s.amount)}</span>
-                          </div>
-                        ))}
-                      </Card>
-
-                      {/* Próximas facturas */}
-                      {(subs?.upcoming.length ?? 0) > 0 && (
-                        <>
-                          <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 15, color: R.ink, marginBottom: 10 }}>{en ? 'Upcoming invoices' : 'Próximas facturas'}</div>
-                          <Card style={{ padding: 0, overflow: 'hidden', marginBottom: 22 }}>
-                            {subs!.upcoming.map((u, i) => (
-                              <div key={u.biz_id + i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '13px 18px', borderTop: i ? `1px solid ${R.lineSoft}` : 'none' }}>
-                                <div style={{ width: 30, height: 30, borderRadius: 8, background: `linear-gradient(140deg, ${u.grad[0]}, ${u.grad[1]})`, display: 'grid', placeItems: 'center', fontFamily: R.display, fontWeight: 800, color: '#fff', fontSize: 13, flexShrink: 0 }}>{u.mono}</div>
-                                <span style={{ fontWeight: 600, fontSize: 13.5, color: R.ink, flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{u.biz_name}</span>
-                                <span style={{ fontSize: 13, color: R.inkSoft }}>{fmtD(u.date)}</span>
-                                <span style={{ fontFamily: R.display, fontWeight: 700, fontSize: 13.5, color: R.ink, minWidth: 80, textAlign: 'right' }}>{money2(u.amount)}</span>
+                            {subVista === 'suscripciones' && (
+                              <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+                                <span style={{ fontSize: 11.5, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.04em', marginRight: 2 }}>{en ? 'Status' : 'Estado'}</span>
+                                {statusOpts.map(([key, label]) => {
+                                  const on = subStatus === key
+                                  return <button key={key} onClick={() => setSubStatus(key)} style={{ padding: '7px 13px', borderRadius: 999, border: `1px solid ${on ? R.coral : R.line}`, background: on ? R.coralTint : R.surface, color: on ? R.coralPress : R.inkSoft, fontFamily: R.ui, fontWeight: 700, fontSize: 12.5, cursor: 'pointer' }}>{label}</button>
+                                })}
                               </div>
-                            ))}
-                          </Card>
-                        </>
-                      )}
-
-                      {/* Facturas emitidas (cobros aplicados) */}
-                      <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 15, color: R.ink, marginBottom: 10 }}>{en ? 'Issued invoices' : 'Facturas emitidas'}</div>
-                      <Card style={{ padding: 0, overflow: 'hidden' }}>
-                        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: 14, padding: '12px 18px', borderBottom: `1px solid ${R.line}`, background: R.bgAlt, fontSize: 11.5, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.04em' }}>
-                          <span>{en ? 'Business' : 'Negocio'}</span><span>{en ? 'Status' : 'Estado'}</span><span>{en ? 'Date' : 'Fecha'}</span><span style={{ textAlign: 'right' }}>{en ? 'Amount' : 'Monto'}</span>
-                        </div>
-                        {(subs?.invoices.length ?? 0) === 0 ? (
-                          <div style={{ textAlign: 'center', padding: '36px 0', color: R.inkSoft, fontSize: 14 }}>{en ? 'No invoices issued yet. They appear when Stripe charges a plan.' : 'Aún no hay facturas emitidas. Aparecen cuando Stripe cobra un plan.'}</div>
-                        ) : subs!.invoices.map((iv, i) => (
-                          <div key={iv.id} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: 14, alignItems: 'center', padding: '13px 18px', borderTop: i ? `1px solid ${R.lineSoft}` : 'none' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-                              <div style={{ width: 30, height: 30, borderRadius: 8, background: `linear-gradient(140deg, ${iv.grad[0]}, ${iv.grad[1]})`, display: 'grid', placeItems: 'center', fontFamily: R.display, fontWeight: 800, color: '#fff', fontSize: 13, flexShrink: 0 }}>{iv.mono}</div>
-                              <span style={{ fontWeight: 600, fontSize: 13.5, color: R.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{iv.biz_name}</span>
+                            )}
+                            <div style={{ display: 'flex', marginBottom: 12 }}>
+                              <span style={{ marginLeft: 'auto', fontSize: 12.5, color: R.inkSoft }}>{en ? `${rows.length} ${rows.length === 1 ? 'result' : 'results'}` : `${rows.length} ${rows.length === 1 ? 'resultado' : 'resultados'}`}</span>
                             </div>
-                            <span>{invStatus(iv.status)}</span>
-                            <span style={{ fontSize: 13, color: R.inkSoft }}>{fmtD(iv.paid_at || iv.period_end || iv.due_date)}</span>
-                            <span style={{ textAlign: 'right', fontFamily: R.display, fontWeight: 700, fontSize: 13.5, color: R.ink }}>{money2(iv.amount)}</span>
-                          </div>
-                        ))}
-                      </Card>
+                            <Card style={{ padding: 0, overflow: 'hidden' }}>
+                              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: 14, padding: '12px 18px', borderBottom: `1px solid ${R.line}`, background: R.bgAlt, fontSize: 11.5, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.04em' }}>
+                                <span>{en ? 'Business' : 'Negocio'}</span><span>{en ? 'Status' : 'Estado'}</span><span>{dateLabel}</span><span style={{ textAlign: 'right' }}>{en ? 'Amount' : 'Monto'}</span>
+                              </div>
+                              {rows.length === 0 ? (
+                                <div style={{ textAlign: 'center', padding: '36px 0', color: R.inkSoft, fontSize: 14 }}>{emptyTxt}</div>
+                              ) : rows.map((r, i) => (
+                                <div key={r.key} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: 14, alignItems: 'center', padding: '13px 18px', borderTop: i ? `1px solid ${R.lineSoft}` : 'none' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                                    <div style={{ width: 30, height: 30, borderRadius: 8, background: `linear-gradient(140deg, ${r.grad[0]}, ${r.grad[1]})`, display: 'grid', placeItems: 'center', fontFamily: R.display, fontWeight: 800, color: '#fff', fontSize: 13, flexShrink: 0 }}>{r.mono}</div>
+                                    <span style={{ fontWeight: 600, fontSize: 13.5, color: R.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.biz_name}</span>
+                                  </div>
+                                  <span>{r.status}</span>
+                                  <span style={{ fontSize: 13, color: R.inkSoft }}>{r.dateTxt}</span>
+                                  <span style={{ textAlign: 'right', fontFamily: R.display, fontWeight: 700, fontSize: 13.5, color: R.ink }}>{money2(r.amount)}</span>
+                                </div>
+                              ))}
+                            </Card>
+                          </>
+                        )
+                      })()}
                     </div>
                   )
                 })()}
