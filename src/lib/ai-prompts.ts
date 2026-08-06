@@ -56,6 +56,41 @@ function offerLabel(o: BizOffer): string {
   return `[${o.type}] ${o.title}${time}${detail}`
 }
 
+// Días de la semana en que aplica una oferta, legible. Vacío/7 días = "todos los días".
+// Reutiliza DOW_ES (nombres completos: 'lunes', 'martes'…) declarado más abajo.
+function offerDaysLabel(o: BizOffer): string {
+  if (!o.days || o.days.length === 0 || o.days.length >= 7) return 'todos los días'
+  return o.days.slice().sort((a, b) => a - b).map(d => DOW_ES[d] ?? '').filter(Boolean).join(', ')
+}
+
+// Bloque de PROMOCIONES para el agente del negocio (chat cliente↔negocio). Le da
+// todas las ofertas activas con su ventana (días + horario) y marca cuáles aplican
+// HOY, para que responda con precisión: sin inventar, sin negar promos que sí
+// existen, y sabiendo cuáles empujar hoy vs. cuáles son de otros días.
+export function promoContext(offers: BizOffer[], now: Date = new Date()): string {
+  if (!offers || offers.length === 0) {
+    return `
+
+PROMOCIONES
+- El negocio no tiene promociones activas ahora mismo. Si el cliente pregunta, dilo con honestidad; nunca inventes descuentos.`
+  }
+  const { dow, ymd } = localToday(now)
+  const lines = offers.map(o => {
+    const today = offerValidToday(o, dow, ymd)
+    const time = o.startTime && o.endTime ? `, ${o.startTime}–${o.endTime}` : ''
+    const detail = o.detail ? ` — ${o.detail}` : ''
+    return `  • [${o.type}] ${o.title} (${offerDaysLabel(o)}${time})${today ? ' — APLICA HOY' : ' — hoy no aplica'}${detail}`
+  }).join('\n')
+  return `
+
+PROMOCIONES (información real del negocio; respétala)
+Estas son las promociones activas. Cuando el cliente pregunte por promociones, cuéntaselas con precisión:
+${lines}
+Reglas:
+- Menciona primero las que APLICAN HOY. Puedes contar también las de otros días, diciendo cuándo aplican (ej. "los martes de 13:00 a 18:00").
+- Nunca inventes, exageres ni prometas descuentos que no estén en esta lista, y respeta el límite de descuento indicado arriba.`
+}
+
 // Catálogo que la IA puede recomendar. SE GENERA desde los negocios reales de
 // la ciudad activa del huésped (no un set fijo) para que nunca se desfase e
 // incluya servicios con precios e ids. Marca la capacidad de cada negocio

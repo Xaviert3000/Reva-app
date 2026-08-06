@@ -2,9 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getRouteUser } from '@/lib/supabase/route-auth'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { openrouterChat, type ChatMessage } from '@/lib/openrouter'
-import { bizChatSystemPrompt } from '@/lib/ai-prompts'
+import { bizChatSystemPrompt, promoContext } from '@/lib/ai-prompts'
 import { loadPlatformConfig, resolvedPrompt, modelChain } from '@/lib/platform-config'
-import { isOpenNow, bizLocalTimeLabel, type Mode } from '@/lib/data'
+import { isOpenNow, bizLocalTimeLabel, type Mode, type BizOffer } from '@/lib/data'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 30
@@ -152,6 +152,23 @@ export async function POST(req: NextRequest) {
   try {
     const { data: biz } = await admin.from('businesses').select('name,type,kind,hours,does_orders').eq('id', biz_id).single()
     const { data: svcs } = await admin.from('services').select('id,name,price,scheduled').eq('biz_id', biz_id).eq('active', true)
+    // Promociones activas del negocio (kind='oferta') para que el agente las conozca.
+    const { data: offerRows } = await admin
+      .from('promotions')
+      .select('id,title,body,discount,start_date,end_date,start_time,end_time,days')
+      .eq('biz_id', biz_id).eq('kind', 'oferta').eq('active', true)
+    const offers: BizOffer[] = (offerRows ?? []).map(o => ({
+      id: o.id as string,
+      type: (o.discount as string) || 'Descuento',
+      title: (o.title as string) ?? '',
+      detail: (o.body as string) || '',
+      imageUrl: null,
+      startDate: (o.start_date as string) || null,
+      endDate: (o.end_date as string) || null,
+      days: (o.days as number[]) ?? [],
+      startTime: (o.start_time as string) || null,
+      endTime: (o.end_time as string) || null,
+    }))
     const { data: hist } = await admin
       .from('messages')
       .select('from_role,body')
@@ -183,6 +200,9 @@ export async function POST(req: NextRequest) {
     // pedido con un marcador oculto que la app convierte en carrito.
     const openNow = isOpenNow(biz?.hours)
     system += orderProtocol(products, { openNow, hours: biz?.hours ?? '', nowLabel: bizLocalTimeLabel() })
+    // Promociones (siempre, independiente del horario): el cliente puede preguntar
+    // por ofertas a cualquier hora; cada oferta trae su propia ventana de días/horas.
+    system += promoContext(offers)
 
     const apiMsgs: ChatMessage[] = (hist ?? []).map(h => ({
       role: (h.from_role === 'biz' ? 'assistant' : 'user') as 'assistant' | 'user',
