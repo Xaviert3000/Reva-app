@@ -892,6 +892,8 @@ export default function AdminPage() {
   const [subs, setSubs] = useState<SubsData | null>(null)
   const [revLoaded, setRevLoaded] = useState(false)
   const [revFilter, setRevFilter] = useState<'Todos' | 'Destacados' | 'Depósitos'>('Todos')
+  // Sub-página activa dentro de Ingresos (resumen · transacciones · suscripciones).
+  const [revTab, setRevTab] = useState<'resumen' | 'transacciones' | 'suscripciones'>('resumen')
 
   // Informes (reportes descargables de cada módulo)
   const [repType, setRepType] = useState<ReportKey>('negocios')
@@ -1575,8 +1577,25 @@ export default function AdminPage() {
             const allPays = revenue?.payments ?? []
             const payRows = allPays.filter(p =>
               revFilter === 'Todos' ? true : revFilter === 'Destacados' ? p.type === 'featured' : p.type === 'deposit')
+            const revTabs: { key: typeof revTab; label: string; icon: string }[] = [
+              { key: 'resumen', label: en ? 'Overview' : 'Resumen', icon: 'chart' },
+              { key: 'transacciones', label: en ? 'Transactions' : 'Transacciones', icon: 'card' },
+              { key: 'suscripciones', label: en ? 'Subscriptions' : 'Suscripciones', icon: 'credit' },
+            ]
             return (
               <>
+                <div style={{ display: 'inline-flex', gap: 4, padding: 4, background: R.bgAlt, border: `1px solid ${R.line}`, borderRadius: 14, marginBottom: 24, flexWrap: 'wrap' }}>
+                  {revTabs.map(tb => {
+                    const on = revTab === tb.key
+                    return (
+                      <button key={tb.key} onClick={() => setRevTab(tb.key)} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '9px 16px', borderRadius: 10, border: 'none', background: on ? R.surface : 'transparent', color: on ? R.ink : R.inkSoft, boxShadow: on ? '0 1px 3px rgba(20,25,40,0.08)' : 'none', fontFamily: R.ui, fontWeight: 700, fontSize: 13.5, cursor: 'pointer' }}>
+                        <Icon n={tb.icon} size={15} color={on ? R.coral : R.inkFaint} />{tb.label}
+                      </button>
+                    )
+                  })}
+                </div>
+
+                {revTab === 'resumen' && (<>
                 <div style={{ display: 'flex', gap: 14, marginBottom: 22, flexWrap: 'wrap' }}>
                   <KPI label={en ? 'Reva revenue (total)' : 'Ingreso de Reva (total)'} value={fmt(Math.round(t?.platform ?? 0))} sub={en ? `${t?.count ?? 0} payments collected` : `${t?.count ?? 0} pagos cobrados`} tint={R.coralTint} icon={<Icon n="coins" size={20} color={R.coral} />} />
                   <KPI label={en ? 'Reva revenue (this month)' : 'Ingreso de Reva (este mes)'} value={fmt(Math.round(t?.platformMonth ?? 0))} sub={en ? 'featured + commissions' : 'destacados + comisiones'} tint={R.jadeTint} icon={<Icon n="chart" size={20} color={R.jade} />} />
@@ -1611,7 +1630,9 @@ export default function AdminPage() {
                     </Card>
                   )}
                 </div>
+                </>)}
 
+                {revTab === 'transacciones' && (<>
                 <div style={{ display: 'flex', gap: 10, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center' }}>
                   <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink, marginRight: 'auto' }}>{en ? 'Transactions' : 'Transacciones'}</div>
                   <Chips options={en ? ['All', 'Featured', 'Deposits'] : ['Todos', 'Destacados', 'Depósitos']} value={en ? (revFilter === 'Todos' ? 'All' : revFilter === 'Destacados' ? 'Featured' : 'Deposits') : revFilter} onChange={v => setRevFilter((en ? (v === 'All' ? 'Todos' : v === 'Featured' ? 'Destacados' : 'Depósitos') : v) as typeof revFilter)} />
@@ -1637,9 +1658,10 @@ export default function AdminPage() {
                     </div>
                   ))}
                 </Card>
+                </>)}
 
                 {/* ── Suscripciones al Plan Reva ── */}
-                {(() => {
+                {revTab === 'suscripciones' && (() => {
                   const st = subs?.totals
                   const fmtD = (iso: string | null) => iso ? new Date(iso).toLocaleDateString(en ? 'en-US' : 'es-MX', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'
                   const statusPill = (s: string) => {
@@ -1663,7 +1685,7 @@ export default function AdminPage() {
                     return <span style={{ fontSize: 11, fontWeight: 700, color: p.fg, background: p.bg, padding: '3px 9px', borderRadius: 999 }}>{p.txt}</span>
                   }
                   return (
-                    <div style={{ marginTop: 30 }}>
+                    <div>
                       <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 18, color: R.ink, marginBottom: 4 }}>{en ? 'Reva Plan subscriptions' : 'Suscripciones al Plan Reva'}</div>
                       <div style={{ fontSize: 13, color: R.inkSoft, marginBottom: 16 }}>{en ? 'Businesses on the $300/mo plan — status, applied charges and upcoming invoices.' : 'Negocios en el plan de $300/mes — estado, cobros aplicados y próximas facturas.'}</div>
 
