@@ -894,6 +894,12 @@ export default function AdminPage() {
   const [revFilter, setRevFilter] = useState<'Todos' | 'Destacados' | 'Depósitos'>('Todos')
   // Sub-página activa dentro de Ingresos (resumen · transacciones · suscripciones).
   const [revTab, setRevTab] = useState<'resumen' | 'transacciones' | 'suscripciones'>('resumen')
+  // Buscador de la tabla de Transacciones (por negocio / cliente).
+  const [revQuery, setRevQuery] = useState('')
+  // Filtro por rango de fechas de Transacciones (todos · mes · 30d · personalizado).
+  const [revRange, setRevRange] = useState<'todos' | 'mes' | '30d' | 'custom'>('todos')
+  const [revFrom, setRevFrom] = useState('')
+  const [revTo, setRevTo] = useState('')
 
   // Informes (reportes descargables de cada módulo)
   const [repType, setRepType] = useState<ReportKey>('negocios')
@@ -1575,8 +1581,26 @@ export default function AdminPage() {
             const money2 = (n: number) => '$' + n.toLocaleString(en ? 'en-US' : 'es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
             const conceptOf = (ty: string) => ty === 'featured' ? (en ? 'Featured' : 'Destacado') : ty === 'deposit' ? (en ? 'Deposit' : 'Depósito') : ty === 'subscription' ? (en ? 'Subscription' : 'Suscripción') : ty
             const allPays = revenue?.payments ?? []
-            const payRows = allPays.filter(p =>
-              revFilter === 'Todos' ? true : revFilter === 'Destacados' ? p.type === 'featured' : p.type === 'deposit')
+            const rq = revQuery.trim().toLowerCase()
+            // Límites del rango de fechas seleccionado (ms epoch, o null = sin límite).
+            let rangeFrom: number | null = null, rangeTo: number | null = null
+            if (revRange === 'mes') {
+              const n = new Date(); rangeFrom = new Date(n.getFullYear(), n.getMonth(), 1).getTime()
+            } else if (revRange === '30d') {
+              rangeFrom = Date.now() - 30 * 864e5
+            } else if (revRange === 'custom') {
+              if (revFrom) rangeFrom = new Date(revFrom + 'T00:00:00').getTime()
+              if (revTo) rangeTo = new Date(revTo + 'T23:59:59').getTime()
+            }
+            const payRows = allPays.filter(p => {
+              const byConcept = revFilter === 'Todos' ? true : revFilter === 'Destacados' ? p.type === 'featured' : p.type === 'deposit'
+              if (!byConcept) return false
+              const ts = new Date(p.created_at).getTime()
+              if (rangeFrom !== null && ts < rangeFrom) return false
+              if (rangeTo !== null && ts > rangeTo) return false
+              if (!rq) return true
+              return `${p.biz_name} ${p.guest_name ?? ''} ${conceptOf(p.type)}`.toLowerCase().includes(rq)
+            })
             const revTabs: { key: typeof revTab; label: string; icon: string }[] = [
               { key: 'resumen', label: en ? 'Overview' : 'Resumen', icon: 'chart' },
               { key: 'transacciones', label: en ? 'Transactions' : 'Transacciones', icon: 'card' },
@@ -1634,8 +1658,24 @@ export default function AdminPage() {
 
                 {revTab === 'transacciones' && (<>
                 <div style={{ display: 'flex', gap: 10, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center' }}>
-                  <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink, marginRight: 'auto' }}>{en ? 'Transactions' : 'Transacciones'}</div>
+                  <div style={{ fontFamily: R.display, fontWeight: 700, fontSize: 16, color: R.ink }}>{en ? 'Transactions' : 'Transacciones'}</div>
+                  <SearchBox value={revQuery} onChange={setRevQuery} placeholder={en ? 'Search business or customer…' : 'Buscar negocio o cliente…'} />
                   <Chips options={en ? ['All', 'Featured', 'Deposits'] : ['Todos', 'Destacados', 'Depósitos']} value={en ? (revFilter === 'Todos' ? 'All' : revFilter === 'Destacados' ? 'Featured' : 'Deposits') : revFilter} onChange={v => setRevFilter((en ? (v === 'All' ? 'Todos' : v === 'Featured' ? 'Destacados' : 'Depósitos') : v) as typeof revFilter)} />
+                </div>
+                <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <span style={{ fontSize: 11.5, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.04em', marginRight: 2 }}>{en ? 'Period' : 'Periodo'}</span>
+                  {([['todos', en ? 'All' : 'Todos'], ['mes', en ? 'This month' : 'Este mes'], ['30d', en ? 'Last 30 days' : 'Últimos 30 días'], ['custom', en ? 'Custom' : 'Personalizado']] as [typeof revRange, string][]).map(([key, label]) => {
+                    const on = revRange === key
+                    return <button key={key} onClick={() => setRevRange(key)} style={{ padding: '8px 14px', borderRadius: 999, border: `1px solid ${on ? R.coral : R.line}`, background: on ? R.coralTint : R.surface, color: on ? R.coralPress : R.inkSoft, fontFamily: R.ui, fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>{label}</button>
+                  })}
+                  {revRange === 'custom' && (
+                    <>
+                      <input type="date" value={revFrom} max={revTo || undefined} onChange={e => setRevFrom(e.target.value)} style={{ border: `1px solid ${R.line}`, borderRadius: 12, padding: '8px 12px', fontFamily: R.ui, fontSize: 13, color: R.ink, background: R.surface, outline: 'none' }} />
+                      <span style={{ color: R.inkFaint, fontSize: 13 }}>→</span>
+                      <input type="date" value={revTo} min={revFrom || undefined} onChange={e => setRevTo(e.target.value)} style={{ border: `1px solid ${R.line}`, borderRadius: 12, padding: '8px 12px', fontFamily: R.ui, fontSize: 13, color: R.ink, background: R.surface, outline: 'none' }} />
+                    </>
+                  )}
+                  <span style={{ marginLeft: 'auto', fontSize: 12.5, color: R.inkSoft }}>{en ? `${payRows.length} ${payRows.length === 1 ? 'transaction' : 'transactions'}` : `${payRows.length} ${payRows.length === 1 ? 'transacción' : 'transacciones'}`}</span>
                 </div>
                 <Card style={{ padding: 0, overflow: 'hidden' }}>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr 1fr 1fr 1fr', gap: 14, padding: '12px 18px', borderBottom: `1px solid ${R.line}`, background: R.bgAlt, fontSize: 11.5, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.04em' }}>
@@ -1643,7 +1683,7 @@ export default function AdminPage() {
                   </div>
                   {payRows.length === 0 ? (
                     <div style={{ textAlign: 'center', padding: '40px 0', color: R.inkSoft, fontSize: 14 }}>
-                      {revLoaded ? (en ? 'No payments recorded yet. When a business buys a Featured campaign or a customer pays a deposit, it will appear here.' : 'Aún no hay pagos registrados. Cuando un negocio compre un Destacado o un cliente pague un depósito, aparecerá aquí.') : (en ? 'Loading revenue…' : 'Cargando ingresos…')}
+                      {!revLoaded ? (en ? 'Loading revenue…' : 'Cargando ingresos…') : (rq || revFilter !== 'Todos' || revRange !== 'todos') ? (en ? 'No transactions match your filters.' : 'Ninguna transacción coincide con tus filtros.') : (en ? 'No payments recorded yet. When a business buys a Featured campaign or a customer pays a deposit, it will appear here.' : 'Aún no hay pagos registrados. Cuando un negocio compre un Destacado o un cliente pague un depósito, aparecerá aquí.')}
                     </div>
                   ) : payRows.map((p, i) => (
                     <div key={p.id} style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr 1fr 1fr 1fr', gap: 14, alignItems: 'center', padding: '13px 18px', borderTop: i ? `1px solid ${R.lineSoft}` : 'none' }}>
