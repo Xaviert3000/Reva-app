@@ -43,6 +43,8 @@ export async function POST(req: NextRequest) {
   // negocio en Discover (business-data.ts filtra por .eq('municipio', ...)).
   // Se limpia (trim) para que coincida exacto con el catálogo del cliente.
   if (typeof body.municipio === 'string') patch.municipio = body.municipio.trim() || null
+  // Estado (entidad federativa) donde opera el negocio. Acompaña al municipio.
+  if (typeof body.estado === 'string') patch.estado = body.estado.trim() || null
   // Capacidades de reservas / pedidos (ecommerce) y sus formas de entrega.
   if (typeof body.does_reservations === 'boolean') patch.does_reservations = body.does_reservations
   if (typeof body.does_orders === 'boolean') patch.does_orders = body.does_orders

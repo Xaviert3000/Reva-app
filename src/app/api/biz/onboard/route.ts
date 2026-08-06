@@ -37,6 +37,7 @@ export async function POST(req: NextRequest) {
     // Municipio de operación: define dónde aparece el negocio en Discover
     // (business-data.ts filtra por .eq('municipio', ...)). Se limpia (trim).
     const municipio: string | null = typeof body.municipio === 'string' && body.municipio.trim() ? body.municipio.trim() : null
+    const estado: string | null = typeof body.estado === 'string' && body.estado.trim() ? body.estado.trim() : null
     const hours: string | null = body.hours ?? null
     const agentActive: boolean = body.agentActive !== false
     const services: ServiceInput[] = Array.isArray(body.services) ? body.services : []
@@ -95,6 +96,7 @@ export async function POST(req: NextRequest) {
     if (type) bizPatch.type = type
     if (kind) bizPatch.kind = kind
     if (municipio) bizPatch.municipio = municipio
+    if (estado) bizPatch.estado = estado
     if (hours) bizPatch.hours = hours
     // Modo de negocio (reservas / pedidos) y formas de entrega, del asistente.
     if (typeof body.does_reservations === 'boolean') bizPatch.does_reservations = body.does_reservations

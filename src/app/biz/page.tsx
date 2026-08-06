@@ -3,7 +3,7 @@ import { useState, useRef, useEffect, useCallback, type CSSProperties } from 're
 import { BM_OPTIONS_DEFAULT, loadBMConfig, type BMOption, type BMConfig } from '@/lib/boomerangme-config'
 import { parseRoveToken, ROVE_SERIALS, type RoveProgram } from '@/lib/rove'
 import { type RoveReward, type RewardCategory } from '@/lib/rove-rewards'
-import { type Mode, type ProactiveAlert, type AlertType, CATALOG, AGENDA, BIZ, CITIES, slotsFromHours, slotAvailability, endTime, tracksStock, inStock } from '@/lib/data'
+import { type Mode, type ProactiveAlert, type AlertType, CATALOG, AGENDA, BIZ, STATES_DATA, slotsFromHours, slotAvailability, endTime, tracksStock, inStock } from '@/lib/data'
 import { saveStock, decrementStock as decrementStockDB, fetchStock } from '@/lib/inventory'
 import { recordSale, sendInStoreOrder, fetchPendingCounterOrders, markOrderPaid, type PendingOrder } from '@/lib/pos'
 import { saveService, deleteService, uploadServiceImage, removeServiceImage, parsePrice, translateServiceFields, updateServiceI18n } from '@/lib/catalog'
@@ -465,7 +465,15 @@ function BizOnboarding({ biz, onDone }: { biz: OwnerBusiness | null; onDone: () 
   const [name, setName] = useState(biz?.name || initialBt.name)
   // Si ya viene un negocio real, su nombre es el válido — no lo sobrescribas al cambiar de tipo.
   const [nameEdited, setNameEdited] = useState(!!biz?.name)
+  // Estado y municipio de operación. El municipio depende del estado elegido
+  // (STATES_DATA); si el negocio ya trae municipio, resolvemos su estado para
+  // preseleccionar el <select>. Default: Baja California Sur (la plaza actual).
+  const initialEstado = biz?.estado
+    || (biz?.municipio ? STATES_DATA.find(s => s.municipalities.includes(biz.municipio!))?.name : '')
+    || 'Baja California Sur'
+  const [estado, setEstado] = useState(initialEstado)
   const [municipio, setMunicipio] = useState(biz?.municipio || '')
+  const municipiosDeEstado = STATES_DATA.find(s => s.name === estado)?.municipalities ?? []
   const [hoursOpen, setHoursOpen] = useState('13:00')
   const [hoursClose, setHoursClose] = useState('23:00')
   const [services, setServices] = useState(() => initialBt.services.map(s => ({ name: s, desc: '', price: '', tax: 'IVA 16% incluido', on: true })))
@@ -542,6 +550,7 @@ function BizOnboarding({ biz, onDone }: { biz: OwnerBusiness | null; onDone: () 
           name: name.trim(),
           type: bt.label,
           kind: bt.label,
+          estado: estado.trim(),
           municipio: municipio.trim(),
           hours: `${hoursOpen} – ${hoursClose}`,
           agentActive: true,
@@ -631,13 +640,27 @@ function BizOnboarding({ biz, onDone }: { biz: OwnerBusiness | null; onDone: () 
                 )}
               </div>
               <div style={{ marginBottom: 16 }}>
-                <label style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', display: 'block', marginBottom: 8 }}>{t('Municipio de operación', 'Operating municipality')}</label>
-                <input value={municipio} onChange={e => setMunicipio(e.target.value)} placeholder={t('Ej. Loreto', 'e.g. Loreto')} list="municipios-bcs-onb"
-                  style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 12, padding: '12px 14px', fontSize: 14.5, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.surface }} />
-                <datalist id="municipios-bcs-onb">
-                  {CITIES.map(c => <option key={c} value={c} />)}
-                </datalist>
-                <p style={{ fontSize: 12, color: R.inkFaint, marginTop: 6 }}>{t('Es la ciudad donde los clientes te encontrarán en Discover.', 'This is the city where customers will find you on Discover.')}</p>
+                <label style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', display: 'block', marginBottom: 8 }}>{t('Estado y municipio de operación', 'Operating state & municipality')}</label>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                  <select
+                    value={estado}
+                    onChange={e => { setEstado(e.target.value); setMunicipio('') }}
+                    style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 12, padding: '12px 14px', fontSize: 14.5, color: estado ? R.ink : R.inkFaint, outline: 'none', fontFamily: R.ui, background: R.surface, appearance: 'none', WebkitAppearance: 'none' }}
+                  >
+                    <option value="" disabled>{t('Estado', 'State')}</option>
+                    {STATES_DATA.map(s => <option key={s.abbr} value={s.name}>{s.name}</option>)}
+                  </select>
+                  <select
+                    value={municipio}
+                    onChange={e => setMunicipio(e.target.value)}
+                    disabled={!estado}
+                    style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 12, padding: '12px 14px', fontSize: 14.5, color: municipio ? R.ink : R.inkFaint, outline: 'none', fontFamily: R.ui, background: estado ? R.surface : R.bgAlt, appearance: 'none', WebkitAppearance: 'none', cursor: estado ? 'pointer' : 'not-allowed' }}
+                  >
+                    <option value="" disabled>{t('Municipio', 'Municipality')}</option>
+                    {municipiosDeEstado.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+                <p style={{ fontSize: 12, color: R.inkFaint, marginTop: 6 }}>{t('Es donde los clientes te encontrarán en Discover.', 'This is where customers will find you on Discover.')}</p>
               </div>
               <button onClick={() => setStep(1)} style={primaryBtn}>{t('Continuar →', 'Continue →')}</button>
             </>
@@ -2916,7 +2939,7 @@ function InventoryView({ vert, items, setItems, onGo }: { vert: Vert; items: Cat
 
 // ── Punto de venta ─────────────────────────────────────────
 type TaxMode = 'included' | 'added'  // IVA incluido en el precio | IVA agregado al total
-type BizInfo = { rfc: string; address: string; phone: string; municipio: string }
+type BizInfo = { rfc: string; address: string; phone: string; municipio: string; estado: string }
 const TAX_RATE = 0.16
 const money = (n: number) => '$' + n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const priceToNumber = (price: string) => {
@@ -6085,16 +6108,33 @@ function SettingsView({ agentCfg, setAgentCfg, taxMode, setTaxMode, bizInfo, set
           <Icon n="pin" size={17} color={R.coral} />
           <span style={{ fontFamily: R.display, fontWeight: 700, fontSize: 15, color: R.ink }}>{t('Municipio de operación', 'Operating municipality')}</span>
         </div>
-        <div style={{ fontSize: 13, color: R.inkSoft, marginBottom: 12 }}>{t('Define en qué municipio te encuentran los clientes en Discover. Es distinto de la dirección del ticket.', 'Sets which municipality customers find you in on Discover. It’s different from the ticket address.')}</div>
-        <label style={{ display: 'block' }}>
-          <span style={{ display: 'block', fontSize: 11.5, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase', color: R.inkSoft, marginBottom: 5 }}>{t('Municipio', 'Municipality')}</span>
-          <input value={bizInfo.municipio} onChange={e => setBizInfo({ ...bizInfo, municipio: e.target.value })} placeholder={t('Ej. Loreto', 'e.g. Loreto')} list="municipios-bcs"
-            style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 10, padding: '11px 13px', fontSize: 14, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.bg }} />
-          <datalist id="municipios-bcs">
-            {CITIES.map(c => <option key={c} value={c} />)}
-          </datalist>
-        </label>
-        <div style={{ fontSize: 12, color: R.inkFaint, marginTop: 8 }}>{t('Escribe el municipio tal cual (respeta acentos y mayúsculas) para que los clientes de esa zona te encuentren.', 'Type the municipality exactly (mind accents and capitals) so customers in that area find you.')}</div>
+        <div style={{ fontSize: 13, color: R.inkSoft, marginBottom: 12 }}>{t('Define en qué estado y municipio te encuentran los clientes en Discover. Es distinto de la dirección del ticket.', 'Sets which state and municipality customers find you in on Discover. It’s different from the ticket address.')}</div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+          <label style={{ display: 'block' }}>
+            <span style={{ display: 'block', fontSize: 11.5, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase', color: R.inkSoft, marginBottom: 5 }}>{t('Estado', 'State')}</span>
+            <select
+              value={bizInfo.estado}
+              onChange={e => setBizInfo({ ...bizInfo, estado: e.target.value, municipio: '' })}
+              style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 10, padding: '11px 13px', fontSize: 14, color: bizInfo.estado ? R.ink : R.inkFaint, outline: 'none', fontFamily: R.ui, background: R.bg, appearance: 'none', WebkitAppearance: 'none' }}
+            >
+              <option value="" disabled>{t('Estado', 'State')}</option>
+              {STATES_DATA.map(s => <option key={s.abbr} value={s.name}>{s.name}</option>)}
+            </select>
+          </label>
+          <label style={{ display: 'block' }}>
+            <span style={{ display: 'block', fontSize: 11.5, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase', color: R.inkSoft, marginBottom: 5 }}>{t('Municipio', 'Municipality')}</span>
+            <select
+              value={bizInfo.municipio}
+              onChange={e => setBizInfo({ ...bizInfo, municipio: e.target.value })}
+              disabled={!bizInfo.estado}
+              style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 10, padding: '11px 13px', fontSize: 14, color: bizInfo.municipio ? R.ink : R.inkFaint, outline: 'none', fontFamily: R.ui, background: bizInfo.estado ? R.bg : R.bgAlt, appearance: 'none', WebkitAppearance: 'none', cursor: bizInfo.estado ? 'pointer' : 'not-allowed' }}
+            >
+              <option value="" disabled>{t('Municipio', 'Municipality')}</option>
+              {(STATES_DATA.find(s => s.name === bizInfo.estado)?.municipalities ?? []).map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </label>
+        </div>
+        <div style={{ fontSize: 12, color: R.inkFaint, marginTop: 8 }}>{t('Elige tu estado y luego el municipio para que los clientes de esa zona te encuentren.', 'Pick your state, then the municipality, so customers in that area find you.')}</div>
       </div>
 
       {/* Modo de negocio, entregas y repartidores */}
@@ -8101,7 +8141,7 @@ export default function BizPage() {
   // Catálogo compartido: lo edita CatalogView y lo consume el Punto de venta
   const [catalog, setCatalog] = useState<CatItem[]>([])
   // Datos fiscales/de contacto del negocio para el ticket
-  const [bizInfo, setBizInfo] = useState<BizInfo>({ rfc: '', address: '', phone: '', municipio: '' })
+  const [bizInfo, setBizInfo] = useState<BizInfo>({ rfc: '', address: '', phone: '', municipio: '', estado: '' })
   // Manejo de IVA en el Punto de venta: agregado al total o incluido en el precio
   const [taxMode, setTaxMode] = useState<TaxMode>('added')
   // PIN para salir del Autoservicio, guardado a nivel negocio (recuperable/
@@ -8158,8 +8198,11 @@ export default function BizPage() {
     if (!verts || verts.length === 0) return
     const v = verts[vertIdx] ?? verts[0]
     setCatalog(v.catalog.map(c => ({ ...c, active: true })))
-    setBizInfo({ rfc: v.rfc, address: v.address, phone: v.phone, municipio: v.municipio })
     const raw = ownerBiz[vertIdx] ?? ownerBiz.find(b => b.id === v.id)
+    // El estado viene de la BD; si falta (negocios antiguos), se resuelve a partir
+    // del municipio guardado buscando en STATES_DATA.
+    const estadoInit = raw?.estado || (v.municipio ? STATES_DATA.find(s => s.municipalities.includes(v.municipio))?.name : '') || ''
+    setBizInfo({ rfc: v.rfc, address: v.address, phone: v.phone, municipio: v.municipio, estado: estadoInit })
     setAgentCfgState(raw?.agent_config ? parseAgentConfig(raw.agent_config) : loadAgentConfig(v.id))
     if (raw?.tax_mode === 'added' || raw?.tax_mode === 'included') setTaxMode(raw.tax_mode)
     setKioskExitPin(raw?.kiosk_exit_pin ?? '')
@@ -8207,7 +8250,7 @@ export default function BizPage() {
     })
   }
   // Ajustes fiscales e IVA con persistencia.
-  const persistBizInfo = (v: BizInfo) => { setBizInfo(v); saveSettings({ rfc: v.rfc, address: v.address, phone: v.phone, municipio: v.municipio }) }
+  const persistBizInfo = (v: BizInfo) => { setBizInfo(v); saveSettings({ rfc: v.rfc, address: v.address, phone: v.phone, municipio: v.municipio, estado: v.estado }) }
   const persistTaxMode = (v: TaxMode) => { setTaxMode(v); saveSettings({ tax_mode: v }) }
   // PIN de salida del kiosko: refleja el tecleo al instante y persiste (debounced)
   // a la BD del negocio. La API sólo guarda 4–6 dígitos; menos que eso lo borra.
