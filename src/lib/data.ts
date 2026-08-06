@@ -114,6 +114,9 @@ export interface Business {
   hood: string
   open: boolean
   hours: string
+  // Horario semanal por día (getDay 0=Dom..6=Sáb) si el negocio lo configuró.
+  // Ausente = usa `hours` (rango único legado).
+  weekly?: WeeklyHours | null
   featured: boolean
   // Qué nivel de visibilidad compró el negocio. Solo aplica si featured=true.
   // 'premium' = ★ máx. visibilidad (spot #1); 'destacado' = ✦ franja de destacados.
@@ -227,12 +230,100 @@ export function bizLocalTimeLabel(now: Date = new Date()): string {
   }).format(now)
 }
 
-// ¿El negocio está abierto AHORA según su horario "HH:MM – HH:MM"? Soporta rangos
-// que cruzan medianoche (ej. "18:00 – 01:00"). Si el horario no es parseable o está
-// vacío, devuelve true (no bloquea): mejor permitir que trabar por un dato ausente.
-// Lo usan el checkout de pedidos (server), el chat del negocio y la ficha del
-// cliente para respetar el horario tanto en pedidos como en reservas.
-export function isOpenNow(hours: string | null | undefined, now: Date = new Date()): boolean {
+// ── Horario semanal (por día) ──────────────────────────────
+// Modelo de horario por día de la semana. El día se indexa por `Date.getDay()`
+// (0 = domingo … 6 = sábado), igual que `upcomingDays().dow`, para que el mismo
+// número sirva en abierto/cerrado, slots de reserva y filtros por día. Cada día
+// es un rango { open, close } ("HH:MM") o `null` (cerrado ese día).
+export type DayHours = { open: string; close: string } | null
+export type WeeklyHours = DayHours[] // longitud 7, index = Date.getDay()
+
+// Etiquetas de día en orden de visualización (Lunes primero) con su índice getDay.
+export const WEEK_DISPLAY: { dow: number; es: string; en: string }[] = [
+  { dow: 1, es: 'Lunes', en: 'Monday' },
+  { dow: 2, es: 'Martes', en: 'Tuesday' },
+  { dow: 3, es: 'Miércoles', en: 'Wednesday' },
+  { dow: 4, es: 'Jueves', en: 'Thursday' },
+  { dow: 5, es: 'Viernes', en: 'Friday' },
+  { dow: 6, es: 'Sábado', en: 'Saturday' },
+  { dow: 0, es: 'Domingo', en: 'Sunday' },
+]
+const WEEK_SHORT_ES = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb']
+const WEEK_SHORT_EN = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+// Día de la semana (getDay: 0=Dom … 6=Sáb) en la zona horaria del negocio.
+export function bizWeekday(now: Date = new Date()): number {
+  const wd = new Intl.DateTimeFormat('en-US', { timeZone: BIZ_TZ, weekday: 'short' }).format(now)
+  return WEEK_SHORT_EN.indexOf(wd)
+}
+
+// Normaliza el jsonb crudo de la BD a un WeeklyHours de 7 posiciones, o null si no
+// es un horario semanal válido (así los llamadores caen al string `hours` legado).
+export function normalizeWeekly(raw: unknown): WeeklyHours | null {
+  if (!Array.isArray(raw) || raw.length !== 7) return null
+  return raw.map(d => {
+    if (d && typeof d === 'object') {
+      const o = (d as { open?: unknown }).open
+      const c = (d as { close?: unknown }).close
+      if (typeof o === 'string' && typeof c === 'string' && o && c) return { open: o, close: c }
+    }
+    return null
+  })
+}
+
+// Rango "HH:MM – HH:MM" del día `dow` (getDay), o null si el negocio cierra ese día.
+export function dayRangeString(weekly: WeeklyHours | null | undefined, dow: number): string | null {
+  const d = weekly?.[dow]
+  return d ? `${d.open} – ${d.close}` : null
+}
+
+// Rango representativo (el más frecuente entre los días abiertos) para poblar el
+// campo legado `hours` cuando se guarda un horario semanal. Así lo que aún lee el
+// string `hours` (ej. tarjetas antiguas) sigue mostrando algo coherente.
+export function representativeRange(weekly: WeeklyHours | null | undefined): string {
+  if (!weekly) return ''
+  const counts = new Map<string, number>()
+  for (const d of weekly) if (d) { const k = `${d.open} – ${d.close}`; counts.set(k, (counts.get(k) ?? 0) + 1) }
+  let best = '', bestN = 0
+  for (const [k, n] of counts) if (n > bestN) { best = k; bestN = n }
+  return best
+}
+
+// Resumen legible del horario semanal agrupando días consecutivos con el mismo
+// rango: "Lun–Vie 08:30–19:00 · Sáb 09:00–14:00 · Dom cerrado".
+export function summarizeWeekly(weekly: WeeklyHours | null | undefined, en = false): string {
+  if (!weekly || weekly.length !== 7) return ''
+  const short = en ? WEEK_SHORT_EN : WEEK_SHORT_ES
+  const key = (d: DayHours) => (d ? `${d.open}–${d.close}` : 'x')
+  const groups: { from: number; to: number; label: string }[] = []
+  for (const { dow } of WEEK_DISPLAY) {
+    const k = key(weekly[dow])
+    const last = groups[groups.length - 1]
+    if (last && last.label === k) last.to = dow
+    else groups.push({ from: dow, to: dow, label: k })
+  }
+  const closed = en ? 'closed' : 'cerrado'
+  return groups.map(g => {
+    const days = g.from === g.to ? short[g.from] : `${short[g.from]}–${short[g.to]}`
+    return `${days} ${g.label === 'x' ? closed : g.label}`
+  }).join(' · ')
+}
+
+// ¿El negocio está abierto AHORA? Con horario semanal (`weekly`) usa el rango del
+// día de hoy (cerrado ese día → false). Sin él, cae al string "HH:MM – HH:MM".
+// Soporta rangos que cruzan medianoche (ej. "18:00 – 01:00"). Si no hay dato
+// parseable devuelve true (no bloquea): mejor permitir que trabar por un dato
+// ausente. Lo usan el checkout de pedidos (server), el chat del negocio y la
+// ficha del cliente para respetar el horario tanto en pedidos como en reservas.
+export function isOpenNow(hours: string | null | undefined, now: Date = new Date(), weekly?: WeeklyHours | null): boolean {
+  if (weekly && weekly.length === 7) {
+    const today = weekly[bizWeekday(now)]
+    if (!today) return false // cerrado hoy
+    const start = toMin(today.open)
+    const end = toMin(today.close)
+    const cur = bizMinutesOfDay(now)
+    return start <= end ? cur >= start && cur < end : cur >= start || cur < end
+  }
   const m = (hours ?? '').match(/(\d{1,2}):(\d{2})\s*[–—-]\s*(\d{1,2}):(\d{2})/)
   if (!m) return true
   const start = +m[1] * 60 + +m[2]

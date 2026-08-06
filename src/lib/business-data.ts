@@ -5,7 +5,7 @@
 // (e.g. before migrations run). Rows are mapped onto the Business/Service
 // interfaces so the UI doesn't branch on source.
 import { createClient } from './supabase/client'
-import { BIZ, CATALOG, slotsFromHours, type Business, type FeaturedTier, type Service, type ProactiveAlert, type AlertType, type BizOffer } from './data'
+import { BIZ, CATALOG, slotsFromHours, normalizeWeekly, type Business, type FeaturedTier, type Service, type ProactiveAlert, type AlertType, type BizOffer } from './data'
 import { BIZ_CATEGORIES_INIT, type BizCategory } from './bizcategories-config'
 
 interface DbBusiness {
@@ -16,6 +16,7 @@ interface DbBusiness {
   hood: string | null
   municipio: string | null
   hours: string | null
+  hours_json: unknown | null
   rating: number | null
   local_fav: boolean | null
   featured: boolean | null
@@ -159,6 +160,7 @@ function mapBusiness(
     hood: b.hood || b.municipio || '',
     open: true,
     hours,
+    weekly: normalizeWeekly(b.hours_json),
     // Vencido = deja de estar destacado. `featured_until` NULL = sin expiración.
     featured: isFeatured,
     // Nivel real de la BD (migración 007). Si está destacado sin nivel
@@ -212,7 +214,7 @@ export async function fetchCityData(municipio: string): Promise<CityData> {
   const supabase = createClient()
   const { data: bizRows, error } = await supabase
     .from('businesses')
-    .select('id,name,type,kind,hood,municipio,hours,rating,local_fav,featured,tier,featured_until,featured_service_id,featured_event,logo_url,grad_from,grad_to,mono,does_orders,does_reservations,pickup_enabled,delivery_enabled,delivery_fee')
+    .select('id,name,type,kind,hood,municipio,hours,hours_json,rating,local_fav,featured,tier,featured_until,featured_service_id,featured_event,logo_url,grad_from,grad_to,mono,does_orders,does_reservations,pickup_enabled,delivery_enabled,delivery_fee')
     .eq('municipio', municipio)
 
   if (error || !bizRows || bizRows.length === 0) {

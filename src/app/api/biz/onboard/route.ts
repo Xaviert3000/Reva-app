@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { normalizeWeekly, representativeRange } from '@/lib/data'
 
 // Persists the onboarding wizard for the logged-in owner: writes the business
 // profile fields + services and flips `onboarded` so the wizard only shows once.
@@ -38,7 +39,10 @@ export async function POST(req: NextRequest) {
     // (business-data.ts filtra por .eq('municipio', ...)). Se limpia (trim).
     const municipio: string | null = typeof body.municipio === 'string' && body.municipio.trim() ? body.municipio.trim() : null
     const estado: string | null = typeof body.estado === 'string' && body.estado.trim() ? body.estado.trim() : null
-    const hours: string | null = body.hours ?? null
+    // Horario semanal (por día). Si viene válido, se guarda en hours_json y el
+    // string legado `hours` se deriva de un rango representativo.
+    const weekly = normalizeWeekly(body.hours_json)
+    const hours: string | null = weekly ? (representativeRange(weekly) || null) : (body.hours ?? null)
     const agentActive: boolean = body.agentActive !== false
     const services: ServiceInput[] = Array.isArray(body.services) ? body.services : []
 
@@ -98,6 +102,7 @@ export async function POST(req: NextRequest) {
     if (municipio) bizPatch.municipio = municipio
     if (estado) bizPatch.estado = estado
     if (hours) bizPatch.hours = hours
+    if (weekly) bizPatch.hours_json = weekly
     // Modo de negocio (reservas / pedidos) y formas de entrega, del asistente.
     if (typeof body.does_reservations === 'boolean') bizPatch.does_reservations = body.does_reservations
     if (typeof body.does_orders === 'boolean') bizPatch.does_orders = body.does_orders

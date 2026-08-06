@@ -3,7 +3,7 @@ import { useState, useRef, useEffect, useCallback, type CSSProperties } from 're
 import { BM_OPTIONS_DEFAULT, loadBMConfig, type BMOption, type BMConfig } from '@/lib/boomerangme-config'
 import { parseRoveToken, ROVE_SERIALS, type RoveProgram } from '@/lib/rove'
 import { type RoveReward, type RewardCategory } from '@/lib/rove-rewards'
-import { type Mode, type ProactiveAlert, type AlertType, CATALOG, AGENDA, BIZ, STATES_DATA, slotsFromHours, slotAvailability, endTime, tracksStock, inStock } from '@/lib/data'
+import { type Mode, type ProactiveAlert, type AlertType, type WeeklyHours, type DayHours, CATALOG, AGENDA, BIZ, STATES_DATA, WEEK_DISPLAY, slotsFromHours, slotAvailability, endTime, tracksStock, inStock, normalizeWeekly, summarizeWeekly } from '@/lib/data'
 import { saveStock, decrementStock as decrementStockDB, fetchStock } from '@/lib/inventory'
 import { recordSale, sendInStoreOrder, fetchPendingCounterOrders, markOrderPaid, type PendingOrder } from '@/lib/pos'
 import { saveService, deleteService, uploadServiceImage, removeServiceImage, parsePrice, translateServiceFields, updateServiceI18n } from '@/lib/catalog'
@@ -119,7 +119,7 @@ const VERTICALS = [
     id: 'resto', name: 'La Lupita', full: 'La Lupita Taco & Mezcal', mono: 'L',
     grad: ['#E27A52', '#B5472F'] as [string, string],
     caps: { reservations: true, orders: false, pickup: true, delivery: false, fee: 0 },
-    hood: 'San José del Cabo', municipio: 'Los Cabos', kind: 'Restaurante', unit: 'personas', hours: '13:00 – 23:00',
+    hood: 'San José del Cabo', municipio: 'Los Cabos', kind: 'Restaurante', unit: 'personas', hours: '13:00 – 23:00', weekly: null as WeeklyHours | null,
     rfc: 'LUP190423K10', address: 'Blvd. Mijares 12, Centro, San José del Cabo, BCS', phone: '+52 624 142 0011',
     capacity: { used: 32, total: 60, label: 'lugares' },
     metrics: { reservasHoy: 18, ingreso: '$14.2k', viaReva: 64, rove: 241,
@@ -144,7 +144,7 @@ const VERTICALS = [
     id: 'spa', name: 'Sereno', full: 'Sereno Spa & Temazcal', mono: 'S',
     grad: ['#C9A2B4', '#6E4A63'] as [string, string],
     caps: { reservations: true, orders: false, pickup: true, delivery: false, fee: 0 },
-    hood: 'Corredor Turístico', municipio: 'Los Cabos', kind: 'Spa & Bienestar', unit: 'servicio', hours: '09:00 – 20:00',
+    hood: 'Corredor Turístico', municipio: 'Los Cabos', kind: 'Spa & Bienestar', unit: 'servicio', hours: '09:00 – 20:00', weekly: null as WeeklyHours | null,
     rfc: 'SER210308M45', address: 'Carr. Transpeninsular Km 7.5, Corredor Turístico, Los Cabos, BCS', phone: '+52 624 145 0088',
     capacity: { used: 9, total: 14, label: 'citas' },
     metrics: { reservasHoy: 11, ingreso: '$22.8k', viaReva: 58, rove: 96,
@@ -207,6 +207,7 @@ function vertFromBusiness(b: OwnerBusiness): Vert {
     kind: b.kind || b.type || 'Negocio',
     unit: 'personas',
     hours: b.hours || '09:00 – 21:00',
+    weekly: normalizeWeekly(b.hours_json),
     rfc: b.rfc || '',
     address: b.address || '',
     phone: b.phone || '',
@@ -455,6 +456,55 @@ function matchBizType(type: string | null | undefined): string {
   return 'restaurante'
 }
 
+// Horario semanal por defecto: Lun–Sáb 09:00–18:00, Domingo cerrado. Indexado por
+// getDay (0=Dom … 6=Sáb) para coincidir con el resto de la app.
+function defaultWeekly(): WeeklyHours {
+  return [null, ...Array.from({ length: 6 }, () => ({ open: '09:00', close: '18:00' } as DayHours))]
+}
+
+// Editor de horario por día de la semana. Cada día tiene un toggle Abierto/Cerrado
+// y, si abre, dos campos de hora (apertura/cierre). "Copiar a todos" replica el
+// primer día abierto al resto — atajo para negocios con horario uniforme.
+function WeeklyHoursEditor({ value, onChange }: { value: WeeklyHours; onChange: (w: WeeklyHours) => void }) {
+  const t = useT()
+  const setDay = (dow: number, d: DayHours) => { const next = value.slice(); next[dow] = d; onChange(next) }
+  const copyToAll = () => {
+    const first = WEEK_DISPLAY.map(w => value[w.dow]).find(Boolean)
+    if (!first) return
+    onChange(value.map(() => ({ open: first.open, close: first.close })))
+  }
+  const timeStyle: CSSProperties = { border: `1px solid ${R.line}`, borderRadius: 9, padding: '7px 9px', fontSize: 13.5, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.surface, colorScheme: 'light' }
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {WEEK_DISPLAY.map(({ dow, es, en: eng }) => {
+        const d = value[dow]
+        const on = !!d
+        return (
+          <div key={dow} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', border: `1px solid ${on ? R.coral : R.line}`, borderRadius: 12, background: on ? R.coralTint : R.surface }}>
+            <span style={{ width: 84, fontSize: 13.5, fontWeight: 600, color: R.ink, flexShrink: 0 }}>{t(es, eng)}</span>
+            <button type="button" onClick={() => setDay(dow, on ? null : { open: '09:00', close: '18:00' })}
+              style={{ flexShrink: 0, padding: '5px 12px', borderRadius: 999, border: 'none', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 12, background: on ? R.coral : R.line, color: on ? '#fff' : R.inkSoft }}>
+              {on ? t('Abierto', 'Open') : t('Cerrado', 'Closed')}
+            </button>
+            {on ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}>
+                <input type="time" value={d!.open} onChange={e => setDay(dow, { open: e.target.value, close: d!.close })} style={timeStyle} />
+                <span style={{ color: R.inkFaint }}>–</span>
+                <input type="time" value={d!.close} onChange={e => setDay(dow, { open: d!.open, close: e.target.value })} style={timeStyle} />
+              </div>
+            ) : (
+              <span style={{ marginLeft: 'auto', fontSize: 13, color: R.inkFaint }}>{t('Cerrado', 'Closed')}</span>
+            )}
+          </div>
+        )
+      })}
+      <button type="button" onClick={copyToAll} style={{ alignSelf: 'flex-start', marginTop: 2, border: 'none', background: 'transparent', color: R.coralPress, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 12.5, padding: '4px 2px' }}>
+        {t('Copiar el primer día abierto a todos', 'Copy first open day to all')}
+      </button>
+    </div>
+  )
+}
+
 function BizOnboarding({ biz, onDone }: { biz: OwnerBusiness | null; onDone: () => void }) {
   const t = useT()
   const en = useEn()
@@ -474,8 +524,9 @@ function BizOnboarding({ biz, onDone }: { biz: OwnerBusiness | null; onDone: () 
   const [estado, setEstado] = useState(initialEstado)
   const [municipio, setMunicipio] = useState(biz?.municipio || '')
   const municipiosDeEstado = STATES_DATA.find(s => s.name === estado)?.municipalities ?? []
-  const [hoursOpen, setHoursOpen] = useState('13:00')
-  const [hoursClose, setHoursClose] = useState('23:00')
+  // Horario semanal por día. Si el negocio ya lo tiene guardado, se rehidrata; si
+  // no, arranca en el default (Lun–Sáb 09:00–18:00, Domingo cerrado).
+  const [weekly, setWeekly] = useState<WeeklyHours>(() => normalizeWeekly(biz?.hours_json) ?? defaultWeekly())
   const [services, setServices] = useState(() => initialBt.services.map(s => ({ name: s, desc: '', price: '', tax: 'IVA 16% incluido', on: true })))
   const [draft, setDraft] = useState({ name: '', desc: '', price: '', tax: '' })
   const [editIdx, setEditIdx] = useState<number | null>(null)
@@ -552,7 +603,7 @@ function BizOnboarding({ biz, onDone }: { biz: OwnerBusiness | null; onDone: () 
           kind: bt.label,
           estado: estado.trim(),
           municipio: municipio.trim(),
-          hours: `${hoursOpen} – ${hoursClose}`,
+          hours_json: weekly,
           agentActive: true,
           does_reservations: doesReservations,
           does_orders: doesOrders,
@@ -723,14 +774,10 @@ function BizOnboarding({ biz, onDone }: { biz: OwnerBusiness | null; onDone: () 
             </>
           ) : step === 2 ? (
             <>
-              <h2 style={{ fontFamily: R.display, fontWeight: 800, fontSize: 20, color: R.ink, marginBottom: 16 }}>{t('Horarios', 'Hours')}</h2>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 20 }}>
-                {([[t('Apertura', 'Opening'), hoursOpen, setHoursOpen], [t('Cierre', 'Closing'), hoursClose, setHoursClose]] as const).map(([lbl, val, set]) => (
-                  <div key={lbl}>
-                    <label style={{ fontSize: 12, fontWeight: 700, color: R.inkFaint, textTransform: 'uppercase', letterSpacing: '.05em', display: 'block', marginBottom: 8 }}>{lbl}</label>
-                    <input type="time" value={val} onChange={e => set(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 12, padding: '12px 14px', fontSize: 14.5, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.surface }} />
-                  </div>
-                ))}
+              <h2 style={{ fontFamily: R.display, fontWeight: 800, fontSize: 20, color: R.ink, marginBottom: 4 }}>{t('Horarios', 'Hours')}</h2>
+              <p style={{ fontSize: 13.5, color: R.inkSoft, marginBottom: 16 }}>{t('Define tu horario por día. Marca “Cerrado” los días que no abres.', 'Set your hours per day. Mark “Closed” on days you don’t open.')}</p>
+              <div style={{ marginBottom: 20 }}>
+                <WeeklyHoursEditor value={weekly} onChange={setWeekly} />
               </div>
               <div style={{ display: 'flex', gap: 10 }}>
                 <button onClick={() => setStep(1)} style={ghostBtn}>{t('← Atrás', '← Back')}</button>
@@ -1584,7 +1631,7 @@ function MessagesView({ vert, agentCfg }: { vert: Vert; agentCfg: BizAgentConfig
   useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight }, [active, threads])
   // Threads que la IA ya atendió sola fuera de horario (evita disparos repetidos).
   const autoFiredRef = useRef<Record<number, boolean>>({})
-  const open = isOpenNow(vert.hours)
+  const open = isOpenNow(vert.hours, undefined, vert.weekly)
 
   function appendToActive(item: ThreadItem) {
     setThreads(prev => prev.map((m, i) => i === active ? { ...m, thread: [...m.thread, item], last: item.txt, unread: false } : m))
@@ -1630,7 +1677,7 @@ function MessagesView({ vert, agentCfg }: { vert: Vert; agentCfg: BizAgentConfig
             const isProduct = vert.caps.orders && c.scheduled === false && Number.isFinite(priceNum) && priceNum > 0
             return `${c.name} (${c.price})${isProduct ? ' [producto]' : ' [reserva]'}`
           }),
-          hours: vert.hours,
+          hours: summarizeWeekly(vert.weekly) || vert.hours,
           depositPolicy: depositItem ? 'deposit' : 'none',
           depositAmount,
           mode,
@@ -2088,10 +2135,17 @@ const toMin = (t: string): number => { const [h, m] = t.split(':').map(Number); 
 // ¿El negocio está abierto ahora, según su horario "HH:MM – HH:MM"? Soporta
 // horarios que cruzan medianoche (ej. 16:00 – 01:00). Si no hay horario válido,
 // asume abierto (no bloquea nada).
-function isOpenNow(hoursStr: string, now: Date = new Date()): boolean {
+function isOpenNow(hoursStr: string, now: Date = new Date(), weekly?: WeeklyHours | null): boolean {
+  const cur = now.getHours() * 60 + now.getMinutes()
+  // Horario semanal: usa el rango del día de hoy (getDay). Cerrado hoy → false.
+  if (weekly && weekly.length === 7) {
+    const d = weekly[now.getDay()]
+    if (!d) return false
+    const o = toMin(d.open), c = toMin(d.close)
+    return o <= c ? cur >= o && cur < c : cur >= o || cur < c
+  }
   const [open, close] = splitHours(hoursStr)
   if (!open || !close) return true
-  const cur = now.getHours() * 60 + now.getMinutes()
   const o = toMin(open), c = toMin(close)
   return o <= c ? cur >= o && cur < c : cur >= o || cur < c // rango normal vs. cruza medianoche
 }
@@ -2426,7 +2480,7 @@ function CatalogView({ vert, items, setItems }: { vert: Vert; items: CatItem[]; 
                     <span style={{ color: R.inkFaint }}>–</span>
                     <input value={form.close} onChange={e => setForm({ ...form, close: e.target.value })} placeholder="20:00" style={{ ...fieldStyle, textAlign: 'center' }} />
                   </div>
-                  <div style={{ fontSize: 11, color: R.inkFaint, marginTop: 8 }}>{en ? `By default, the business hours (${vert.hours}). Change it only for this service.` : `Por defecto, el horario del negocio (${vert.hours}). Cámbialo solo para este servicio.`}</div>
+                  <div style={{ fontSize: 11, color: R.inkFaint, marginTop: 8 }}>{en ? `By default, the business hours (${summarizeWeekly(vert.weekly, true) || vert.hours}). Change it only for this service.` : `Por defecto, el horario del negocio (${summarizeWeekly(vert.weekly) || vert.hours}). Cámbialo solo para este servicio.`}</div>
                 </div>
               </>)}
               <input value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} placeholder={t('Categoría (ej. Bebidas, Mesas)', 'Category (e.g. Drinks, Tables)')} style={fieldStyle} />
@@ -5910,7 +5964,6 @@ function SettingsView({ agentCfg, setAgentCfg, taxMode, setTaxMode, bizInfo, set
   ]
 
   const [open, setOpen] = useState<string | null>(null)
-  const [hrs] = (vert.hours || '13:00 – 23:00').split('–').map(s => s.trim())
   const bizId = SHARED_BIZ_ID[vert.id] ?? vert.id
   // Perfil real del negocio (BD). `img` guarda la URL del logo o un data URL de
   // vista previa cuando se elige un archivo nuevo; `profileImgFile` es ese archivo.
@@ -5937,22 +5990,21 @@ function SettingsView({ agentCfg, setAgentCfg, taxMode, setTaxMode, bizInfo, set
       return true
     } catch { return false } finally { setSavingProfile(false) }
   }
-  const [horario, setHorario] = useState({ open: hrs || '13:00', close: (vert.hours || '').split('–')[1]?.trim() || '23:00', capacity: String(vert.capacity.total) })
+  const [horario, setHorario] = useState<{ weekly: WeeklyHours; capacity: string }>({ weekly: vert.weekly ?? defaultWeekly(), capacity: String(vert.capacity.total) })
   const [savingHorario, setSavingHorario] = useState(false)
   // Re-sincroniza horarios/capacidad al cambiar de negocio o tras recargar (guardar).
   useEffect(() => {
-    const [o] = (vert.hours || '13:00 – 23:00').split('–').map(s => s.trim())
-    setHorario({ open: o || '13:00', close: (vert.hours || '').split('–')[1]?.trim() || '23:00', capacity: String(vert.capacity.total) })
-  }, [vert.id, vert.hours, vert.capacity.total])
+    setHorario({ weekly: vert.weekly ?? defaultWeekly(), capacity: String(vert.capacity.total) })
+  }, [vert.id, vert.weekly, vert.capacity.total])
 
-  // Guarda horarios y capacidad. El horario ("HH:MM – HH:MM") define cuándo el
+  // Guarda horario semanal (por día) y capacidad. El horario define cuándo el
   // negocio acepta reservas Y pedidos. Devuelve true si se guardó.
   async function saveHorarios(): Promise<boolean> {
     setSavingHorario(true)
     try {
       const r = await fetch('/api/biz/settings', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ biz_id: vert.id, hours: `${horario.open} – ${horario.close}`, capacity: Number(horario.capacity) || 0 }),
+        body: JSON.stringify({ biz_id: vert.id, hours_json: horario.weekly, capacity: Number(horario.capacity) || 0 }),
       })
       if (!r.ok) return false
       onReload()
@@ -6220,9 +6272,9 @@ function SettingsView({ agentCfg, setAgentCfg, taxMode, setTaxMode, bizInfo, set
 
             {open === 'horarios' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                <div style={{ display: 'flex', gap: 10 }}>
-                  <label style={{ flex: 1 }}><span style={lblStyle}>{t('Abre', 'Opens')}</span><input type="time" value={horario.open} onChange={e => setHorario({ ...horario, open: e.target.value })} style={fieldStyle} /></label>
-                  <label style={{ flex: 1 }}><span style={lblStyle}>{t('Cierra', 'Closes')}</span><input type="time" value={horario.close} onChange={e => setHorario({ ...horario, close: e.target.value })} style={fieldStyle} /></label>
+                <div>
+                  <span style={lblStyle}>{t('Horario por día', 'Hours by day')}</span>
+                  <WeeklyHoursEditor value={horario.weekly} onChange={w => setHorario({ ...horario, weekly: w })} />
                 </div>
                 <label><span style={lblStyle}>{t('Capacidad', 'Capacity')} ({vert.capacity.label})</span><input inputMode="numeric" value={horario.capacity} onChange={e => setHorario({ ...horario, capacity: e.target.value.replace(/\D/g, '') })} style={fieldStyle} /></label>
                 <div style={{ fontSize: 12.5, color: R.inkSoft }}>{t('Reva no aceptará reservas ni pedidos fuera de este horario, ni reservas por encima de la capacidad.', 'Reva won’t accept bookings or orders outside these hours, nor bookings above capacity.')}</div>
@@ -6251,7 +6303,7 @@ function SettingsView({ agentCfg, setAgentCfg, taxMode, setTaxMode, bizInfo, set
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', background: agentCfg.autoReplyOffHours ? R.jadeTint : R.surface, border: `1px solid ${agentCfg.autoReplyOffHours ? R.jade : R.line}`, borderRadius: 12 }}>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 13.5, fontWeight: 700, color: R.ink }}>{t('Atender fuera de horario', 'Handle after hours')}</div>
-                    <div style={{ fontSize: 12, color: R.inkSoft, marginTop: 2 }}>{en ? `When the business is closed (${vert.hours}), the AI answers customer questions in chat on its own.` : `Cuando el negocio está cerrado (${vert.hours}), la IA responde sola las dudas de los clientes en el chat.`}</div>
+                    <div style={{ fontSize: 12, color: R.inkSoft, marginTop: 2 }}>{en ? `When the business is closed (${summarizeWeekly(vert.weekly, true) || vert.hours}), the AI answers customer questions in chat on its own.` : `Cuando el negocio está cerrado (${summarizeWeekly(vert.weekly) || vert.hours}), la IA responde sola las dudas de los clientes en el chat.`}</div>
                   </div>
                   <button onClick={() => setAgentCfg(c => ({ ...c, autoReplyOffHours: !c.autoReplyOffHours }))} style={{ width: 46, height: 27, borderRadius: 999, border: 'none', cursor: 'pointer', background: agentCfg.autoReplyOffHours ? R.jade : R.line, position: 'relative', flexShrink: 0 }}>
                     <span style={{ position: 'absolute', top: 3, left: agentCfg.autoReplyOffHours ? 22 : 3, width: 21, height: 21, borderRadius: '50%', background: '#fff', transition: 'left .18s', boxShadow: '0 1px 3px rgba(0,0,0,.2)' }} />

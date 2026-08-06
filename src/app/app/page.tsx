@@ -10,7 +10,7 @@ function timeGreeting(en: boolean): string {
   return h < 12 ? 'Buenos días' : h < 19 ? 'Buenas tardes' : 'Buenas noches'
 }
 import QRCode from 'qrcode'
-import { type Mode, type Business, type Service, BIZ, CATALOG, CITIES, STATES_DATA, COPY, slotsFromHours, upcomingDays, slotAvailability, isScheduled, isOpenNow, inStock, tracksStock, dayOffered, findService, localSearch, servicesForSearch, activeAlert, findMunicipio, featuredBadge } from '@/lib/data'
+import { type Mode, type Business, type Service, BIZ, CATALOG, CITIES, STATES_DATA, COPY, slotsFromHours, summarizeWeekly, upcomingDays, slotAvailability, isScheduled, isOpenNow, inStock, tracksStock, dayOffered, findService, localSearch, servicesForSearch, activeAlert, findMunicipio, featuredBadge } from '@/lib/data'
 import { type VariantOption, usableGroups, hasVariants, variantDelta, variantLabel, defaultSelection } from '@/lib/variants'
 import { fetchCityData, type CityData } from '@/lib/business-data'
 import { BIZ_CATEGORIES_INIT } from '@/lib/bizcategories-config'
@@ -633,7 +633,7 @@ function ServiceDetail({ biz, service, mode, onClose, onBook }: { biz: Business;
   const available = inStock(service)
   // Los pedidos (compra inmediata) respetan el horario del negocio: cerrado ahora =
   // no se puede ordenar. Las reservas no se bloquean (se agendan a futuro).
-  const closedForOrders = isOrderable(biz, service) && !isOpenNow(biz.hours)
+  const closedForOrders = isOrderable(biz, service) && !isOpenNow(biz.hours, undefined, biz.weekly)
   const canAct = available && !closedForOrders
   return (
     <div onClick={onClose} style={{ position: 'absolute', inset: 0, zIndex: 60, background: 'rgba(0,0,0,.5)', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', animation: 'fadeIn .18s ease' }}>
@@ -910,9 +910,23 @@ function Concierge({ mode, onOpen, onBook, onBookService, onServiceDetail, onMod
 
 // ── Discovery ──────────────────────────────────────────────
 
-// Estado de apertura según `hours` ("HH:MM – HH:MM", del panel del negocio).
-// null si no se puede interpretar. Maneja rangos que cruzan medianoche.
-function bizOpenState(hours: string): { open: boolean; opensAt: string } | null {
+// Rango "HH:MM – HH:MM" vigente HOY: del horario semanal si el negocio lo
+// configuró (según el día de la semana), o el string legado `hours`. '' si el
+// negocio cierra hoy según el semanal.
+function hoursTodayStr(biz: Business): string {
+  if (biz.weekly && biz.weekly.length === 7) {
+    const d = biz.weekly[new Date().getDay()]
+    return d ? `${d.open} – ${d.close}` : ''
+  }
+  return biz.hours
+}
+
+// Estado de apertura del negocio HOY. Usa el horario del día (semanal) o el rango
+// legado. null si no se puede interpretar. Maneja rangos que cruzan medianoche.
+function bizOpenState(biz: Business): { open: boolean; opensAt: string } | null {
+  const hours = hoursTodayStr(biz)
+  // Semanal presente y hoy cerrado → cerrado explícito (no null).
+  if (!hours && biz.weekly && biz.weekly.length === 7) return { open: false, opensAt: '' }
   const parts = hours.split(/[–—-]/).map(s => s.trim()).filter(Boolean)
   if (parts.length !== 2) return null
   const toMin = (s: string): number | null => {
@@ -932,7 +946,7 @@ function bizOpenState(hours: string): { open: boolean; opensAt: string } | null 
 // Etiqueta "Abierto / Cerrado". `onDark` = sobre imagen (texto blanco).
 function OpenBadge({ biz, onDark = false }: { biz: Business; onDark?: boolean }) {
   const en = useContext(LangContext) === 'en'
-  const st = bizOpenState(biz.hours)
+  const st = bizOpenState(biz)
   if (!st) return null
   const label = st.open ? (en ? 'Open' : 'Abierto') : (en ? 'Closed' : 'Cerrado')
   const bg = onDark ? 'rgba(0,0,0,.32)' : (st.open ? '#DDF0E8' : '#F3EADD')
@@ -1245,7 +1259,7 @@ function BizDetail({ biz, mode, onClose, onBook, onOpenCart, onMessage }: { biz:
 
           <div style={{ display: 'flex', gap: 8, marginTop: 14, flexWrap: 'wrap' }}>
             <span style={{ fontSize: 13, fontWeight: 600, color: '#6B615A', background: '#F3EADD', padding: '7px 13px', borderRadius: 999 }}>{biz.type}</span>
-            <span style={{ fontSize: 13, fontWeight: 600, color: '#6B615A', background: '#F3EADD', padding: '7px 13px', borderRadius: 999 }}>🕐 {biz.hours}</span>
+            <span style={{ fontSize: 13, fontWeight: 600, color: '#6B615A', background: '#F3EADD', padding: '7px 13px', borderRadius: 999 }}>🕐 {hoursTodayStr(biz) || (en ? 'Closed today' : 'Cerrado hoy')}</span>
             <span style={{ display: 'inline-flex', alignItems: 'center' }}><OpenBadge biz={biz} /></span>
             {biz.localFav && <span style={{ fontSize: 13, fontWeight: 700, color: '#1F8A6D', background: '#DDF0E8', padding: '7px 13px', borderRadius: 999 }}>★ Local fav</span>}
           </div>
@@ -1419,7 +1433,7 @@ function BizDetail({ biz, mode, onClose, onBook, onOpenCart, onMessage }: { biz:
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 20, padding: '14px 16px', background: '#fff', borderRadius: 16, border: '1px solid #E9E0D5' }}>
             <Icon n="clock" size={18} color="#E8505B" />
             <span style={{ fontSize: 14.5, color: '#221C19' }}>{en ? 'Hours' : 'Horario'}</span>
-            <span style={{ marginLeft: 'auto', fontWeight: 600, color: '#221C19', fontSize: 14.5 }}>{biz.hours}</span>
+            <span style={{ marginLeft: 'auto', fontWeight: 600, color: '#221C19', fontSize: 14.5, textAlign: 'right' }}>{summarizeWeekly(biz.weekly, en) || biz.hours}</span>
           </div>
 
           {/* trust */}
@@ -1487,12 +1501,23 @@ function Booking({ biz, mode, service, onClose, onConfirm }: { biz: Business; mo
   const [slot, setSlot] = useState('')
   const [party, setParty] = useState(1)
   const days = upcomingDays(4, en)
-  // Start on the first day this service is actually offered.
-  const [dayIdx, setDayIdx] = useState(() => Math.max(0, days.findIndex(d => dayOffered(service, d.dow))))
-  // Time slots: when the chosen service has a duration, generate them from its
-  // hours (per-service override or the business hours); else fall back to curated.
-  const genSlots = service?.duration ? slotsFromHours(service.hours || biz.hours, service.duration) : []
-  const slots = genSlots.length ? genSlots : biz.slots
+  // ¿El negocio abre ese día de la semana? (según el horario semanal por día; si
+  // no hay semanal, se asume que abre todos los días — comportamiento legado).
+  const bizOpenOnDow = (dow: number) => !biz.weekly || biz.weekly.length !== 7 || !!biz.weekly[dow]
+  // Un día es reservable si el servicio se ofrece Y el negocio abre ese día.
+  const dayBookable = (dow: number) => dayOffered(service, dow) && bizOpenOnDow(dow)
+  // Start on the first day this service is actually offered and the business opens.
+  const [dayIdx, setDayIdx] = useState(() => Math.max(0, days.findIndex(d => dayBookable(d.dow))))
+  // Horario vigente para el día SELECCIONADO: override del servicio, o el rango
+  // de ese día en el horario semanal, o el rango legado del negocio.
+  const selectedDow = days[dayIdx]?.dow ?? 0
+  const dayHours = service?.hours
+    || (biz.weekly && biz.weekly.length === 7 ? (biz.weekly[selectedDow] ? `${biz.weekly[selectedDow]!.open} – ${biz.weekly[selectedDow]!.close}` : '') : biz.hours)
+  const closedThisDay = !service?.hours && !bizOpenOnDow(selectedDow)
+  // Time slots: when the chosen service has a duration, generate them from that
+  // day's hours; else fall back to curated. Cerrado ese día → sin slots.
+  const genSlots = !closedThisDay && service?.duration ? slotsFromHours(dayHours, service.duration) : []
+  const slots = closedThisDay ? [] : (genSlots.length ? genSlots : biz.slots)
   // Cross-reference the business agenda to mark already-booked times for the
   // selected day. Timed services use overlap; tables use exact-time match.
   const avail = slotAvailability(biz.id, dayIdx, slots, service?.duration)
@@ -1587,7 +1612,7 @@ function Booking({ biz, mode, service, onClose, onConfirm }: { biz: Business; mo
             </p>
             <div style={{ display: 'flex', gap: 8, marginBottom: 18 }}>
               {days.map((d, i) => {
-                const off = !dayOffered(service, d.dow)
+                const off = !dayBookable(d.dow)
                 return (
                   <button key={d.iso} disabled={off} onClick={() => { setDayIdx(i); setSlot('') }}
                     style={{ flex: 1, padding: '10px 4px', borderRadius: 13, cursor: off ? 'not-allowed' : 'pointer', fontFamily: 'var(--font-ui)', fontWeight: 600, fontSize: 13, border: dayIdx === i ? '1.5px solid #E8505B' : '1px solid #E9E0D5', background: off ? '#F1EADF' : (dayIdx === i ? '#FCE9E7' : '#fff'), color: off ? '#C8BFB8' : (dayIdx === i ? '#D23B47' : '#221C19'), textDecoration: off ? 'line-through' : 'none' }}>
@@ -1602,13 +1627,15 @@ function Booking({ biz, mode, service, onClose, onConfirm }: { biz: Business; mo
                 {en ? 'Time' : 'Hora'}
               </p>
               <span style={{ fontSize: 11.5, color: '#A89E94' }}>
-                {service?.duration && genSlots.length > 0 ? `${biz.hours} · ${service.duration} min · ` : ''}
+                {service?.duration && genSlots.length > 0 ? `${dayHours} · ${service.duration} min · ` : ''}
                 {freeCount} {en ? (freeCount === 1 ? 'free' : 'free') : (freeCount === 1 ? 'libre' : 'libres')}
               </span>
             </div>
             {freeCount === 0 ? (
               <div style={{ marginBottom: 18, padding: '14px 16px', background: '#FBEFD7', borderRadius: 13, fontSize: 13, color: '#9A6C1C' }}>
-                {en ? 'No times left this day — try another date.' : 'Sin horarios este día — prueba otra fecha.'}
+                {closedThisDay
+                  ? (en ? 'Closed this day — try another date.' : 'Cerrado este día — prueba otra fecha.')
+                  : (en ? 'No times left this day — try another date.' : 'Sin horarios este día — prueba otra fecha.')}
               </div>
             ) : (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 18 }}>

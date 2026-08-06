@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getStripe, commissionAmount } from '@/lib/stripe'
 import { getRouteUser } from '@/lib/supabase/route-auth'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { isOpenNow } from '@/lib/data'
+import { isOpenNow, normalizeWeekly } from '@/lib/data'
 import { usableGroups } from '@/lib/variants'
 
 export const dynamic = 'force-dynamic'
@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
 
   const { data: biz } = await admin
     .from('businesses')
-    .select('id,name,hours,does_orders,pickup_enabled,delivery_enabled,delivery_fee,stripe_account_id,stripe_charges_enabled')
+    .select('id,name,hours,hours_json,does_orders,pickup_enabled,delivery_enabled,delivery_fee,stripe_account_id,stripe_charges_enabled')
     .eq('id', bizId)
     .single()
 
@@ -46,7 +46,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Este negocio no acepta pedidos' }, { status: 409 })
   }
   // Respeta el horario del negocio también para pedidos: cerrado = no se cobra.
-  if (!isOpenNow(biz.hours)) {
+  // Usa el horario semanal (por día) si existe; si no, el rango único legado.
+  if (!isOpenNow(biz.hours, undefined, normalizeWeekly(biz.hours_json))) {
     return NextResponse.json({ error: 'El negocio está cerrado ahora. Vuelve dentro de su horario para ordenar.' }, { status: 409 })
   }
   if (fulfillment === 'delivery' && !biz.delivery_enabled) {

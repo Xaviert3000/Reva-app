@@ -4,7 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { openrouterChat, type ChatMessage } from '@/lib/openrouter'
 import { bizChatSystemPrompt, promoContext } from '@/lib/ai-prompts'
 import { loadPlatformConfig, resolvedPrompt, modelChain } from '@/lib/platform-config'
-import { isOpenNow, bizLocalTimeLabel, type Mode, type BizOffer } from '@/lib/data'
+import { isOpenNow, bizLocalTimeLabel, normalizeWeekly, summarizeWeekly, type Mode, type BizOffer } from '@/lib/data'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 30
@@ -150,7 +150,7 @@ export async function POST(req: NextRequest) {
   // tarjetas "Agregar" y armar el carrito de verdad.
   let order: { serviceId: string; qty: number }[] = []
   try {
-    const { data: biz } = await admin.from('businesses').select('name,type,kind,hours,does_orders').eq('id', biz_id).single()
+    const { data: biz } = await admin.from('businesses').select('name,type,kind,hours,hours_json,does_orders').eq('id', biz_id).single()
     const { data: svcs } = await admin.from('services').select('id,name,price,scheduled').eq('biz_id', biz_id).eq('active', true)
     // Promociones activas del negocio (kind='oferta') para que el agente las conozca.
     const { data: offerRows } = await admin
@@ -181,6 +181,12 @@ export async function POST(req: NextRequest) {
           .map(s => ({ id: s.id as string, name: s.name as string, price: (s.price as string) ?? '' }))
       : []
 
+    // Horario: si el negocio configuró horario semanal (por día), se usa para
+    // saber si está abierto AHORA y se muestra el resumen legible en el prompt;
+    // si no, cae al rango único legado.
+    const bizWeekly = normalizeWeekly(biz?.hours_json)
+    const bizHoursLabel = (bizWeekly ? summarizeWeekly(bizWeekly) : biz?.hours) ?? ''
+
     const cfg = await loadPlatformConfig()
     let system = bizChatSystemPrompt(
       {
@@ -188,7 +194,7 @@ export async function POST(req: NextRequest) {
         bizType: biz?.kind ?? biz?.type ?? '',
         greeting: `Hola, soy el agente de ${biz?.name ?? 'este negocio'}.`,
         services: (svcs ?? []).map(s => s.name as string),
-        hours: biz?.hours ?? '',
+        hours: bizHoursLabel,
         depositPolicy: 'none',
         mode: mode ?? 'explorer',
       },
@@ -198,8 +204,8 @@ export async function POST(req: NextRequest) {
     // editable, para que funcione aunque el dueño personalice el prompt): lista los
     // productos con su id, le dice si está abierto/cerrado y le pide cerrar el
     // pedido con un marcador oculto que la app convierte en carrito.
-    const openNow = isOpenNow(biz?.hours)
-    system += orderProtocol(products, { openNow, hours: biz?.hours ?? '', nowLabel: bizLocalTimeLabel() })
+    const openNow = isOpenNow(biz?.hours, undefined, bizWeekly)
+    system += orderProtocol(products, { openNow, hours: bizHoursLabel, nowLabel: bizLocalTimeLabel() })
     // Promociones (siempre, independiente del horario): el cliente puede preguntar
     // por ofertas a cualquier hora; cada oferta trae su propia ventana de días/horas.
     system += promoContext(offers)

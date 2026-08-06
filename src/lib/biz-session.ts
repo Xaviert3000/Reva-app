@@ -31,6 +31,7 @@ export interface OwnerBusiness {
   municipio: string | null
   estado: string | null
   hours: string | null
+  hours_json: unknown | null
   capacity: number | null
   rfc: string | null
   address: string | null
@@ -107,7 +108,7 @@ export async function loadOwnerSession(): Promise<OwnerSession> {
 
   const { data: bizRows } = await supabase
     .from('businesses')
-    .select('id,name,full_name,description,logo_url,type,kind,hood,municipio,estado,hours,capacity,rfc,address,phone,grad_from,grad_to,mono,agent_active,onboarded,agent_config,tax_mode,does_reservations,does_orders,pickup_enabled,delivery_enabled,delivery_fee,kiosk_exit_pin,stripe_account_id,stripe_charges_enabled,plan_status,trial_ends_at,current_period_end,plan_amount,plan_cancel_at_period_end,stripe_subscription_id,featured,featured_until,tier,featured_service_id,featured_event')
+    .select('id,name,full_name,description,logo_url,type,kind,hood,municipio,estado,hours,hours_json,capacity,rfc,address,phone,grad_from,grad_to,mono,agent_active,onboarded,agent_config,tax_mode,does_reservations,does_orders,pickup_enabled,delivery_enabled,delivery_fee,kiosk_exit_pin,stripe_account_id,stripe_charges_enabled,plan_status,trial_ends_at,current_period_end,plan_amount,plan_cancel_at_period_end,stripe_subscription_id,featured,featured_until,tier,featured_service_id,featured_event')
     .in('id', bizIds)
 
   const { data: svcRows } = await supabase

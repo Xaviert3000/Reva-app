@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { normalizeWeekly, representativeRange } from '@/lib/data'
 
 export const dynamic = 'force-dynamic'
 
@@ -33,6 +34,18 @@ export async function POST(req: NextRequest) {
   // Horarios y capacidad. `hours` es "HH:MM – HH:MM"; define cuándo el negocio
   // acepta reservas Y pedidos (business-data / orders/checkout lo respetan).
   if (typeof body.hours === 'string' && body.hours.trim()) patch.hours = body.hours.trim()
+  // Horario semanal (por día). Si viene válido se guarda en hours_json y se deriva
+  // un rango representativo al string legado `hours` para lo que aún lo lee.
+  if (body.hours_json !== undefined) {
+    const weekly = normalizeWeekly(body.hours_json)
+    if (weekly) {
+      patch.hours_json = weekly
+      const rep = representativeRange(weekly)
+      if (rep) patch.hours = rep
+    } else if (body.hours_json === null) {
+      patch.hours_json = null
+    }
+  }
   if (body.capacity !== undefined) { const n = Math.floor(Number(body.capacity)); if (Number.isFinite(n) && n >= 0) patch.capacity = n }
   if (body.agent_config !== undefined) patch.agent_config = body.agent_config
   if (typeof body.tax_mode === 'string') patch.tax_mode = body.tax_mode
