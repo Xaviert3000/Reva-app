@@ -473,27 +473,27 @@ function WeeklyHoursEditor({ value, onChange }: { value: WeeklyHours; onChange: 
     if (!first) return
     onChange(value.map(() => ({ open: first.open, close: first.close })))
   }
-  const timeStyle: CSSProperties = { border: `1px solid ${R.line}`, borderRadius: 9, padding: '7px 9px', fontSize: 13.5, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.surface, colorScheme: 'light' }
+  const timeStyle: CSSProperties = { flex: 1, minWidth: 0, boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 9, padding: '7px 8px', fontSize: 13, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.surface, colorScheme: 'light' }
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       {WEEK_DISPLAY.map(({ dow, es, en: eng }) => {
         const d = value[dow]
         const on = !!d
         return (
-          <div key={dow} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', border: `1px solid ${on ? R.coral : R.line}`, borderRadius: 12, background: on ? R.coralTint : R.surface }}>
-            <span style={{ width: 84, fontSize: 13.5, fontWeight: 600, color: R.ink, flexShrink: 0 }}>{t(es, eng)}</span>
+          <div key={dow} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 10px', border: `1px solid ${on ? R.coral : R.line}`, borderRadius: 12, background: on ? R.coralTint : R.surface, minWidth: 0 }}>
+            <span style={{ width: 76, fontSize: 13, fontWeight: 600, color: R.ink, flexShrink: 0 }}>{t(es, eng)}</span>
             <button type="button" onClick={() => setDay(dow, on ? null : { open: '09:00', close: '18:00' })}
-              style={{ flexShrink: 0, padding: '5px 12px', borderRadius: 999, border: 'none', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 12, background: on ? R.coral : R.line, color: on ? '#fff' : R.inkSoft }}>
+              style={{ flexShrink: 0, padding: '5px 10px', borderRadius: 999, border: 'none', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 12, background: on ? R.coral : R.line, color: on ? '#fff' : R.inkSoft }}>
               {on ? t('Abierto', 'Open') : t('Cerrado', 'Closed')}
             </button>
             {on ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 5, flex: 1, minWidth: 0 }}>
                 <input type="time" value={d!.open} onChange={e => setDay(dow, { open: e.target.value, close: d!.close })} style={timeStyle} />
-                <span style={{ color: R.inkFaint }}>–</span>
+                <span style={{ color: R.inkFaint, flexShrink: 0 }}>–</span>
                 <input type="time" value={d!.close} onChange={e => setDay(dow, { open: d!.open, close: e.target.value })} style={timeStyle} />
               </div>
             ) : (
-              <span style={{ marginLeft: 'auto', fontSize: 13, color: R.inkFaint }}>{t('Cerrado', 'Closed')}</span>
+              <span style={{ flex: 1, minWidth: 0, textAlign: 'right', fontSize: 13, color: R.inkFaint }}>{t('Cerrado', 'Closed')}</span>
             )}
           </div>
         )
