@@ -6097,16 +6097,26 @@ function OrdersSettingsCard({ vert, stripeReady, onSaved }: { vert: Vert; stripe
   const [fee, setFee] = useState(String(vert.caps.fee || ''))
   const [saving, setSaving] = useState(false)
   const [savedMsg, setSavedMsg] = useState(false)
+  const [errMsg, setErrMsg] = useState('')
 
   async function saveCaps() {
-    setSaving(true); setSavedMsg(false)
+    setSaving(true); setSavedMsg(false); setErrMsg('')
     try {
-      await fetch('/api/biz/settings', {
+      const res = await fetch('/api/biz/settings', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ biz_id: vert.id, does_reservations: reservations, does_orders: orders, pickup_enabled: pickup, delivery_enabled: delivery, delivery_fee: Number(fee) || 0 }),
       })
+      // Antes se tragaba cualquier fallo y marcaba "Guardado", así que un error del
+      // servidor dejaba el toggle revertido sin explicación. Ahora se surface.
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        setErrMsg(d.error || `Error ${res.status}`)
+        return
+      }
       setSavedMsg(true); onSaved()
-    } catch { /* ignora */ } finally { setSaving(false) }
+    } catch (e) {
+      setErrMsg((e as Error).message || t('Sin conexión.', 'No connection.'))
+    } finally { setSaving(false) }
   }
 
   const inputStyle: CSSProperties = { width: '100%', boxSizing: 'border-box', border: `1px solid ${R.line}`, borderRadius: 10, padding: '10px 12px', fontSize: 14, color: R.ink, outline: 'none', fontFamily: R.ui, background: R.bg }
@@ -6171,6 +6181,7 @@ function OrdersSettingsCard({ vert, stripeReady, onSaved }: { vert: Vert; stripe
           {saving ? t('Guardando…', 'Saving…') : t('Guardar', 'Save')}
         </button>
         {savedMsg && <span style={{ fontSize: 13, color: R.jade, fontWeight: 600 }}>{t('Guardado', 'Saved')} ✓</span>}
+        {errMsg && <span style={{ fontSize: 13, color: R.coralPress, fontWeight: 600 }}>{errMsg}</span>}
       </div>
 
       {/* Los repartidores se registran en Empleados (rol Repartidor). */}
