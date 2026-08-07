@@ -235,6 +235,9 @@ interface PanelReservation {
   notes: string | null
   status: string
   guest_name?: string
+  duration_min?: number | null
+  resource_id?: string | null
+  resource_name?: string | null
 }
 
 // Solicitud entrante (reserva pendiente) que pinta RequestsView.
@@ -325,11 +328,11 @@ function reservationsToAgenda(rsvs: PanelReservation[]): AgItem[] {
     .map(r => ({
       iso: r.slot as string,
       time: rsvTime(r.slot),
-      durationMin: 60,
+      durationMin: r.duration_min ?? 60,
       who: r.guest_name || 'Cliente',
       party: r.party ?? 1,
       tag: tagOfStatus(r.status),
-      resource: '',
+      resource: r.resource_name || '',
       note: r.notes || '',
     }))
 }
@@ -1441,7 +1444,7 @@ function AgendaView({ vert, dayAgenda }: { vert: Vert; dayAgenda: AgItem[] }) {
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '11px 14px', borderTop: sel.service ? `1px solid ${R.lineSoft}` : 'none' }}><span style={{ fontSize: 13, color: R.inkSoft }}>{t('Hora', 'Time')}</span><span style={{ fontSize: 13.5, fontWeight: 600, color: R.ink }}>{sel.time}</span></div>
               {!!sel.durationMin && <div style={{ display: 'flex', justifyContent: 'space-between', padding: '11px 14px', borderTop: `1px solid ${R.lineSoft}` }}><span style={{ fontSize: 13, color: R.inkSoft }}>{t('Termina', 'Ends')}</span><span style={{ fontSize: 13.5, fontWeight: 600, color: R.ink }}>{endTime(sel.time, sel.durationMin)} · {sel.durationMin} min</span></div>}
               {!!sel.party && <div style={{ display: 'flex', justifyContent: 'space-between', padding: '11px 14px', borderTop: `1px solid ${R.lineSoft}` }}><span style={{ fontSize: 13, color: R.inkSoft }}>{t('Personas', 'People')}</span><span style={{ fontSize: 13.5, fontWeight: 600, color: R.ink }}>{sel.party}</span></div>}
-              {sel.resource && <div style={{ display: 'flex', justifyContent: 'space-between', padding: '11px 14px', borderTop: `1px solid ${R.lineSoft}` }}><span style={{ fontSize: 13, color: R.inkSoft }}>{t('Zona', 'Zone')}</span><span style={{ fontSize: 13.5, fontWeight: 600, color: R.ink }}>{sel.resource}</span></div>}
+              {sel.resource && <div style={{ display: 'flex', justifyContent: 'space-between', padding: '11px 14px', borderTop: `1px solid ${R.lineSoft}` }}><span style={{ fontSize: 13, color: R.inkSoft }}>{t('Profesional', 'Professional')}</span><span style={{ fontSize: 13.5, fontWeight: 600, color: R.ink }}>{sel.resource}</span></div>}
               {sel.note && <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, padding: '11px 14px', borderTop: `1px solid ${R.lineSoft}` }}><span style={{ fontSize: 13, color: R.inkSoft }}>{t('Nota', 'Note')}</span><span style={{ fontSize: 13.5, fontWeight: 600, color: R.ink, textAlign: 'right' }}>{sel.note}</span></div>}
             </div>
             {sel.idx !== null ? (
@@ -2157,7 +2160,18 @@ function CatalogView({ vert, items, setItems }: { vert: Vert; items: CatItem[]; 
   const en = useEn()
   const [editing, setEditing] = useState<number | 'new' | null>(null)
   const [vOpen, vClose] = splitHours(vert.hours)
-  const [form, setForm] = useState({ name: '', sub: '', price: '', category: '', active: true, img: '', duration: '', scheduled: true, days: ALL_DAYS, open: vOpen, close: vClose, trackStock: false, stock: '', variants: [] as VariantGroup[] })
+  const [form, setForm] = useState({ name: '', sub: '', price: '', category: '', active: true, img: '', duration: '', scheduled: true, days: ALL_DAYS, open: vOpen, close: vClose, trackStock: false, stock: '', variants: [] as VariantGroup[], resourceIds: [] as string[] })
+  // Profesionales/recursos del negocio (para elegir quién realiza cada servicio).
+  // Con 0-1 recurso no se muestra el selector (negocio de un solo profesional).
+  const [bizResources, setBizResources] = useState<{ id: string; name: string; active: boolean }[]>([])
+  useEffect(() => {
+    let cancelled = false
+    fetch(`/api/biz/resources?biz_id=${encodeURIComponent(vert.id)}`)
+      .then(r => r.ok ? r.json() : { resources: [] })
+      .then(d => { if (!cancelled) setBizResources((d.resources ?? []).filter((r: { active: boolean }) => r.active)) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [vert.id])
   // Archivo de imagen recién elegido (aún sin subir). `form.img` guarda una vista
   // previa (data URL) para mostrarla al instante; el archivo real se sube a
   // Storage al guardar. null = no se cambió la imagen en esta edición.
@@ -2210,7 +2224,7 @@ function CatalogView({ vert, items, setItems }: { vert: Vert; items: CatItem[]; 
     (!q || (c.name + ' ' + c.sub + ' ' + (c.category ?? '')).toLowerCase().includes(q)))
 
   function openNew() {
-    setForm({ name: '', sub: '', price: '', category: '', active: true, img: '', duration: '', scheduled: true, days: ALL_DAYS, open: vOpen, close: vClose, trackStock: false, stock: '', variants: [] })
+    setForm({ name: '', sub: '', price: '', category: '', active: true, img: '', duration: '', scheduled: true, days: ALL_DAYS, open: vOpen, close: vClose, trackStock: false, stock: '', variants: [], resourceIds: [] })
     setImgFile(null)
     setEditing('new')
   }
@@ -2219,9 +2233,16 @@ function CatalogView({ vert, items, setItems }: { vert: Vert; items: CatItem[]; 
     const [o, cl] = splitHours(c.hours || vert.hours)
     // Clona las variantes para editarlas sin mutar el estado del catálogo.
     const variants: VariantGroup[] = (c.variants ?? []).map(g => ({ name: g.name, options: g.options.map(op => ({ ...op })) }))
-    setForm({ name: c.name, sub: c.sub, price: c.price, category: c.category ?? '', active: c.active, img: c.img ?? '', duration: c.duration ? String(c.duration) : '', scheduled: c.scheduled !== false, days: c.days ?? ALL_DAYS, open: o, close: cl, trackStock: typeof c.stock === 'number', stock: typeof c.stock === 'number' ? String(c.stock) : '', variants })
+    setForm({ name: c.name, sub: c.sub, price: c.price, category: c.category ?? '', active: c.active, img: c.img ?? '', duration: c.duration ? String(c.duration) : '', scheduled: c.scheduled !== false, days: c.days ?? ALL_DAYS, open: o, close: cl, trackStock: typeof c.stock === 'number', stock: typeof c.stock === 'number' ? String(c.stock) : '', variants, resourceIds: [] })
     setImgFile(null)
     setEditing(i)
+    // Carga qué profesionales realizan este servicio (mapeo actual).
+    if (c.id) {
+      fetch(`/api/biz/service-resources?service_id=${c.id}`)
+        .then(r => r.ok ? r.json() : { resource_ids: [] })
+        .then(d => setForm(f => ({ ...f, resourceIds: d.resource_ids ?? [] })))
+        .catch(() => {})
+    }
   }
   // ── Edición de variantes del producto (grupos + opciones con extra de precio) ──
   const setVariants = (next: VariantGroup[]) => setForm(f => ({ ...f, variants: next }))
@@ -2296,15 +2317,30 @@ function CatalogView({ vert, items, setItems }: { vert: Vert; items: CatItem[]; 
       variants,
     }
 
+    // Persiste el mapeo servicio→profesionales (vacío = cualquiera). Sólo para
+    // servicios agendables; los productos no se asignan a un recurso.
+    const saveResourceMap = async (serviceId?: string | null) => {
+      if (!serviceId || !form.scheduled) return
+      try {
+        await fetch('/api/biz/service-resources', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ service_id: serviceId, resource_ids: form.resourceIds }),
+        })
+      } catch { /* no bloquea el guardado del servicio */ }
+    }
+
     if (editing === 'new') {
       const grad = CATALOG_GRADS[items.length % CATALOG_GRADS.length]
       const newId = await saveService(vert.id, undefined, svcInput)
+      await saveResourceMap(newId)
       setItems(prev => [...prev, { id: newId ?? undefined, name: form.name.trim(), sub: form.sub.trim(), price: form.price.trim() || 'Sin precio', category: form.category.trim() || undefined, grad, active: form.active, img: localImg, duration, scheduled, days, hours, stock, i18n, variants }])
     } else if (typeof editing === 'number') {
       const existing = items[editing]
       // Si esta imagen reemplaza a otra de Storage, borra la anterior (best-effort).
       if (existing?.img && existing.img !== storedImg && existing.img.includes('/service-images/')) void removeServiceImage(existing.img)
       await saveService(vert.id, existing?.id, svcInput)
+      await saveResourceMap(existing?.id)
       setItems(prev => prev.map((c, idx) => idx === editing ? { ...c, name: form.name.trim(), sub: form.sub.trim(), price: form.price.trim() || 'Sin precio', category: form.category.trim() || undefined, active: form.active, img: localImg, duration, scheduled, days, hours, stock, i18n, variants } : c))
     }
     setSaving(false)
@@ -2486,6 +2522,26 @@ function CatalogView({ vert, items, setItems }: { vert: Vert; items: CatItem[]; 
                   </div>
                   <div style={{ fontSize: 11, color: R.inkFaint, marginTop: 8 }}>{en ? `By default, the business hours (${summarizeWeekly(vert.weekly, true) || vert.hours}). Change it only for this service.` : `Por defecto, el horario del negocio (${summarizeWeekly(vert.weekly) || vert.hours}). Cámbialo solo para este servicio.`}</div>
                 </div>
+                {/* Profesionales que realizan este servicio. Sólo si hay 2+ recursos
+                    (un solo profesional no necesita elegir). Vacío = cualquiera. */}
+                {bizResources.length > 1 && (
+                  <div style={{ padding: '12px 14px', border: `1px solid ${R.line}`, borderRadius: 12, background: R.surface }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 700, color: R.inkSoft, marginBottom: 4 }}>{t('¿Quién lo realiza?', 'Who performs it?')}</div>
+                    <div style={{ fontSize: 11, color: R.inkFaint, marginBottom: 10 }}>{t('Sin selección = cualquier profesional disponible.', 'None selected = any available professional.')}</div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                      {bizResources.map(r => {
+                        const on = form.resourceIds.includes(r.id)
+                        return (
+                          <button key={r.id} type="button"
+                            onClick={() => setForm(f => ({ ...f, resourceIds: on ? f.resourceIds.filter(x => x !== r.id) : [...f.resourceIds, r.id] }))}
+                            style={{ padding: '8px 14px', borderRadius: 999, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: R.ui, border: on ? `1.5px solid ${R.coral}` : `1px solid ${R.line}`, background: on ? R.coralTint : '#fff', color: on ? R.coralPress : R.ink }}>
+                            {r.name}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
               </>)}
               <input value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} placeholder={t('Categoría (ej. Bebidas, Mesas)', 'Category (e.g. Drinks, Tables)')} style={fieldStyle} />
               {knownCats.length > 0 && (
@@ -5598,6 +5654,83 @@ function ModulePicker({ value, onChange, en }: { value: string[]; onChange: (nex
   )
 }
 
+// Gestor de Profesionales / recursos agendables (dentistas, sillones…). Cada uno
+// es una línea de tiempo independiente contra la que se reservan los servicios;
+// así dos citas del mismo profesional no se solapan. Un negocio de un solo
+// profesional ya tiene su recurso "Principal" por defecto (migración 056) y puede
+// ignorar esto. Con varios, aquí se dan de alta y en el catálogo se elige quién
+// realiza cada servicio.
+interface ResourceRow { id: string; name: string; kind: string; active: boolean; hours_json: unknown; sort_order: number | null }
+function ResourcesManager({ bizId, en }: { bizId: string; en: boolean }) {
+  const t = (es: string, e: string) => (en ? e : es)
+  const [list, setList] = useState<ResourceRow[] | null>(null)
+  const [name, setName] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+
+  const load = useCallback(() => {
+    fetch(`/api/biz/resources?biz_id=${encodeURIComponent(bizId)}`)
+      .then(r => r.ok ? r.json() : { resources: [] })
+      .then(d => setList(d.resources ?? []))
+      .catch(() => setList([]))
+  }, [bizId])
+  useEffect(() => { load() }, [load])
+
+  async function add() {
+    const n = name.trim()
+    if (!n || busy) return
+    setBusy(true); setErr('')
+    try {
+      const res = await fetch('/api/biz/resources', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ biz_id: bizId, name: n, sort_order: (list?.length ?? 0) }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error || 'Error')
+      setName(''); load()
+    } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
+  }
+  async function patch(id: string, fields: Partial<ResourceRow>) {
+    setList(prev => prev?.map(r => r.id === id ? { ...r, ...fields } : r) ?? null) // optimista
+    await fetch('/api/biz/resources', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, ...fields }) }).catch(() => load())
+  }
+  async function del(id: string) {
+    if (!confirm(t('¿Eliminar este profesional? Sus reservas quedan sin asignar.', 'Delete this professional? Its bookings become unassigned.'))) return
+    setList(prev => prev?.filter(r => r.id !== id) ?? null)
+    await fetch(`/api/biz/resources?id=${id}`, { method: 'DELETE' }).catch(() => load())
+  }
+
+  return (
+    <div style={{ background: R.surface, border: `1px solid ${R.line}`, borderRadius: 16, padding: 18, marginBottom: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+        <span style={{ fontFamily: R.display, fontWeight: 700, fontSize: 15, color: R.ink }}>{t('Profesionales', 'Professionals')}</span>
+      </div>
+      <p style={{ fontSize: 12.5, color: R.inkSoft, marginBottom: 14 }}>{t('Cada profesional (o sillón) es una agenda propia. Los servicios se reservan contra ellos y no se traslapan. Con uno solo, no necesitas configurar nada.', 'Each professional (or chair) is its own calendar. Services book against them and never overlap. With just one, no setup needed.')}</p>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14 }}>
+        {(list ?? []).map(r => (
+          <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', border: `1px solid ${R.line}`, borderRadius: 12, background: '#fff' }}>
+            <input value={r.name} onChange={e => setList(prev => prev?.map(x => x.id === r.id ? { ...x, name: e.target.value } : x) ?? null)} onBlur={e => patch(r.id, { name: e.target.value.trim() || r.name })}
+              style={{ flex: 1, border: 'none', outline: 'none', fontFamily: R.ui, fontSize: 14, fontWeight: 600, color: R.ink, background: 'transparent' }} />
+            <button onClick={() => patch(r.id, { active: !r.active })} title={r.active ? t('Activo', 'Active') : t('Inactivo', 'Inactive')}
+              style={{ fontSize: 11.5, fontWeight: 700, color: r.active ? R.jade : R.inkFaint, background: r.active ? R.jadeTint : R.line, border: 'none', borderRadius: 999, padding: '4px 10px', cursor: 'pointer', fontFamily: R.ui }}>
+              {r.active ? t('Activo', 'Active') : t('Inactivo', 'Off')}
+            </button>
+            <button onClick={() => del(r.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: R.inkFaint, fontSize: 18, lineHeight: 1 }}>×</button>
+          </div>
+        ))}
+        {list && list.length === 0 && <p style={{ fontSize: 12.5, color: R.inkFaint }}>{t('Aún no hay profesionales.', 'No professionals yet.')}</p>}
+      </div>
+
+      <div style={{ display: 'flex', gap: 8 }}>
+        <input value={name} onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') add() }} placeholder={t('Nombre del profesional (ej. Dra. López)', 'Professional name (e.g. Dr. López)')}
+          style={{ flex: 1, padding: '10px 12px', border: `1px solid ${R.line}`, borderRadius: 10, fontFamily: R.ui, fontSize: 14, color: R.ink, background: '#fff' }} />
+        <button onClick={add} disabled={busy || !name.trim()} style={{ padding: '10px 18px', borderRadius: 10, border: 'none', background: name.trim() ? R.coral : R.line, color: '#fff', fontWeight: 700, fontSize: 14, cursor: name.trim() ? 'pointer' : 'default', fontFamily: R.ui }}>{t('Agregar', 'Add')}</button>
+      </div>
+      {err && <p style={{ fontSize: 12, color: R.coralPress, marginTop: 8 }}>{err}</p>}
+    </div>
+  )
+}
+
 // Panel real de Empleados: lista miembros/invitaciones desde /api/biz/team e
 // invita con rol + permisos por módulo. Solo lo renderiza el dueño/admin.
 function TeamManager({ bizId, en }: { bizId: string; en: boolean }) {
@@ -6241,6 +6374,9 @@ function SettingsView({ agentCfg, setAgentCfg, taxMode, setTaxMode, bizInfo, set
 
       {/* ── Empleados ─── (solo dueño/admin gestionan el equipo) ─── */}
       {canManageTeam(role) && <TeamManager bizId={SHARED_BIZ_ID[vert.id] ?? vert.id} en={en} />}
+
+      {/* ── Profesionales / recursos agendables ─── (negocios con reservas) ─── */}
+      {canManageTeam(role) && vert.caps.reservations && <ResourcesManager bizId={SHARED_BIZ_ID[vert.id] ?? vert.id} en={en} />}
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {rows.map(row => (

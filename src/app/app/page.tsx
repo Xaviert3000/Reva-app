@@ -13,6 +13,7 @@ import QRCode from 'qrcode'
 import { type Mode, type Business, type Service, BIZ, CATALOG, CITIES, STATES_DATA, COPY, slotsFromHours, summarizeWeekly, upcomingDays, slotAvailability, isScheduled, isOpenNow, inStock, tracksStock, dayOffered, findService, localSearch, servicesForSearch, activeAlert, findMunicipio, featuredBadge } from '@/lib/data'
 import { type VariantOption, usableGroups, hasVariants, variantDelta, variantLabel, defaultSelection } from '@/lib/variants'
 import { fetchCityData, type CityData } from '@/lib/business-data'
+import type { DayAvailability } from '@/lib/availability'
 import { BIZ_CATEGORIES_INIT } from '@/lib/bizcategories-config'
 import { createClient } from '@/lib/supabase/client'
 import { promoWindowLabel } from '@/lib/promotions'
@@ -1514,16 +1515,40 @@ function Booking({ biz, mode, service, onClose, onConfirm }: { biz: Business; mo
   const dayHours = service?.hours
     || (biz.weekly && biz.weekly.length === 7 ? (biz.weekly[selectedDow] ? `${biz.weekly[selectedDow]!.open} – ${biz.weekly[selectedDow]!.close}` : '') : biz.hours)
   const closedThisDay = !service?.hours && !bizOpenOnDow(selectedDow)
+  // Does this service use a calendar (date + time)? Products/quotes don't.
+  const scheduled = isScheduled(service)
+  // ── Disponibilidad REAL (server) para servicios persistidos ────────────────
+  // Un servicio con id uuid consulta /api/availability, que cruza las reservas
+  // existentes contra los recursos (dentistas) que lo realizan. Los servicios
+  // demo (id slug) caen a la generación local + agenda demo.
+  const realService = scheduled && !!service?.id && /^[0-9a-f-]{36}$/i.test(service.id)
+  const [dayAvail, setDayAvail] = useState<DayAvailability | null>(null)
+  const [availErr, setAvailErr] = useState<string | null>(null)
+  const [availNonce, setAvailNonce] = useState(0)
+  useEffect(() => {
+    if (!realService) { setDayAvail(null); return }
+    const iso = days[dayIdx]?.iso
+    if (!iso) return
+    let cancelled = false
+    setDayAvail(null)
+    fetch(`/api/availability?biz_id=${encodeURIComponent(biz.id)}&service_id=${service!.id}&date=${iso}`)
+      .then(r => r.json())
+      .then(d => { if (!cancelled) setDayAvail(d.day ?? null) })
+      .catch(() => { if (!cancelled) setDayAvail(null) })
+    return () => { cancelled = true }
+  }, [realService, biz.id, service?.id, dayIdx, availNonce]) // eslint-disable-line react-hooks/exhaustive-deps
   // Time slots: when the chosen service has a duration, generate them from that
   // day's hours; else fall back to curated. Cerrado ese día → sin slots.
   const genSlots = !closedThisDay && service?.duration ? slotsFromHours(dayHours, service.duration) : []
-  const slots = closedThisDay ? [] : (genSlots.length ? genSlots : biz.slots)
-  // Cross-reference the business agenda to mark already-booked times for the
-  // selected day. Timed services use overlap; tables use exact-time match.
-  const avail = slotAvailability(biz.id, dayIdx, slots, service?.duration)
+  const fallbackSlots = closedThisDay ? [] : (genSlots.length ? genSlots : biz.slots)
+  // Con disponibilidad real, esa es la fuente de verdad (times + libres). Si no,
+  // se cruza la agenda demo para marcar horarios ocupados.
+  const avail: { time: string; taken: boolean }[] = dayAvail
+    ? dayAvail.slots.map(s => ({ time: s.time, taken: s.free <= 0 }))
+    : slotAvailability(biz.id, dayIdx, fallbackSlots, service?.duration)
   const freeCount = avail.filter(a => !a.taken).length
-  // Does this service use a calendar (date + time)? Products/quotes don't.
-  const scheduled = isScheduled(service)
+  // Recurso sugerido para el horario elegido (lo manda al crear la reserva).
+  const chosenResourceId = dayAvail?.slots.find(s => s.time === slot)?.resourceId ?? null
   // Con inventario agotado no se puede confirmar la solicitud.
   const available = inStock(service)
   const canConfirm = available && (!scheduled || !!slot)
@@ -1542,18 +1567,28 @@ function Booking({ biz, mode, service, onClose, onConfirm }: { biz: Business; mo
     try {
       const isUuid = !!service?.id && /^[0-9a-f-]{36}$/i.test(service.id)
       const slotIso = scheduled && slot ? `${days[dayIdx].iso}T${slot}:00` : null
-      await fetch('/api/reservations', {
+      const res = await fetch('/api/reservations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           biz_id: biz.id,
           service_id: isUuid ? service!.id : null,
           slot: slotIso,
+          resource_id: chosenResourceId,
           party,
           notes: service?.name ?? null,
           deposit_amount: 0,
         }),
       })
+      // 409 = alguien tomó el horario en la carrera. Vuelve a elegir con la
+      // disponibilidad refrescada, sin mostrar el falso "¡Reservado!".
+      if (res.status === 409) {
+        setAvailErr(en ? 'That time was just taken — pick another.' : 'Ese horario se acaba de ocupar — elige otro.')
+        setSlot('')
+        setAvailNonce(n => n + 1) // refetch de disponibilidad
+        setStep('select')
+        return
+      }
     } catch { /* la confirmación local sigue mostrándose */ }
     setStep('success')
     setTimeout(() => onConfirm({ biz, date: scheduled ? days[dayIdx].label : '', time: scheduled ? slot : '', party, service }), 2500)
@@ -1614,7 +1649,7 @@ function Booking({ biz, mode, service, onClose, onConfirm }: { biz: Business; mo
               {days.map((d, i) => {
                 const off = !dayBookable(d.dow)
                 return (
-                  <button key={d.iso} disabled={off} onClick={() => { setDayIdx(i); setSlot('') }}
+                  <button key={d.iso} disabled={off} onClick={() => { setDayIdx(i); setSlot(''); setAvailErr(null) }}
                     style={{ flex: 1, padding: '10px 4px', borderRadius: 13, cursor: off ? 'not-allowed' : 'pointer', fontFamily: 'var(--font-ui)', fontWeight: 600, fontSize: 13, border: dayIdx === i ? '1.5px solid #E8505B' : '1px solid #E9E0D5', background: off ? '#F1EADF' : (dayIdx === i ? '#FCE9E7' : '#fff'), color: off ? '#C8BFB8' : (dayIdx === i ? '#D23B47' : '#221C19'), textDecoration: off ? 'line-through' : 'none' }}>
                     {d.label}
                   </button>
@@ -1631,6 +1666,9 @@ function Booking({ biz, mode, service, onClose, onConfirm }: { biz: Business; mo
                 {freeCount} {en ? (freeCount === 1 ? 'free' : 'free') : (freeCount === 1 ? 'libre' : 'libres')}
               </span>
             </div>
+            {availErr && (
+              <div style={{ marginBottom: 12, padding: '11px 14px', background: '#FCE9E7', borderRadius: 13, fontSize: 13, color: '#D23B47' }}>{availErr}</div>
+            )}
             {freeCount === 0 ? (
               <div style={{ marginBottom: 18, padding: '14px 16px', background: '#FBEFD7', borderRadius: 13, fontSize: 13, color: '#9A6C1C' }}>
                 {closedThisDay
@@ -1640,7 +1678,7 @@ function Booking({ biz, mode, service, onClose, onConfirm }: { biz: Business; mo
             ) : (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 18 }}>
                 {avail.map(({ time, taken }) => (
-                  <button key={time} disabled={taken} onClick={() => setSlot(time)}
+                  <button key={time} disabled={taken} onClick={() => { setSlot(time); setAvailErr(null) }}
                     style={{ padding: '10px 18px', borderRadius: 13, fontSize: 14, fontWeight: 600, cursor: taken ? 'not-allowed' : 'pointer', fontFamily: 'var(--font-ui)', border: slot === time ? '1.5px solid #E8505B' : '1px solid #E9E0D5', background: taken ? '#F1EADF' : (slot === time ? '#FCE9E7' : '#fff'), color: taken ? '#C8BFB8' : (slot === time ? '#D23B47' : '#221C19'), textDecoration: taken ? 'line-through' : 'none' }}>
                     {time}
                   </button>

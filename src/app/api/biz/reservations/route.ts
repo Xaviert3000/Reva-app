@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
   const admin = createAdminClient()
   const { data: rows, error } = await admin
     .from('reservations')
-    .select('id,biz_id,user_id,service_id,slot,party,notes,status,deposit_paid,created_at')
+    .select('id,biz_id,user_id,service_id,slot,party,notes,status,deposit_paid,created_at,resource_id,duration_min')
     .in('biz_id', targetIds)
     .order('slot', { ascending: true, nullsFirst: false })
 
@@ -47,9 +47,18 @@ export async function GET(req: NextRequest) {
     for (const p of profs ?? []) names[p.id as string] = (p.full_name as string) || ''
   }
 
+  // Nombre del profesional/recurso asignado (para mostrarlo en la agenda).
+  const resourceIds = [...new Set((rows ?? []).map(r => r.resource_id).filter(Boolean))] as string[]
+  const resNames: Record<string, string> = {}
+  if (resourceIds.length > 0) {
+    const { data: res } = await admin.from('resources').select('id,name').in('id', resourceIds)
+    for (const r of res ?? []) resNames[r.id as string] = (r.name as string) || ''
+  }
+
   const reservations = (rows ?? []).map(r => ({
     ...r,
     guest_name: r.user_id ? (names[r.user_id] || 'Cliente') : 'Cliente',
+    resource_name: r.resource_id ? (resNames[r.resource_id as string] || null) : null,
   }))
 
   return NextResponse.json({ reservations })
