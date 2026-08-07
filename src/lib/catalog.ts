@@ -74,6 +74,8 @@ export interface ServiceInput {
   category: string | null // agrupación libre del catálogo (ej. "Bebidas"); null = "General"
   duration_min: number | null
   scheduled: boolean
+  days: number[] | null // weekdays offered (0=Sun..6=Sat); null = every day
+  hours: string | null // "HH:MM – HH:MM" service window; null = business hours
   active: boolean
   image_url: string | null
   stock: number | null

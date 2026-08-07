@@ -44,6 +44,8 @@ interface DbService {
   price_label: string | null
   category: string | null
   duration_min: number | null
+  days: number[] | null
+  hours: string | null
   stock: number | null
   scheduled: boolean | null
   image_url: string | null
@@ -93,6 +95,10 @@ function mapService(s: DbService, grad: [string, string]): Service {
     category: s.category || 'General',
     grad,
     duration: s.duration_min ?? undefined,
+    // Disponibilidad propia del servicio: días (0=Dom..6=Sáb) y horario
+    // "HH:MM – HH:MM". Ausentes = usa los días/horas del negocio.
+    days: s.days ?? undefined,
+    hours: s.hours ?? undefined,
     // false en la BD = producto/cotización sin calendario de reservas.
     scheduled: s.scheduled ?? undefined,
     // null en la BD = disponibilidad ilimitada (sin seguimiento de inventario).
@@ -226,7 +232,7 @@ export async function fetchCityData(municipio: string): Promise<CityData> {
   const [{ data: svcRows }, { data: revRows }, { data: alertRows }, { data: offerRows }, { data: catRows }] = await Promise.all([
     supabase
       .from('services')
-      .select('id,biz_id,name,description,price,price_label,category,duration_min,stock,scheduled,image_url,variants')
+      .select('id,biz_id,name,description,price,price_label,category,duration_min,days,hours,stock,scheduled,image_url,variants')
       .in('biz_id', ids)
       .eq('active', true),
     supabase

@@ -185,6 +185,8 @@ function vertFromBusiness(b: OwnerBusiness): Vert {
       // Usa el flag persistido; para filas antiguas cae a inferirlo por la duración.
       scheduled: s.scheduled != null ? s.scheduled : s.duration_min != null,
       duration: s.duration_min ?? undefined,
+      days: s.days ?? undefined,
+      hours: s.hours ?? undefined,
       img: s.image_url ?? undefined,
       i18n: s.i18n ?? undefined,
       variants: s.variants ?? undefined,
@@ -2285,6 +2287,8 @@ function CatalogView({ vert, items, setItems }: { vert: Vert; items: CatItem[]; 
       category: form.category.trim() || null,
       duration_min: duration ?? null,
       scheduled: form.scheduled,
+      days: days ?? null,
+      hours: hours ?? null,
       active: form.active,
       image_url: storedImg,
       stock: stock ?? null,
