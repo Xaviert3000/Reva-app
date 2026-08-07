@@ -1363,6 +1363,22 @@ function AgendaView({ vert, dayAgenda }: { vert: Vert; dayAgenda: AgItem[] }) {
   const [sel, setSel] = useState<SelRes | null>(null)
   const [query, setQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState('Todas')
+  // Profesionales activos del negocio → carriles por profesional en la vista Día.
+  const [proNames, setProNames] = useState<string[]>([])
+  const [dayView, setDayView] = useState<'list' | 'lanes'>('list')
+  useEffect(() => {
+    let cancelled = false
+    fetch(`/api/biz/resources?biz_id=${encodeURIComponent(SHARED_BIZ_ID[vert.id] ?? vert.id)}`)
+      .then(r => r.ok ? r.json() : { resources: [] })
+      .then(d => {
+        if (cancelled) return
+        const names = (d.resources ?? []).filter((x: { active: boolean }) => x.active).map((x: { name: string }) => x.name)
+        setProNames(names)
+        setDayView(names.length >= 2 ? 'lanes' : 'list') // por defecto carriles con 2+
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [vert.id])
   const modes: [typeof mode, string][] = [['dia', t('Día', 'Day')], ['semana', t('Semana', 'Week')], ['mes', t('Mes', 'Month')]]
   const now = new Date()
   const wkStart = startOfWeekMon(now)
@@ -1421,10 +1437,20 @@ function AgendaView({ vert, dayAgenda }: { vert: Vert; dayAgenda: AgItem[] }) {
               return <button key={s} onClick={() => setStatusFilter(s)} style={{ padding: '8px 14px', borderRadius: 999, border: `1px solid ${on ? R.coral : R.line}`, background: on ? R.coralTint : R.surface, color: on ? R.coralPress : R.inkSoft, fontFamily: R.ui, fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>{s === 'Todas' ? ALL : t(s, TAG_EN[s] ?? s)}</button>
             })}
           </div>
+          {/* Lista vs carriles por profesional (solo con 2+ profesionales). */}
+          {proNames.length >= 2 && (
+            <div style={{ display: 'flex', gap: 4, background: R.bgAlt, borderRadius: 999, padding: 4, marginLeft: 'auto' }}>
+              {([['list', t('Lista', 'List')], ['lanes', t('Profesionales', 'By professional')]] as [typeof dayView, string][]).map(([id, label]) => (
+                <button key={id} onClick={() => setDayView(id)} style={{ padding: '7px 14px', borderRadius: 999, border: 'none', cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 13, background: dayView === id ? R.surface : 'transparent', color: dayView === id ? R.ink : R.inkSoft, boxShadow: dayView === id ? '0 1px 3px rgba(0,0,0,.08)' : 'none' }}>{label}</button>
+              ))}
+            </div>
+          )}
         </div>
       )}
       <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
-        {mode === 'dia' && <DayAgenda rows={rows} unit={vert.unit} empty={query.trim() || statusFilter !== 'Todas' ? t('No hay reservas que coincidan con tu búsqueda.', 'No bookings match your search.') : t('No tienes reservas para hoy.', 'You have no bookings for today.')} onSelect={(a, i) => setSel({ ...a, idx: i })} />}
+        {mode === 'dia' && (dayView === 'lanes' && proNames.length >= 2
+          ? <LanesAgenda rows={rows} proNames={proNames} unit={vert.unit} onSelect={(a, i) => setSel({ ...a, idx: i })} />
+          : <DayAgenda rows={rows} unit={vert.unit} empty={query.trim() || statusFilter !== 'Todas' ? t('No hay reservas que coincidan con tu búsqueda.', 'No bookings match your search.') : t('No tienes reservas para hoy.', 'You have no bookings for today.')} onSelect={(a, i) => setSel({ ...a, idx: i })} />)}
         {mode === 'semana' && <WeekAgenda agenda={agenda} now={now} onSelect={setSel} />}
         {mode === 'mes' && <MonthAgenda agenda={agenda} now={now} />}
       </div>
@@ -1495,6 +1521,58 @@ function DayAgenda({ rows, unit, empty, onSelect }: { rows: { a: AgItem; idx: nu
         </div>
       )}
     </BCard>
+  )
+}
+
+// Vista Día en carriles: una columna por profesional (más una "Sin asignar")
+// con sus reservas del día apiladas por hora. Reusa el detalle vía onSelect.
+function LanesAgenda({ rows, proNames, unit, onSelect }: { rows: { a: AgItem; idx: number }[]; proNames: string[]; unit: string; onSelect: (a: AgItem, i: number) => void }) {
+  const t = useT()
+  // Carriles: uno por profesional; los que no casan con ningún profesional van a
+  // "Sin asignar" (sólo si hay alguno).
+  const assigned = new Set(proNames)
+  const unassigned = rows.filter(({ a }) => !a.resource || !assigned.has(a.resource))
+  const lanes: { name: string; label: string; items: { a: AgItem; idx: number }[] }[] = [
+    ...proNames.map(name => ({ name, label: name, items: rows.filter(({ a }) => a.resource === name) })),
+    ...(unassigned.length ? [{ name: '__none__', label: t('Sin asignar', 'Unassigned'), items: unassigned }] : []),
+  ]
+  return (
+    <div style={{ display: 'flex', gap: 12, overflowX: 'auto', paddingBottom: 8, alignItems: 'flex-start' }}>
+      {lanes.map(lane => (
+        <div key={lane.name} style={{ flex: '0 0 260px', maxWidth: 320, background: R.surface, border: `1px solid ${R.line}`, borderRadius: 16, padding: 12, boxSizing: 'border-box' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, padding: '2px 4px' }}>
+            <span style={{ fontFamily: R.display, fontWeight: 700, fontSize: 14.5, color: R.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{lane.label}</span>
+            <span style={{ fontSize: 12, fontWeight: 700, color: R.inkSoft, background: R.bgAlt, borderRadius: 999, padding: '2px 9px', flexShrink: 0 }}>{lane.items.length}</span>
+          </div>
+          {lane.items.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '20px 0', color: R.inkFaint, fontSize: 12.5 }}>{t('Libre', 'Free')}</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {lane.items.map(({ a, idx }) => {
+                const [tc, tb] = TAG_COLORS[a.tag] ?? [R.inkSoft, R.bgAlt]
+                return (
+                  <div key={idx} onClick={() => onSelect(a, idx)} style={{ display: 'flex', gap: 10, padding: '10px 11px', borderRadius: 12, cursor: 'pointer', background: '#fff', border: `1px solid ${R.line}` }}>
+                    <div style={{ width: 3, alignSelf: 'stretch', borderRadius: 4, background: tc, flexShrink: 0 }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}>
+                        <span style={{ fontFamily: R.display, fontWeight: 700, fontSize: 14, color: R.ink }}>{a.time}</span>
+                        {a.durationMin ? <span style={{ fontSize: 11, fontWeight: 600, color: R.inkFaint }}>{endTime(a.time, a.durationMin)}</span> : null}
+                      </div>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: R.ink, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.who}</div>
+                      {a.service && <div style={{ fontSize: 12, color: R.inkSoft, marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.service}</div>}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
+                        <span style={{ fontSize: 10.5, fontWeight: 700, color: tc, background: tb, padding: '3px 8px', borderRadius: 999 }}>{t(a.tag, TAG_EN[a.tag] ?? a.tag)}</span>
+                        {!!a.party && <span style={{ fontSize: 11.5, color: R.inkSoft }}>{a.party} {unit}</span>}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
   )
 }
 
