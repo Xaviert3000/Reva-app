@@ -5667,6 +5667,11 @@ function ResourcesManager({ bizId, en }: { bizId: string; en: boolean }) {
   const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
+  // Editor de horario del profesional expandido: id abierto + borrador semanal
+  // (null = hereda el horario del negocio).
+  const [hoursOpen, setHoursOpen] = useState<string | null>(null)
+  const [draftHours, setDraftHours] = useState<WeeklyHours | null>(null)
+  const [savingHours, setSavingHours] = useState(false)
 
   const load = useCallback(() => {
     fetch(`/api/biz/resources?biz_id=${encodeURIComponent(bizId)}`)
@@ -5698,6 +5703,19 @@ function ResourcesManager({ bizId, en }: { bizId: string; en: boolean }) {
     setList(prev => prev?.filter(r => r.id !== id) ?? null)
     await fetch(`/api/biz/resources?id=${id}`, { method: 'DELETE' }).catch(() => load())
   }
+  // Abre/cierra el editor de horario de un profesional. draftHours = null → hereda
+  // el horario del negocio; array → horario propio.
+  function toggleHours(r: ResourceRow) {
+    if (hoursOpen === r.id) { setHoursOpen(null); return }
+    setHoursOpen(r.id)
+    setDraftHours(normalizeWeekly(r.hours_json))
+  }
+  async function saveHours(id: string) {
+    setSavingHours(true)
+    await patch(id, { hours_json: draftHours })
+    setSavingHours(false)
+    setHoursOpen(null)
+  }
 
   return (
     <div style={{ background: R.surface, border: `1px solid ${R.line}`, borderRadius: 16, padding: 18, marginBottom: 16 }}>
@@ -5707,17 +5725,45 @@ function ResourcesManager({ bizId, en }: { bizId: string; en: boolean }) {
       <p style={{ fontSize: 12.5, color: R.inkSoft, marginBottom: 14 }}>{t('Cada profesional (o sillón) es una agenda propia. Los servicios se reservan contra ellos y no se traslapan. Con uno solo, no necesitas configurar nada.', 'Each professional (or chair) is its own calendar. Services book against them and never overlap. With just one, no setup needed.')}</p>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14 }}>
-        {(list ?? []).map(r => (
-          <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', border: `1px solid ${R.line}`, borderRadius: 12, background: '#fff' }}>
-            <input value={r.name} onChange={e => setList(prev => prev?.map(x => x.id === r.id ? { ...x, name: e.target.value } : x) ?? null)} onBlur={e => patch(r.id, { name: e.target.value.trim() || r.name })}
-              style={{ flex: 1, border: 'none', outline: 'none', fontFamily: R.ui, fontSize: 14, fontWeight: 600, color: R.ink, background: 'transparent' }} />
-            <button onClick={() => patch(r.id, { active: !r.active })} title={r.active ? t('Activo', 'Active') : t('Inactivo', 'Inactive')}
-              style={{ fontSize: 11.5, fontWeight: 700, color: r.active ? R.jade : R.inkFaint, background: r.active ? R.jadeTint : R.line, border: 'none', borderRadius: 999, padding: '4px 10px', cursor: 'pointer', fontFamily: R.ui }}>
-              {r.active ? t('Activo', 'Active') : t('Inactivo', 'Off')}
-            </button>
-            <button onClick={() => del(r.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: R.inkFaint, fontSize: 18, lineHeight: 1 }}>×</button>
+        {(list ?? []).map(r => {
+          const ownHours = normalizeWeekly(r.hours_json)
+          const isOpen = hoursOpen === r.id
+          return (
+          <div key={r.id} style={{ border: `1px solid ${isOpen ? R.coral : R.line}`, borderRadius: 12, background: '#fff', overflow: 'hidden' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px' }}>
+              <input value={r.name} onChange={e => setList(prev => prev?.map(x => x.id === r.id ? { ...x, name: e.target.value } : x) ?? null)} onBlur={e => patch(r.id, { name: e.target.value.trim() || r.name })}
+                style={{ flex: 1, border: 'none', outline: 'none', fontFamily: R.ui, fontSize: 14, fontWeight: 600, color: R.ink, background: 'transparent' }} />
+              <button onClick={() => toggleHours(r)} title={t('Horario', 'Hours')}
+                style={{ fontSize: 11.5, fontWeight: 700, color: ownHours ? R.coralPress : R.inkSoft, background: ownHours ? R.coralTint : R.surface, border: `1px solid ${ownHours ? R.coral : R.line}`, borderRadius: 999, padding: '4px 10px', cursor: 'pointer', fontFamily: R.ui }}>
+                {ownHours ? t('Horario propio', 'Own hours') : t('Horario', 'Hours')}
+              </button>
+              <button onClick={() => patch(r.id, { active: !r.active })} title={r.active ? t('Activo', 'Active') : t('Inactivo', 'Inactive')}
+                style={{ fontSize: 11.5, fontWeight: 700, color: r.active ? R.jade : R.inkFaint, background: r.active ? R.jadeTint : R.line, border: 'none', borderRadius: 999, padding: '4px 10px', cursor: 'pointer', fontFamily: R.ui }}>
+                {r.active ? t('Activo', 'Active') : t('Inactivo', 'Off')}
+              </button>
+              <button onClick={() => del(r.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: R.inkFaint, fontSize: 18, lineHeight: 1 }}>×</button>
+            </div>
+            {isOpen && (
+              <div style={{ borderTop: `1px solid ${R.line}`, padding: '12px', background: R.surface }}>
+                {/* Elegir: heredar el horario del negocio o poner uno propio. */}
+                <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+                  <button onClick={() => setDraftHours(null)} style={{ flex: 1, padding: '8px 10px', borderRadius: 10, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 12.5, border: draftHours === null ? `1.5px solid ${R.coral}` : `1px solid ${R.line}`, background: draftHours === null ? R.coralTint : '#fff', color: draftHours === null ? R.coralPress : R.ink }}>
+                    {t('Igual que el negocio', 'Same as business')}
+                  </button>
+                  <button onClick={() => setDraftHours(draftHours ?? defaultWeekly())} style={{ flex: 1, padding: '8px 10px', borderRadius: 10, cursor: 'pointer', fontFamily: R.ui, fontWeight: 700, fontSize: 12.5, border: draftHours !== null ? `1.5px solid ${R.coral}` : `1px solid ${R.line}`, background: draftHours !== null ? R.coralTint : '#fff', color: draftHours !== null ? R.coralPress : R.ink }}>
+                    {t('Horario propio', 'Own hours')}
+                  </button>
+                </div>
+                {draftHours !== null && <WeeklyHoursEditor value={draftHours} onChange={setDraftHours} />}
+                <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                  <button onClick={() => saveHours(r.id)} disabled={savingHours} style={{ padding: '9px 18px', borderRadius: 10, border: 'none', background: R.coral, color: '#fff', fontWeight: 700, fontSize: 13.5, cursor: 'pointer', fontFamily: R.ui }}>{savingHours ? t('Guardando…', 'Saving…') : t('Guardar horario', 'Save hours')}</button>
+                  <button onClick={() => setHoursOpen(null)} style={{ padding: '9px 14px', borderRadius: 10, border: `1px solid ${R.line}`, background: '#fff', color: R.inkSoft, fontWeight: 600, fontSize: 13.5, cursor: 'pointer', fontFamily: R.ui }}>{t('Cancelar', 'Cancel')}</button>
+                </div>
+              </div>
+            )}
           </div>
-        ))}
+          )
+        })}
         {list && list.length === 0 && <p style={{ fontSize: 12.5, color: R.inkFaint }}>{t('Aún no hay profesionales.', 'No professionals yet.')}</p>}
       </div>
 
