@@ -235,6 +235,19 @@ function Stars({ rating }: { rating: number }) {
   )
 }
 
+// Etiqueta "Nuevo" para negocios que todavía no tienen reseñas: evita mostrar
+// estrellas y un promedio inventado en un negocio recién dado de alta.
+function NewPill({ onDark = false, en = false }: { onDark?: boolean; en?: boolean }) {
+  return (
+    <span style={{
+      fontSize: 10.5, fontWeight: 800, letterSpacing: 0.2,
+      color: onDark ? '#fff' : '#1F8A6D',
+      background: onDark ? 'rgba(0,0,0,.32)' : '#DDF0E8',
+      padding: '3px 8px', borderRadius: 999, whiteSpace: 'nowrap',
+    }}>{en ? 'New' : 'Nuevo'}</span>
+  )
+}
+
 // ── Onboarding ─────────────────────────────────────────────
 function Onboarding({ onDone }: { onDone: (homeState: string | null, homeCity: string | null, currentCity: string | null) => void }) {
   const [step, setStep] = useState(0)
@@ -559,8 +572,17 @@ function OptionCard({ biz, mode, onOpen, onBook }: { biz: Business; mode: Mode; 
       <div style={{ height: 90, background: `linear-gradient(135deg,${biz.grad[0]},${biz.grad[1]})`, position: 'relative', display: 'flex', alignItems: 'flex-end', padding: '12px 14px' }}>
         <span style={{ position: 'absolute', right: -4, bottom: -10, fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 80, opacity: .18, color: '#fff', lineHeight: 1 }}>{biz.mono}</span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-          <Stars rating={biz.rating} />
-          <span style={{ fontSize: 12, color: 'rgba(255,255,255,.85)', fontWeight: 600 }}>{biz.rating} · {biz.type}</span>
+          {biz.reviews.length > 0 ? (
+            <>
+              <Stars rating={biz.rating} />
+              <span style={{ fontSize: 12, color: 'rgba(255,255,255,.85)', fontWeight: 600 }}>{biz.rating} · {biz.type}</span>
+            </>
+          ) : (
+            <>
+              <NewPill onDark en={en} />
+              <span style={{ fontSize: 12, color: 'rgba(255,255,255,.85)', fontWeight: 600 }}>{biz.type}</span>
+            </>
+          )}
         </div>
       </div>
       <div style={{ padding: '14px 14px 10px' }}>
@@ -966,7 +988,7 @@ function MiniCard({ biz, mode, onOpen }: { biz: Business; mode: Mode; onOpen: ()
     <div onClick={onOpen} style={{ width: 188, flexShrink: 0, cursor: 'pointer', background: '#fff', border: '1px solid #E9E0D5', borderRadius: 18, overflow: 'hidden', boxShadow: '0 2px 10px rgba(34,28,25,.06)' }}>
       <div style={{ height: 112, background: biz.img ? `center/cover no-repeat url(${biz.img})` : `linear-gradient(135deg,${biz.grad[0]},${biz.grad[1]})`, position: 'relative', display: 'flex', alignItems: 'flex-end', padding: '10px 12px' }}>
         {!biz.img && <span style={{ position: 'absolute', right: -2, bottom: -8, fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 72, opacity: .18, color: '#fff', lineHeight: 1 }}>{biz.mono}</span>}
-        <Stars rating={biz.rating} />
+        {biz.reviews.length > 0 ? <Stars rating={biz.rating} /> : <NewPill onDark en={en} />}
       </div>
       <div style={{ padding: '11px 13px 13px' }}>
         <div style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 15, color: '#221C19', lineHeight: 1.15, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{biz.name}</div>
@@ -982,6 +1004,7 @@ function MiniCard({ biz, mode, onOpen }: { biz: Business; mode: Mode; onOpen: ()
 // Tarjeta de la franja de Destacados (tier 'destacado'): igual que MiniCard pero
 // con su etiqueta ✦ visible, honesta sobre que es un espacio pagado.
 function DestacadoCard({ biz, onOpen }: { biz: Business; onOpen: () => void }) {
+  const en = useContext(LangContext) === 'en'
   const badge = featuredBadge(biz)
   return (
     <div onClick={onOpen} style={{ width: 188, flexShrink: 0, cursor: 'pointer', background: '#fff', border: '1px solid #E9E0D5', borderRadius: 18, overflow: 'hidden', boxShadow: '0 2px 10px rgba(34,28,25,.06)' }}>
@@ -990,7 +1013,7 @@ function DestacadoCard({ biz, onOpen }: { biz: Business; onOpen: () => void }) {
         {badge && (
           <span style={{ position: 'absolute', top: 10, left: 10, background: 'rgba(27,36,54,.85)', color: '#fff', fontSize: 10, fontWeight: 700, letterSpacing: '.05em', textTransform: 'uppercase', padding: '4px 9px', borderRadius: 999 }}>{badge.icon} {badge.label}</span>
         )}
-        <Stars rating={biz.rating} />
+        {biz.reviews.length > 0 ? <Stars rating={biz.rating} /> : <NewPill onDark en={en} />}
       </div>
       <div style={{ padding: '11px 13px 13px' }}>
         <div style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 15, color: '#221C19', lineHeight: 1.15, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{biz.name}</div>
@@ -1034,7 +1057,7 @@ function HeroFeatured({ biz, mode, onOpen }: { biz: Business; mode: Mode; onOpen
       ) })()}
       <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: 18, paddingTop: 50, background: 'linear-gradient(transparent,rgba(20,14,12,.82))', color: '#fff' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-          <Stars rating={biz.rating} />
+          {biz.reviews.length > 0 ? <Stars rating={biz.rating} /> : <NewPill onDark en={en} />}
           <span style={{ fontSize: 12.5, opacity: .9 }}>{biz.type}</span>
           <OpenBadge biz={biz} onDark />
         </div>
@@ -1255,7 +1278,7 @@ function BizDetail({ biz, mode, onClose, onBook, onOpenCart, onMessage }: { biz:
                 <Icon n="pin" size={14} color="#A89E94" /> {biz.hood} · {biz.dist} km
               </div>
             </div>
-            <Stars rating={biz.rating} />
+            {biz.reviews.length > 0 ? <Stars rating={biz.rating} /> : <NewPill en={en} />}
           </div>
 
           <div style={{ display: 'flex', gap: 8, marginTop: 14, flexWrap: 'wrap' }}>

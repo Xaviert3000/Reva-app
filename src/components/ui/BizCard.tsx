@@ -58,9 +58,15 @@ export function BizCard({ biz, mode, onOpen, onBook, compact }: BizCardProps) {
       <div className="p-3.5">
         <div className="flex items-start justify-between gap-2 mb-1">
           <p className="font-bold text-[14.5px] text-ink leading-tight line-clamp-1" style={{ fontFamily: 'var(--font-display)' }}>{biz.name}</p>
-          <span className="text-[12.5px] font-semibold text-ink-soft flex items-center gap-1 shrink-0">
-            ★ <span className="text-ink">{biz.rating}</span>
-          </span>
+          {biz.reviews.length > 0 ? (
+            <span className="text-[12.5px] font-semibold text-ink-soft flex items-center gap-1 shrink-0">
+              ★ <span className="text-ink">{biz.rating}</span>
+            </span>
+          ) : (
+            <span className="text-[10.5px] font-extrabold text-[#1F8A6D] bg-[#DDF0E8] px-2 py-0.5 rounded-full shrink-0">
+              {en ? 'New' : 'Nuevo'}
+            </span>
+          )}
         </div>
 
         <div className="flex items-center gap-2 text-[12px] text-ink-soft mb-2">
